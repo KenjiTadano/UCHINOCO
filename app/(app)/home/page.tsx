@@ -1,0 +1,150 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { logout } from "../../(auth)/actions";
+import { createClient } from "@/lib/supabase/server";
+
+type HomePageProps = {
+  searchParams: Promise<{ error?: string }>;
+};
+
+const SPECIES_LABELS: Record<string, string> = {
+  dog: "犬",
+  cat: "猫",
+};
+
+const GENDER_LABELS: Record<string, string> = {
+  male: "男の子",
+  female: "女の子",
+  unknown: "不明",
+};
+
+function formatDate(value: string) {
+  const [year, month, day] = value.split("-");
+  return `${Number(year)}年${Number(month)}月${Number(day)}日`;
+}
+
+export default async function HomePage({ searchParams }: HomePageProps) {
+  const { error: actionError } = await searchParams;
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    redirect("/login");
+  }
+
+  const [profileResult, petsResult] = await Promise.all([
+    supabase.from("profiles").select("display_name").eq("id", user.id).single(),
+    supabase
+      .from("pets")
+      .select("id, name, species, breed, gender, birthday, adoption_date, created_at")
+      .eq("owner_user_id", user.id)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true }),
+  ]);
+
+  const { data: profile, error: profileError } = profileResult;
+  const { data: pets, error: petsError } = petsResult;
+
+  return (
+    <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center gap-6 px-6 py-12">
+      <header>
+        <h1 className="text-3xl font-semibold">UCHINOCO</h1>
+        <p className="mt-2 text-zinc-600">ログインしました</p>
+      </header>
+
+      {actionError ? (
+        <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+          {actionError}
+        </p>
+      ) : null}
+
+      <dl className="grid gap-3 rounded border border-zinc-200 p-4">
+        <div>
+          <dt className="text-sm text-zinc-500">メールアドレス</dt>
+          <dd>{user.email ?? "未設定"}</dd>
+        </div>
+        <div>
+          <dt className="text-sm text-zinc-500">表示名</dt>
+          <dd>
+            {profileError
+              ? "プロフィールを取得できませんでした"
+              : (profile?.display_name ?? "未設定")}
+          </dd>
+        </div>
+      </dl>
+
+      <section className="flex flex-col gap-4" aria-labelledby="pets-heading">
+        <div className="flex items-center justify-between gap-4">
+          <h2 id="pets-heading" className="text-xl font-semibold">
+            うちの子
+          </h2>
+          {pets && pets.length > 0 ? (
+            <Link className="rounded border border-zinc-300 px-3 py-2 text-sm" href="/pets/new">
+              ペットを追加
+            </Link>
+          ) : null}
+        </div>
+
+        {petsError ? (
+          <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+            ペット情報を取得できませんでした。
+          </p>
+        ) : pets && pets.length > 0 ? (
+          <ul className="grid gap-4">
+            {pets.map((pet) => (
+              <li key={pet.id} className="rounded border border-zinc-200 p-4">
+                <h3 className="text-lg font-semibold">{pet.name}</h3>
+                <dl className="mt-3 grid gap-2 text-sm">
+                  <div className="flex gap-2">
+                    <dt className="text-zinc-500">種類</dt>
+                    <dd>{SPECIES_LABELS[pet.species] ?? "不明"}</dd>
+                  </div>
+                  {pet.breed ? (
+                    <div className="flex gap-2">
+                      <dt className="text-zinc-500">犬種・猫種</dt>
+                      <dd>{pet.breed}</dd>
+                    </div>
+                  ) : null}
+                  {pet.gender ? (
+                    <div className="flex gap-2">
+                      <dt className="text-zinc-500">性別</dt>
+                      <dd>{GENDER_LABELS[pet.gender] ?? "不明"}</dd>
+                    </div>
+                  ) : null}
+                  {pet.birthday ? (
+                    <div className="flex gap-2">
+                      <dt className="text-zinc-500">誕生日</dt>
+                      <dd>{formatDate(pet.birthday)}</dd>
+                    </div>
+                  ) : null}
+                  {pet.adoption_date ? (
+                    <div className="flex gap-2">
+                      <dt className="text-zinc-500">お迎えした日</dt>
+                      <dd>{formatDate(pet.adoption_date)}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="rounded border border-dashed border-zinc-300 p-6 text-center">
+            <p>まだうちの子が登録されていません</p>
+            <Link className="mt-4 inline-block rounded bg-zinc-900 px-4 py-2 text-white" href="/pets/new">
+              うちの子を登録する
+            </Link>
+          </div>
+        )}
+      </section>
+
+      <form action={logout}>
+        <button className="rounded border border-zinc-300 px-4 py-2" type="submit">
+          ログアウト
+        </button>
+      </form>
+    </main>
+  );
+}
