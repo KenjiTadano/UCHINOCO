@@ -1,10 +1,11 @@
+import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { logout } from "../../(auth)/actions";
 import { createClient } from "@/lib/supabase/server";
 
 type HomePageProps = {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; message?: string }>;
 };
 
 const SPECIES_LABELS: Record<string, string> = {
@@ -24,7 +25,7 @@ function formatDate(value: string) {
 }
 
 export default async function HomePage({ searchParams }: HomePageProps) {
-  const { error: actionError } = await searchParams;
+  const { error: actionError, message: actionMessage } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -39,7 +40,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     supabase.from("profiles").select("display_name").eq("id", user.id).single(),
     supabase
       .from("pets")
-      .select("id, name, species, breed, gender, birthday, adoption_date, created_at")
+      .select(
+        "id, name, species, breed, gender, birthday, adoption_date, avatar_url, created_at",
+      )
       .eq("owner_user_id", user.id)
       .order("created_at", { ascending: true })
       .order("id", { ascending: true }),
@@ -47,6 +50,22 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
   const { data: profile, error: profileError } = profileResult;
   const { data: pets, error: petsError } = petsResult;
+  const petsWithImages = await Promise.all(
+    (pets ?? []).map(async (pet) => {
+      if (!pet.avatar_url) {
+        return { ...pet, avatarSignedUrl: null };
+      }
+
+      const { data, error } = await supabase.storage
+        .from("pet-avatars")
+        .createSignedUrl(pet.avatar_url, 3600);
+
+      return {
+        ...pet,
+        avatarSignedUrl: error ? null : data.signedUrl,
+      };
+    }),
+  );
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center gap-6 px-6 py-12">
@@ -58,6 +77,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       {actionError ? (
         <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
           {actionError}
+        </p>
+      ) : null}
+      {actionMessage ? (
+        <p role="status" className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+          {actionMessage}
         </p>
       ) : null}
 
@@ -81,7 +105,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <h2 id="pets-heading" className="text-xl font-semibold">
             うちの子
           </h2>
-          {pets && pets.length > 0 ? (
+          {petsWithImages.length > 0 ? (
             <Link className="rounded border border-zinc-300 px-3 py-2 text-sm" href="/pets/new">
               ペットを追加
             </Link>
@@ -92,12 +116,30 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
             ペット情報を取得できませんでした。
           </p>
-        ) : pets && pets.length > 0 ? (
+        ) : petsWithImages.length > 0 ? (
           <ul className="grid gap-4">
-            {pets.map((pet) => (
-              <li key={pet.id} className="rounded border border-zinc-200 p-4">
-                <h3 className="text-lg font-semibold">{pet.name}</h3>
-                <dl className="mt-3 grid gap-2 text-sm">
+            {petsWithImages.map((pet) => (
+              <li key={pet.id} className="flex gap-4 rounded border border-zinc-200 p-4">
+                {pet.avatarSignedUrl ? (
+                  <Image
+                    className="size-24 shrink-0 rounded-full border border-zinc-200 object-cover"
+                    src={pet.avatarSignedUrl}
+                    alt={`${pet.name}のプロフィール写真`}
+                    width={96}
+                    height={96}
+                    unoptimized
+                  />
+                ) : (
+                  <div
+                    className="flex size-24 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-4xl"
+                    aria-label={`${pet.name}の画像は未設定です`}
+                  >
+                    {pet.species === "dog" ? "🐶" : "🐱"}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <h3 className="break-words text-lg font-semibold">{pet.name}</h3>
+                  <dl className="mt-3 grid gap-2 text-sm">
                   <div className="flex gap-2">
                     <dt className="text-zinc-500">種類</dt>
                     <dd>{SPECIES_LABELS[pet.species] ?? "不明"}</dd>
@@ -126,7 +168,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                       <dd>{formatDate(pet.adoption_date)}</dd>
                     </div>
                   ) : null}
-                </dl>
+                  </dl>
+                  <Link
+                    className="mt-4 inline-block text-sm underline"
+                    href={`/pets/${pet.id}`}
+                  >
+                    思い出を見る
+                  </Link>
+                </div>
               </li>
             ))}
           </ul>

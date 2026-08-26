@@ -1,10 +1,16 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { useActionState } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect, useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import {
   createPet,
+  discardPendingPet,
+  finalizePetAvatar,
   type CreatePetState,
+  type PetFieldName,
   type PetFormValues,
 } from "../actions";
 
@@ -23,9 +29,11 @@ const initialState: CreatePetState = {
   fieldErrors: {},
   values: initialValues,
   revision: 0,
+  upload: null,
 };
 
-const fieldOrder: (keyof PetFormValues)[] = [
+const fieldOrder: PetFieldName[] = [
+  "avatar",
   "name",
   "species",
   "breed",
@@ -34,17 +42,205 @@ const fieldOrder: (keyof PetFormValues)[] = [
   "adoption_date",
 ];
 
-export function PetForm() {
-  const [state, formAction, pending] = useActionState(createPet, initialState);
-  const firstError = fieldOrder.find((field) => state.fieldErrors[field]);
+const acceptedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const maxImageSize = 5 * 1024 * 1024;
+const uploadFailureMessage =
+  "プロフィール画像を保存できなかったため、ペットは登録されませんでした。もう一度お試しください。";
+
+type AvatarPickerProps = {
+  onFileChange: (file: File | null) => void;
+  error?: string;
+  autoFocus: boolean;
+};
+
+function AvatarPicker({
+  onFileChange,
+  error,
+  autoFocus,
+}: AvatarPickerProps) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [clientError, setClientError] = useState<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+
+  function clearPreview() {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+    setPreviewUrl(null);
+  }
+
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    clearPreview();
+    setClientError(null);
+
+    const file = event.target.files?.[0];
+    if (!file) {
+      onFileChange(null);
+      return;
+    }
+
+    if (!acceptedImageTypes.has(file.type)) {
+      setClientError("JPEG、PNG、WebP形式の画像を選択してください。");
+      event.target.value = "";
+      onFileChange(null);
+      return;
+    }
+
+    if (file.size <= 0 || file.size > maxImageSize) {
+      setClientError("画像は5MB以下の有効なファイルを選択してください。");
+      event.target.value = "";
+      onFileChange(null);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    previewUrlRef.current = objectUrl;
+    setPreviewUrl(objectUrl);
+    onFileChange(file);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+      }
+    };
+  }, []);
+
+  const displayedError = clientError ?? error;
 
   return (
-    <form key={state.revision} action={formAction} className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3 rounded border border-zinc-200 p-4">
+      <div className="flex items-center gap-2 text-sm">
+        <span>プロフィール写真</span>
+        <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">任意</span>
+      </div>
+
+      {previewUrl ? (
+        <Image
+          className="size-28 rounded-full border border-zinc-200 object-cover"
+          src={previewUrl}
+          alt="選択したプロフィール写真のプレビュー"
+          width={112}
+          height={112}
+          unoptimized
+        />
+      ) : (
+        <div className="flex size-28 items-center justify-center rounded-full bg-zinc-100 text-sm text-zinc-500">
+          プレビュー
+        </div>
+      )}
+
+      <input
+        className="block w-full text-sm"
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        onChange={handleFileChange}
+        aria-invalid={Boolean(displayedError)}
+        aria-describedby={displayedError ? "avatar-error" : "avatar-help"}
+        autoFocus={autoFocus}
+      />
+      <p id="avatar-help" className="text-xs text-zinc-500">
+        JPEG・PNG・WebP、5MBまで
+      </p>
+      {displayedError ? (
+        <p id="avatar-error" className="text-sm text-red-700">
+          {displayedError}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function PetForm() {
+  const router = useRouter();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadStartedForPet = useRef<string | null>(null);
+  const [state, formAction, pending] = useActionState(createPet, initialState);
+  const firstError = fieldOrder.find((field) => state.fieldErrors[field]);
+  const busy = pending || uploading;
+
+  useEffect(() => {
+    const upload = state.upload;
+    if (!state.success || !upload || uploadStartedForPet.current === upload.petId) {
+      return;
+    }
+
+    const pendingUpload = upload;
+    uploadStartedForPet.current = upload.petId;
+    setUploading(true);
+
+    void (async () => {
+      async function handleUploadFailure() {
+        await discardPendingPet(pendingUpload.petId, pendingUpload.storagePath);
+        router.replace(
+          `/home?${new URLSearchParams({
+            message: uploadFailureMessage,
+          }).toString()}`,
+        );
+      }
+
+      try {
+        if (!selectedFile) {
+          await handleUploadFailure();
+          return;
+        }
+
+        const supabase = createClient();
+        const { error: uploadError } = await supabase.storage
+          .from("pet-avatars")
+          .upload(pendingUpload.storagePath, selectedFile, {
+            contentType: selectedFile.type,
+            upsert: false,
+          });
+
+        if (uploadError) {
+          await handleUploadFailure();
+          return;
+        }
+
+        const result = await finalizePetAvatar(
+          pendingUpload.petId,
+          pendingUpload.storagePath,
+        );
+        router.replace(
+          result.success
+            ? "/home"
+            : `/home?${new URLSearchParams({
+                message: result.message ?? uploadFailureMessage,
+              }).toString()}`,
+        );
+        router.refresh();
+      } catch {
+        await handleUploadFailure();
+      }
+    })().finally(() => {
+      setUploading(false);
+    });
+  }, [router, selectedFile, state.success, state.upload]);
+
+  return (
+    <form action={formAction} className="flex flex-col gap-4">
+      <input type="hidden" name="has_avatar" value={selectedFile ? "true" : "false"} />
+      <input type="hidden" name="avatar_type" value={selectedFile?.type ?? ""} />
+      <input
+        type="hidden"
+        name="avatar_size"
+        value={selectedFile ? String(selectedFile.size) : ""}
+      />
       {state.message ? (
         <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
           {state.message}
         </p>
       ) : null}
+
+      <AvatarPicker
+        onFileChange={setSelectedFile}
+        error={state.fieldErrors.avatar}
+        autoFocus={firstError === "avatar"}
+      />
 
       <label className="flex flex-col gap-1 text-sm">
         <span className="flex items-center gap-2">
@@ -191,9 +387,9 @@ export function PetForm() {
       <button
         className="rounded bg-zinc-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60"
         type="submit"
-        disabled={pending}
+        disabled={busy}
       >
-        {pending ? "登録中..." : "登録する"}
+        {uploading ? "画像をアップロード中..." : pending ? "登録中..." : "登録する"}
       </button>
 
       <Link className="text-center text-sm underline" href="/home">

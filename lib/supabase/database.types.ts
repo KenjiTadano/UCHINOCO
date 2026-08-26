@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -18,7 +18,7 @@ export type Database = {
         Row: {
           adoption_date: string | null
           avatar_url: string | null
-          birthday: string | null
+          birthday: string
           breed: string | null
           created_at: string
           gender: string | null
@@ -31,7 +31,7 @@ export type Database = {
         Insert: {
           adoption_date?: string | null
           avatar_url?: string | null
-          birthday?: string | null
+          birthday: string
           breed?: string | null
           created_at?: string
           gender?: string | null
@@ -44,7 +44,7 @@ export type Database = {
         Update: {
           adoption_date?: string | null
           avatar_url?: string | null
-          birthday?: string | null
+          birthday?: string
           breed?: string | null
           created_at?: string
           gender?: string | null
@@ -58,6 +58,57 @@ export type Database = {
           {
             foreignKeyName: "pets_owner_user_id_fkey"
             columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      photos: {
+        Row: {
+          caption: string | null
+          created_at: string
+          favorite: boolean
+          id: string
+          pet_id: string
+          storage_path: string
+          taken_at: string | null
+          updated_at: string
+          uploader_user_id: string
+        }
+        Insert: {
+          caption?: string | null
+          created_at?: string
+          favorite?: boolean
+          id?: string
+          pet_id: string
+          storage_path: string
+          taken_at?: string | null
+          updated_at?: string
+          uploader_user_id: string
+        }
+        Update: {
+          caption?: string | null
+          created_at?: string
+          favorite?: boolean
+          id?: string
+          pet_id?: string
+          storage_path?: string
+          taken_at?: string | null
+          updated_at?: string
+          uploader_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "photos_pet_id_fkey"
+            columns: ["pet_id"]
+            isOneToOne: false
+            referencedRelation: "pets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "photos_uploader_user_id_fkey"
+            columns: ["uploader_user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -93,7 +144,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_owned_pet: { Args: { pet_id_text: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
