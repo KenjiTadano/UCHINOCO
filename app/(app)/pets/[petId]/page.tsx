@@ -1,7 +1,7 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { groupPhotosByTokyoDate } from "@/lib/photo-timeline";
 import { createClient } from "@/lib/supabase/server";
 
 type PetDetailPageProps = {
@@ -34,8 +34,7 @@ export default async function PetDetailPage({
     redirect("/login");
   }
 
-  const client = supabase as unknown as SupabaseClient;
-  const { data: pet, error: petError } = await client
+  const { data: pet, error: petError } = await supabase
     .from("pets")
     .select("id, owner_user_id, name, species, breed, birthday, avatar_url")
     .eq("id", petId)
@@ -46,11 +45,10 @@ export default async function PetDetailPage({
     notFound();
   }
 
-  const { data: photos, error: photosError } = await client
+  const { data: photos, error: photosError } = await supabase
     .from("photos")
     .select("id, storage_path, taken_at, created_at")
     .eq("pet_id", pet.id)
-    .order("taken_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
 
   const [avatarResult, photoUrlsResult] = await Promise.all([
@@ -71,6 +69,7 @@ export default async function PetDetailPage({
       .filter((item) => item.path && item.signedUrl && !item.error)
       .map((item) => [item.path as string, item.signedUrl as string]),
   );
+  const timeline = groupPhotosByTokyoDate(photos ?? []);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col gap-6 px-6 py-12">
@@ -143,33 +142,54 @@ export default async function PetDetailPage({
           <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
             思い出写真を取得できませんでした。
           </p>
-        ) : photos && photos.length > 0 ? (
-          <ul className="grid grid-cols-3 gap-1.5">
-            {photos.map((photo, index) => {
-              const signedUrl = signedUrlByPath.get(photo.storage_path);
-              return (
-                <li
-                  key={photo.id}
-                  className="relative aspect-square overflow-hidden rounded bg-zinc-100"
-                >
-                  {signedUrl ? (
-                    <Image
-                      className="size-full object-cover"
-                      src={signedUrl}
-                      alt={`${pet.name}の思い出写真${index + 1}`}
-                      fill
-                      sizes="(max-width: 640px) 33vw, 180px"
-                      unoptimized
-                    />
-                  ) : (
-                    <div className="flex size-full items-center justify-center text-xs text-zinc-500">
-                      表示できません
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+        ) : timeline.length > 0 ? (
+          <div className="flex flex-col gap-8">
+            {timeline.map((group) => (
+              <section key={group.dateKey} aria-labelledby={`date-${group.dateKey}`}>
+                <div className="mb-3 flex items-baseline justify-between gap-3">
+                  <h3 id={`date-${group.dateKey}`} className="font-semibold">
+                    {group.dateLabel}
+                  </h3>
+                  <p className="shrink-0 text-sm text-zinc-500">
+                    {group.photos.length}枚
+                  </p>
+                </div>
+
+                <ul className="grid grid-cols-3 gap-1.5">
+                  {group.photos.map((photo, index) => {
+                    const signedUrl = signedUrlByPath.get(photo.storage_path);
+                    return (
+                      <li
+                        key={photo.id}
+                        className="relative aspect-square overflow-hidden rounded bg-zinc-100"
+                      >
+                        {signedUrl ? (
+                          <Link
+                            className="block size-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+                            href={`/pets/${pet.id}/photos/${photo.id}`}
+                            aria-label={`${group.dateLabel}の思い出写真${index + 1}を詳しく見る`}
+                          >
+                            <Image
+                              className="size-full object-cover transition-opacity hover:opacity-85"
+                              src={signedUrl}
+                              alt={`${pet.name}の思い出写真${index + 1}`}
+                              fill
+                              sizes="(max-width: 640px) 33vw, 180px"
+                              unoptimized
+                            />
+                          </Link>
+                        ) : (
+                          <div className="flex size-full items-center justify-center text-xs text-zinc-500">
+                            表示できません
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))}
+          </div>
         ) : (
           <div className="rounded border border-dashed border-zinc-300 p-6 text-center">
             <p>まだ思い出がありません</p>
