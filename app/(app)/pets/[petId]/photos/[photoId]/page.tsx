@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { formatTokyoDateTime, photoTimestamp } from "@/lib/photo-timeline";
 import { createClient } from "@/lib/supabase/server";
 import { AiAnalysisButton } from "./ai-analysis-button";
+import { PhotoEditControls } from "./photo-edit-controls";
 
 export const maxDuration = 60;
 
@@ -129,8 +130,20 @@ export default async function PhotoDetailPage({
             <dt className="text-zinc-500">キャプション</dt>
             <dd className="mt-1 whitespace-pre-wrap break-words">{photo.caption}</dd>
           </div>
-        ) : null}
+        ) : (
+          <div>
+            <dt className="text-zinc-500">キャプション</dt>
+            <dd className="mt-1 text-zinc-500">未設定</dd>
+          </div>
+        )}
       </dl>
+
+      <PhotoEditControls
+        petId={pet.id}
+        photoId={photo.id}
+        caption={photo.caption}
+        favorite={photo.favorite}
+      />
 
       <section className="flex flex-col gap-4 rounded border border-zinc-200 p-4" aria-labelledby="ai-analysis-heading">
         <h2 id="ai-analysis-heading" className="text-lg font-semibold">

@@ -47,7 +47,7 @@ export default async function PetDetailPage({
 
   const { data: photos, error: photosError } = await supabase
     .from("photos")
-    .select("id, storage_path, taken_at, created_at")
+    .select("id, storage_path, taken_at, created_at, favorite")
     .eq("pet_id", pet.id)
     .order("created_at", { ascending: false });
 
@@ -185,6 +185,14 @@ export default async function PetDetailPage({
                               sizes="(max-width: 640px) 33vw, 180px"
                               unoptimized
                             />
+                            {photo.favorite ? (
+                              <span
+                                className="absolute right-1.5 top-1.5 rounded-full bg-black/65 px-1.5 py-0.5 text-sm text-amber-300"
+                                aria-label="お気に入り"
+                              >
+                                ★
+                              </span>
+                            ) : null}
                           </Link>
                         ) : (
                           <div className="flex size-full items-center justify-center text-xs text-zinc-500">

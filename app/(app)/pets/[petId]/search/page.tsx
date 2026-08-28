@@ -24,6 +24,7 @@ type SearchPhoto = {
   taken_at: string | null;
   created_at: string;
   caption: string | null;
+  favorite: boolean;
 };
 
 type SearchAnalysis = {
@@ -127,7 +128,9 @@ export default async function PetSearchPage({
           const { data: matchedPhotos, error: matchedPhotosError } =
             await supabase
               .from("photos")
-              .select("id, storage_path, taken_at, created_at, caption")
+              .select(
+                "id, storage_path, taken_at, created_at, caption, favorite",
+              )
               .eq("pet_id", pet.id)
               .in("id", Array.from(matchedPhotoIds));
 
@@ -258,14 +261,24 @@ export default async function PetSearchPage({
                   >
                     <div className="relative aspect-square bg-zinc-100">
                       {signedUrl ? (
-                        <Image
-                          className="object-cover"
-                          src={signedUrl}
-                          alt={`${pet.name}の検索結果の思い出写真`}
-                          fill
-                          sizes="(max-width: 640px) 100vw, 288px"
-                          unoptimized
-                        />
+                        <>
+                          <Image
+                            className="object-cover"
+                            src={signedUrl}
+                            alt={`${pet.name}の検索結果の思い出写真`}
+                            fill
+                            sizes="(max-width: 640px) 100vw, 288px"
+                            unoptimized
+                          />
+                          {photo.favorite ? (
+                            <span
+                              className="absolute right-2 top-2 rounded-full bg-black/65 px-2 py-1 text-sm text-amber-300"
+                              aria-label="お気に入り"
+                            >
+                              ★
+                            </span>
+                          ) : null}
+                        </>
                       ) : (
                         <div className="flex size-full items-center justify-center text-sm text-zinc-500">
                           表示できません

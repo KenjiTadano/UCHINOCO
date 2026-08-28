@@ -10,6 +10,11 @@ export type AnalyzePhotoState = {
   message: string | null;
 };
 
+export type PhotoMutationState = {
+  success: boolean;
+  message: string | null;
+};
+
 const PROMPT_VERSION = "photo-analysis-v1";
 const DEFAULT_VISION_MODEL = "gpt-4o";
 const MAX_AI_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -165,6 +170,200 @@ function hasExpectedImageSignature(mimeType: string, bytes: Uint8Array) {
 
 function errorState(message: string): AnalyzePhotoState {
   return { success: false, message };
+}
+
+function logPhotoMutationFailure(
+  stage: string,
+  error: { code?: string; message?: string } | null,
+  affectedRow: boolean,
+) {
+  console.error("Photo mutation failed", {
+    stage,
+    code: error?.code ?? null,
+    message: error?.message ?? null,
+    affected_row: affectedRow,
+  });
+}
+
+async function getOwnedPhotoContext(petId: string, photoId: string) {
+  if (!UUID_PATTERN.test(petId) || !UUID_PATTERN.test(photoId)) {
+    logPhotoMutationFailure("authorization_invalid_identifier", null, false);
+    return null;
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError || !user) {
+    logPhotoMutationFailure("authorization_get_user", userError, false);
+    return null;
+  }
+
+  const [petResult, photoResult] = await Promise.all([
+    supabase
+      .from("pets")
+      .select("id, owner_user_id")
+      .eq("id", petId)
+      .eq("owner_user_id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("photos")
+      .select("id, pet_id, favorite")
+      .eq("id", photoId)
+      .eq("pet_id", petId)
+      .maybeSingle(),
+  ]);
+  const pet = petResult.data;
+  const photo = photoResult.data;
+
+  if (petResult.error || !pet) {
+    logPhotoMutationFailure("authorization_pet_lookup", petResult.error, false);
+  }
+  if (photoResult.error || !photo) {
+    logPhotoMutationFailure(
+      "authorization_photo_lookup",
+      photoResult.error,
+      false,
+    );
+  }
+
+  if (
+    petResult.error ||
+    photoResult.error ||
+    !pet ||
+    !photo ||
+    pet.owner_user_id !== user.id ||
+    photo.pet_id !== pet.id
+  ) {
+    if (pet && photo && !petResult.error && !photoResult.error) {
+      logPhotoMutationFailure("authorization_ownership_check", null, false);
+    }
+    return null;
+  }
+
+  return { supabase, photo };
+}
+
+function revalidatePhotoPages(petId: string, photoId: string) {
+  revalidatePath(`/pets/${petId}`);
+  revalidatePath(`/pets/${petId}/photos/${photoId}`);
+  revalidatePath(`/pets/${petId}/search`);
+}
+
+export async function updatePhotoCaption(
+  petId: string,
+  photoId: string,
+  _previousState: PhotoMutationState,
+  formData: FormData,
+): Promise<PhotoMutationState> {
+  void _previousState;
+
+  const captionValue = formData.get("caption");
+  if (typeof captionValue !== "string") {
+    return { success: false, message: "キャプションを確認してください。" };
+  }
+
+  const caption = captionValue.trim();
+  if (caption.length > 500) {
+    return {
+      success: false,
+      message: "キャプションは500文字以内で入力してください。",
+    };
+  }
+
+  const context = await getOwnedPhotoContext(petId, photoId);
+  if (!context) {
+    logPhotoMutationFailure("caption_authorization", null, false);
+    return { success: false, message: "キャプションの更新に失敗しました。" };
+  }
+
+  const { error: updateError } = await context.supabase
+    .from("photos")
+    .update({ caption: caption || null })
+    .eq("id", context.photo.id)
+    .eq("pet_id", petId);
+
+  if (updateError) {
+    logPhotoMutationFailure("caption_update", updateError, false);
+    return { success: false, message: "キャプションの更新に失敗しました。" };
+  }
+
+  const { data: updatedPhoto, error: verifyError } = await context.supabase
+    .from("photos")
+    .select("id, caption")
+    .eq("id", context.photo.id)
+    .eq("pet_id", petId)
+    .maybeSingle();
+  const captionWasUpdated =
+    Boolean(updatedPhoto) && updatedPhoto?.caption === (caption || null);
+
+  if (verifyError || !captionWasUpdated) {
+    logPhotoMutationFailure(
+      "caption_verify",
+      verifyError,
+      captionWasUpdated,
+    );
+    return { success: false, message: "キャプションの更新に失敗しました。" };
+  }
+
+  revalidatePhotoPages(petId, photoId);
+  return { success: true, message: "キャプションを更新しました。" };
+}
+
+export async function togglePhotoFavorite(
+  petId: string,
+  photoId: string,
+  _previousState: PhotoMutationState,
+  _formData: FormData,
+): Promise<PhotoMutationState> {
+  void _previousState;
+  void _formData;
+
+  const context = await getOwnedPhotoContext(petId, photoId);
+  if (!context) {
+    logPhotoMutationFailure("favorite_authorization", null, false);
+    return { success: false, message: "お気に入りの更新に失敗しました。" };
+  }
+
+  const nextFavorite = !context.photo.favorite;
+  const { error: updateError } = await context.supabase
+    .from("photos")
+    .update({ favorite: nextFavorite })
+    .eq("id", context.photo.id)
+    .eq("pet_id", petId);
+
+  if (updateError) {
+    logPhotoMutationFailure("favorite_update", updateError, false);
+    return { success: false, message: "お気に入りの更新に失敗しました。" };
+  }
+
+  const { data: updatedPhoto, error: verifyError } = await context.supabase
+    .from("photos")
+    .select("id, favorite")
+    .eq("id", context.photo.id)
+    .eq("pet_id", petId)
+    .maybeSingle();
+  const favoriteWasUpdated =
+    Boolean(updatedPhoto) && updatedPhoto?.favorite === nextFavorite;
+
+  if (verifyError || !favoriteWasUpdated) {
+    logPhotoMutationFailure(
+      "favorite_verify",
+      verifyError,
+      favoriteWasUpdated,
+    );
+    return { success: false, message: "お気に入りの更新に失敗しました。" };
+  }
+
+  revalidatePhotoPages(petId, photoId);
+  return {
+    success: true,
+    message: nextFavorite
+      ? "お気に入りに追加しました。"
+      : "お気に入りから外しました。",
+  };
 }
 
 export async function analyzePhoto(
