@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { formatTokyoDateTime, photoTimestamp } from "@/lib/photo-timeline";
 import { createClient } from "@/lib/supabase/server";
 import { AiAnalysisButton } from "./ai-analysis-button";
+import { PhotoDeleteControl } from "./photo-delete-control";
 import { PhotoEditControls } from "./photo-edit-controls";
 
 export const maxDuration = 60;
@@ -108,7 +109,7 @@ export default async function PhotoDetailPage({
             alt={`${pet.name}の思い出写真`}
             fill
             sizes="(max-width: 640px) 100vw, 576px"
-            priority
+            loading="eager"
             unoptimized
           />
         </div>
@@ -215,6 +216,8 @@ export default async function PhotoDetailPage({
           </div>
         )}
       </section>
+
+      <PhotoDeleteControl petId={pet.id} photoId={photo.id} />
     </main>
   );
 }

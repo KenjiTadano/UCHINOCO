@@ -66,6 +66,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       };
     }),
   );
+  const eagerAvatarIndex = petsWithImages.findIndex(
+    (pet) => Boolean(pet.avatarSignedUrl),
+  );
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center gap-6 px-6 py-12">
@@ -118,7 +121,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </p>
         ) : petsWithImages.length > 0 ? (
           <ul className="grid gap-4">
-            {petsWithImages.map((pet) => (
+            {petsWithImages.map((pet, index) => (
               <li key={pet.id} className="flex gap-4 rounded border border-zinc-200 p-4">
                 {pet.avatarSignedUrl ? (
                   <Image
@@ -127,6 +130,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                     alt={`${pet.name}のプロフィール写真`}
                     width={96}
                     height={96}
+                    loading={index === eagerAvatarIndex ? "eager" : "lazy"}
                     unoptimized
                   />
                 ) : (

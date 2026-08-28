@@ -102,7 +102,7 @@ export default async function PetDetailPage({
           </div>
         )}
 
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="break-words text-2xl font-semibold">{pet.name}</h1>
           <dl className="mt-2 grid gap-1 text-sm">
             <div className="flex gap-2">
@@ -122,6 +122,12 @@ export default async function PetDetailPage({
               </div>
             ) : null}
           </dl>
+          <Link
+            className="mt-3 inline-block text-sm underline"
+            href={`/pets/${pet.id}/edit`}
+          >
+            プロフィールを編集
+          </Link>
         </div>
       </header>
 
@@ -173,7 +179,7 @@ export default async function PetDetailPage({
                       >
                         {signedUrl ? (
                           <Link
-                            className="block size-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+                            className="relative block size-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
                             href={`/pets/${pet.id}/photos/${photo.id}`}
                             aria-label={`${group.dateLabel}の思い出写真${index + 1}を詳しく見る`}
                           >

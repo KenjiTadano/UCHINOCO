@@ -3,6 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 export type AnalyzePhotoState = {
@@ -11,6 +12,11 @@ export type AnalyzePhotoState = {
 };
 
 export type PhotoMutationState = {
+  success: boolean;
+  message: string | null;
+};
+
+export type DeletePhotoState = {
   success: boolean;
   message: string | null;
 };
@@ -185,6 +191,31 @@ function logPhotoMutationFailure(
   });
 }
 
+function logPhotoDeletionFailure(
+  stage: string,
+  error: { code?: string; error?: string; message?: string } | null,
+  photoId: string,
+  storageDeleted: boolean,
+  databaseDeleted: boolean,
+) {
+  console.error("Photo deletion failed", {
+    stage,
+    code: error?.code ?? error?.error ?? null,
+    message: error?.message ?? null,
+    photo_id: photoId,
+    storage_deleted: storageDeleted,
+    database_deleted: databaseDeleted,
+  });
+}
+
+function isMissingStorageObject(error: {
+  code?: string;
+  error?: string;
+  message?: string;
+}) {
+  return error.code === "NoSuchKey" || error.error === "NoSuchKey";
+}
+
 async function getOwnedPhotoContext(petId: string, photoId: string) {
   if (!UUID_PATTERN.test(petId) || !UUID_PATTERN.test(photoId)) {
     logPhotoMutationFailure("authorization_invalid_identifier", null, false);
@@ -210,7 +241,7 @@ async function getOwnedPhotoContext(petId: string, photoId: string) {
       .maybeSingle(),
     supabase
       .from("photos")
-      .select("id, pet_id, favorite")
+      .select("id, pet_id, uploader_user_id, storage_path, favorite")
       .eq("id", photoId)
       .eq("pet_id", petId)
       .maybeSingle(),
@@ -243,7 +274,7 @@ async function getOwnedPhotoContext(petId: string, photoId: string) {
     return null;
   }
 
-  return { supabase, photo };
+  return { supabase, user, photo };
 }
 
 function revalidatePhotoPages(petId: string, photoId: string) {
@@ -364,6 +395,127 @@ export async function togglePhotoFavorite(
       ? "お気に入りに追加しました。"
       : "お気に入りから外しました。",
   };
+}
+
+export async function deletePhoto(
+  petId: string,
+  photoId: string,
+  _previousState: DeletePhotoState,
+  _formData: FormData,
+): Promise<DeletePhotoState> {
+  void _previousState;
+  void _formData;
+
+  const context = await getOwnedPhotoContext(petId, photoId);
+  if (!context) {
+    logPhotoDeletionFailure(
+      "authorization",
+      null,
+      photoId,
+      false,
+      false,
+    );
+    return { success: false, message: "写真の削除に失敗しました。もう一度お試しください。" };
+  }
+
+  const { supabase, user, photo } = context;
+  const pathParts = photo.storage_path.split("/");
+  const fileName = pathParts.at(-1);
+  const folder = pathParts.slice(0, -1).join("/");
+  const storagePathIsOwned =
+    photo.uploader_user_id === user.id &&
+    pathParts[0] === user.id &&
+    pathParts[1] === petId &&
+    Boolean(folder) &&
+    Boolean(fileName);
+
+  if (!storagePathIsOwned || !fileName) {
+    logPhotoDeletionFailure(
+      "storage_path_validation",
+      null,
+      photo.id,
+      false,
+      false,
+    );
+    return { success: false, message: "写真の削除に失敗しました。もう一度お試しください。" };
+  }
+
+  const { data: storedObjects, error: listError } = await supabase.storage
+    .from("pet-photos")
+    .list(folder, { limit: 2, search: fileName });
+  if (listError) {
+    logPhotoDeletionFailure(
+      "storage_lookup",
+      listError,
+      photo.id,
+      false,
+      false,
+    );
+    return { success: false, message: "写真の削除に失敗しました。もう一度お試しください。" };
+  }
+
+  const storageObjectExists = (storedObjects ?? []).some(
+    (object) => object.name === fileName,
+  );
+  let storageDeleted = !storageObjectExists;
+
+  if (storageObjectExists) {
+    const { error: storageError } = await supabase.storage
+      .from("pet-photos")
+      .remove([photo.storage_path]);
+    if (storageError && !isMissingStorageObject(storageError)) {
+      logPhotoDeletionFailure(
+        "storage_delete",
+        storageError,
+        photo.id,
+        false,
+        false,
+      );
+      return { success: false, message: "写真の削除に失敗しました。もう一度お試しください。" };
+    }
+    storageDeleted = true;
+  }
+
+  const { error: databaseError } = await supabase
+    .from("photos")
+    .delete()
+    .eq("id", photo.id)
+    .eq("pet_id", petId)
+    .eq("uploader_user_id", user.id);
+  if (databaseError) {
+    logPhotoDeletionFailure(
+      "database_delete_after_storage",
+      databaseError,
+      photo.id,
+      storageDeleted,
+      false,
+    );
+    return { success: false, message: "写真の削除に失敗しました。もう一度お試しください。" };
+  }
+
+  const { data: remainingPhoto, error: verifyError } = await supabase
+    .from("photos")
+    .select("id")
+    .eq("id", photo.id)
+    .eq("pet_id", petId)
+    .maybeSingle();
+  const databaseDeleted = !remainingPhoto && !verifyError;
+
+  if (!databaseDeleted) {
+    logPhotoDeletionFailure(
+      "database_delete_verify_after_storage",
+      verifyError,
+      photo.id,
+      storageDeleted,
+      false,
+    );
+    return { success: false, message: "写真の削除に失敗しました。もう一度お試しください。" };
+  }
+
+  revalidatePath(`/pets/${petId}`);
+  revalidatePath(`/pets/${petId}/search`);
+  revalidatePath("/home");
+  redirect(`/pets/${petId}`);
 }
 
 export async function analyzePhoto(
