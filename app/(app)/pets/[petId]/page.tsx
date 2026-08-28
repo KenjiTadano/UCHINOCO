@@ -130,12 +130,20 @@ export default async function PetDetailPage({
           <h2 id="photos-heading" className="text-xl font-semibold">
             思い出写真
           </h2>
-          <Link
-            className="rounded border border-zinc-300 px-3 py-2 text-sm"
-            href={`/pets/${pet.id}/photos/new`}
-          >
-            写真を追加
-          </Link>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Link
+              className="rounded border border-zinc-300 px-3 py-2 text-sm"
+              href={`/pets/${pet.id}/search`}
+            >
+              思い出を検索
+            </Link>
+            <Link
+              className="rounded border border-zinc-300 px-3 py-2 text-sm"
+              href={`/pets/${pet.id}/photos/new`}
+            >
+              写真を追加
+            </Link>
+          </div>
         </div>
 
         {photosError || photoUrlsResult.error ? (

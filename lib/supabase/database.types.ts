@@ -64,6 +64,68 @@ export type Database = {
           },
         ]
       }
+      photo_ai_analyses: {
+        Row: {
+          activity: string | null
+          analyzed_at: string | null
+          contains_pet: boolean | null
+          created_at: string
+          description: string | null
+          emotion: string | null
+          error_code: string | null
+          id: string
+          model: string | null
+          photo_id: string
+          prompt_version: string | null
+          scene: string | null
+          status: string
+          tags: string[]
+          updated_at: string
+        }
+        Insert: {
+          activity?: string | null
+          analyzed_at?: string | null
+          contains_pet?: boolean | null
+          created_at?: string
+          description?: string | null
+          emotion?: string | null
+          error_code?: string | null
+          id?: string
+          model?: string | null
+          photo_id: string
+          prompt_version?: string | null
+          scene?: string | null
+          status: string
+          tags?: string[]
+          updated_at?: string
+        }
+        Update: {
+          activity?: string | null
+          analyzed_at?: string | null
+          contains_pet?: boolean | null
+          created_at?: string
+          description?: string | null
+          emotion?: string | null
+          error_code?: string | null
+          id?: string
+          model?: string | null
+          photo_id?: string
+          prompt_version?: string | null
+          scene?: string | null
+          status?: string
+          tags?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "photo_ai_analyses_photo_id_fkey"
+            columns: ["photo_id"]
+            isOneToOne: true
+            referencedRelation: "photos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       photos: {
         Row: {
           caption: string | null
