@@ -9,28 +9,28 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
   const { error, message } = await searchParams;
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center gap-6 px-6 py-12">
-      <header>
-        <p className="text-sm text-zinc-500">UCHINOCO</p>
-        <h1 className="mt-1 text-2xl font-semibold">新規登録</h1>
+    <main className="app-page-narrow max-w-sm justify-center">
+      <header className="text-center">
+        <p className="text-sm font-semibold tracking-[0.18em] text-primary">UCHINOCO</p>
+        <h1 className="app-title">新規登録</h1>
       </header>
 
       {error ? (
-        <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+        <p role="alert" className="app-error">
           {error}
         </p>
       ) : null}
       {message ? (
-        <p role="status" className="rounded border border-green-300 bg-green-50 p-3 text-sm text-green-800">
+        <p role="status" className="app-success">
           {message}
         </p>
       ) : null}
 
       <form action={signup} className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="app-label">
           表示名
           <input
-            className="rounded border border-zinc-300 px-3 py-2"
+            className="app-input"
             name="display_name"
             type="text"
             autoComplete="name"
@@ -38,20 +38,20 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
             required
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="app-label">
           メールアドレス
           <input
-            className="rounded border border-zinc-300 px-3 py-2"
+            className="app-input"
             name="email"
             type="email"
             autoComplete="email"
             required
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="app-label">
           パスワード
           <input
-            className="rounded border border-zinc-300 px-3 py-2"
+            className="app-input"
             name="password"
             type="password"
             autoComplete="new-password"
@@ -59,10 +59,10 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
             required
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="app-label">
           パスワード確認
           <input
-            className="rounded border border-zinc-300 px-3 py-2"
+            className="app-input"
             name="password_confirmation"
             type="password"
             autoComplete="new-password"
@@ -70,14 +70,14 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
             required
           />
         </label>
-        <button className="rounded bg-zinc-900 px-4 py-2 text-white" type="submit">
+        <button className="app-button-primary w-full" type="submit">
           新規登録
         </button>
       </form>
 
-      <p className="text-sm text-zinc-600">
+      <p className="text-center text-sm text-muted">
         すでにアカウントをお持ちの場合は、
-        <Link className="underline" href="/login">
+        <Link className="font-semibold text-primary underline underline-offset-4" href="/login">
           ログイン
         </Link>
         してください。

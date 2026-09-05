@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { parseTokyoLocalDateTime } from "@/lib/photo-timeline";
 import { createClient } from "@/lib/supabase/server";
 
 export type AnalyzePhotoState = {
@@ -14,6 +15,10 @@ export type AnalyzePhotoState = {
 export type PhotoMutationState = {
   success: boolean;
   message: string | null;
+};
+
+export type TakenAtMutationState = PhotoMutationState & {
+  value: string;
 };
 
 export type DeletePhotoState = {
@@ -217,11 +222,6 @@ function isMissingStorageObject(error: {
 }
 
 async function getOwnedPhotoContext(petId: string, photoId: string) {
-  if (!UUID_PATTERN.test(petId) || !UUID_PATTERN.test(photoId)) {
-    logPhotoMutationFailure("authorization_invalid_identifier", null, false);
-    return null;
-  }
-
   const supabase = await createClient();
   const {
     data: { user },
@@ -229,6 +229,11 @@ async function getOwnedPhotoContext(petId: string, photoId: string) {
   } = await supabase.auth.getUser();
   if (userError || !user) {
     logPhotoMutationFailure("authorization_get_user", userError, false);
+    return null;
+  }
+
+  if (!UUID_PATTERN.test(petId) || !UUID_PATTERN.test(photoId)) {
+    logPhotoMutationFailure("authorization_invalid_identifier", null, false);
     return null;
   }
 
@@ -281,6 +286,92 @@ function revalidatePhotoPages(petId: string, photoId: string) {
   revalidatePath(`/pets/${petId}`);
   revalidatePath(`/pets/${petId}/photos/${photoId}`);
   revalidatePath(`/pets/${petId}/search`);
+  revalidatePath("/home");
+}
+
+const FUTURE_TOLERANCE_MILLISECONDS = 5 * 60 * 1000;
+
+export async function updatePhotoTakenAt(
+  petId: string,
+  photoId: string,
+  _previousState: TakenAtMutationState,
+  formData: FormData,
+): Promise<TakenAtMutationState> {
+  void _previousState;
+  const input = formData.get("taken_at");
+  const value = typeof input === "string" ? input.trim() : "";
+  const context = await getOwnedPhotoContext(petId, photoId);
+
+  if (!context) {
+    logPhotoMutationFailure("taken_at_authorization", null, false);
+    return {
+      success: false,
+      message: "撮影日時の更新に失敗しました。",
+      value,
+    };
+  }
+
+  const takenAt = parseTokyoLocalDateTime(value);
+  if (!takenAt) {
+    return {
+      success: false,
+      message: "正しい撮影日時を入力してください。",
+      value,
+    };
+  }
+  if (takenAt.getTime() > Date.now() + FUTURE_TOLERANCE_MILLISECONDS) {
+    return {
+      success: false,
+      message: "未来の撮影日時は指定できません。",
+      value,
+    };
+  }
+
+  const isoTakenAt = takenAt.toISOString();
+  const { error: updateError } = await context.supabase
+    .from("photos")
+    .update({ taken_at: isoTakenAt })
+    .eq("id", context.photo.id)
+    .eq("pet_id", petId);
+
+  if (updateError) {
+    logPhotoMutationFailure("taken_at_update", updateError, false);
+    return {
+      success: false,
+      message: "撮影日時の更新に失敗しました。",
+      value,
+    };
+  }
+
+  const { data: updatedPhoto, error: verifyError } = await context.supabase
+    .from("photos")
+    .select("id, taken_at")
+    .eq("id", context.photo.id)
+    .eq("pet_id", petId)
+    .maybeSingle();
+  const takenAtWasUpdated = updatedPhoto?.taken_at
+    ? new Date(updatedPhoto.taken_at).getTime() === takenAt.getTime()
+    : false;
+
+  if (verifyError || !takenAtWasUpdated) {
+    logPhotoMutationFailure(
+      "taken_at_verify",
+      verifyError,
+      takenAtWasUpdated,
+    );
+    return {
+      success: false,
+      message: "撮影日時の更新に失敗しました。",
+      value,
+    };
+  }
+
+  revalidatePhotoPages(petId, photoId);
+  return {
+    success: true,
+    message: "撮影日時を更新しました。",
+    value,
+  };
 }
 
 export async function updatePhotoCaption(

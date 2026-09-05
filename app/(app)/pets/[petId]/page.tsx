@@ -72,13 +72,13 @@ export default async function PetDetailPage({
   const timeline = groupPhotosByTokyoDate(photos ?? []);
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col gap-6 px-6 py-12">
-      <Link className="text-sm underline" href="/home">
+    <main className="app-page">
+      <Link className="app-back-link" href="/home">
         homeへ戻る
       </Link>
 
       {message ? (
-        <p role="status" className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+        <p role="status" className="app-status">
           {message}
         </p>
       ) : null}
@@ -86,7 +86,7 @@ export default async function PetDetailPage({
       <header className="flex items-center gap-4">
         {avatarResult.data?.signedUrl ? (
           <Image
-            className="size-24 shrink-0 rounded-full border border-zinc-200 object-cover"
+            className="size-24 shrink-0 rounded-full border object-cover"
             src={avatarResult.data.signedUrl}
             alt={`${pet.name}のプロフィール写真`}
             width={96}
@@ -95,7 +95,7 @@ export default async function PetDetailPage({
           />
         ) : (
           <div
-            className="flex size-24 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-4xl"
+            className="flex size-24 shrink-0 items-center justify-center rounded-full bg-primary-soft text-4xl"
             aria-label={`${pet.name}のプロフィール画像は未設定です`}
           >
             {pet.species === "dog" ? "🐶" : "🐱"}
@@ -103,27 +103,27 @@ export default async function PetDetailPage({
         )}
 
         <div className="min-w-0 flex-1">
-          <h1 className="break-words text-2xl font-semibold">{pet.name}</h1>
+          <h1 className="break-words text-2xl font-bold tracking-tight">{pet.name}</h1>
           <dl className="mt-2 grid gap-1 text-sm">
             <div className="flex gap-2">
-              <dt className="text-zinc-500">種類</dt>
+              <dt className="text-muted">種類</dt>
               <dd>{SPECIES_LABELS[pet.species] ?? "不明"}</dd>
             </div>
             {pet.breed ? (
               <div className="flex gap-2">
-                <dt className="text-zinc-500">犬種・猫種</dt>
+                <dt className="text-muted">犬種・猫種</dt>
                 <dd>{pet.breed}</dd>
               </div>
             ) : null}
             {pet.birthday ? (
               <div className="flex gap-2">
-                <dt className="text-zinc-500">誕生日</dt>
+                <dt className="text-muted">誕生日</dt>
                 <dd>{formatDate(pet.birthday)}</dd>
               </div>
             ) : null}
           </dl>
           <Link
-            className="mt-3 inline-block text-sm underline"
+            className="app-back-link mt-1"
             href={`/pets/${pet.id}/edit`}
           >
             プロフィールを編集
@@ -133,18 +133,18 @@ export default async function PetDetailPage({
 
       <section className="flex flex-col gap-4" aria-labelledby="photos-heading">
         <div className="flex items-center justify-between gap-4">
-          <h2 id="photos-heading" className="text-xl font-semibold">
+          <h2 id="photos-heading" className="app-section-title">
             思い出写真
           </h2>
           <div className="flex flex-wrap justify-end gap-2">
             <Link
-              className="rounded border border-zinc-300 px-3 py-2 text-sm"
+              className="app-button-secondary"
               href={`/pets/${pet.id}/search`}
             >
               思い出を検索
             </Link>
             <Link
-              className="rounded border border-zinc-300 px-3 py-2 text-sm"
+              className="app-button-primary"
               href={`/pets/${pet.id}/photos/new`}
             >
               写真を追加
@@ -153,7 +153,7 @@ export default async function PetDetailPage({
         </div>
 
         {photosError || photoUrlsResult.error ? (
-          <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+          <p role="alert" className="app-error">
             思い出写真を取得できませんでした。
           </p>
         ) : timeline.length > 0 ? (
@@ -164,7 +164,7 @@ export default async function PetDetailPage({
                   <h3 id={`date-${group.dateKey}`} className="font-semibold">
                     {group.dateLabel}
                   </h3>
-                  <p className="shrink-0 text-sm text-zinc-500">
+                  <p className="shrink-0 text-sm text-muted">
                     {group.photos.length}枚
                   </p>
                 </div>
@@ -175,11 +175,11 @@ export default async function PetDetailPage({
                     return (
                       <li
                         key={photo.id}
-                        className="relative aspect-square overflow-hidden rounded bg-zinc-100"
+                        className="app-photo-frame aspect-square"
                       >
                         {signedUrl ? (
                           <Link
-                            className="relative block size-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+                            className="relative block size-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                             href={`/pets/${pet.id}/photos/${photo.id}`}
                             aria-label={`${group.dateLabel}の思い出写真${index + 1}を詳しく見る`}
                           >
@@ -193,7 +193,7 @@ export default async function PetDetailPage({
                             />
                             {photo.favorite ? (
                               <span
-                                className="absolute right-1.5 top-1.5 rounded-full bg-black/65 px-1.5 py-0.5 text-sm text-amber-300"
+                                className="absolute right-1.5 top-1.5 rounded-full bg-white/90 px-1.5 py-0.5 text-sm text-favorite shadow-sm"
                                 aria-label="お気に入り"
                               >
                                 ★
@@ -201,7 +201,7 @@ export default async function PetDetailPage({
                             ) : null}
                           </Link>
                         ) : (
-                          <div className="flex size-full items-center justify-center text-xs text-zinc-500">
+                          <div className="flex size-full items-center justify-center text-xs text-muted">
                             表示できません
                           </div>
                         )}
@@ -213,10 +213,10 @@ export default async function PetDetailPage({
             ))}
           </div>
         ) : (
-          <div className="rounded border border-dashed border-zinc-300 p-6 text-center">
+          <div className="app-empty">
             <p>まだ思い出がありません</p>
             <Link
-              className="mt-4 inline-block rounded bg-zinc-900 px-4 py-2 text-white"
+              className="app-button-primary mt-4"
               href={`/pets/${pet.id}/photos/new`}
             >
               最初の写真を追加する

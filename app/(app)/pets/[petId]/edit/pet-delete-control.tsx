@@ -24,14 +24,14 @@ export function PetDeleteControl({
 
   return (
     <section
-      className="grid gap-3 border-t border-zinc-200 pt-6"
+      className="grid gap-3 border-t pt-7"
       aria-labelledby="delete-pet-heading"
     >
       <div>
-        <h2 id="delete-pet-heading" className="text-sm font-medium text-red-800">
+        <h2 id="delete-pet-heading" className="text-sm font-semibold text-danger">
           ペットの削除
         </h2>
-        <p className="mt-1 text-xs text-zinc-500">
+        <p className="app-help mt-1">
           プロフィール編集とは別の、取り消せない操作です。
         </p>
       </div>
@@ -40,23 +40,23 @@ export function PetDeleteControl({
         <button
           type="button"
           onClick={() => setConfirming(true)}
-          className="w-full rounded border border-red-300 px-4 py-2 text-sm text-red-700"
+          className="app-button-danger w-full"
         >
           ペットを削除
         </button>
       ) : (
-        <div className="grid gap-4 rounded border border-red-300 bg-red-50 p-4">
+        <div className="grid gap-4 rounded-2xl border border-danger/30 bg-danger-soft p-4">
           <div>
-            <p className="font-medium text-red-900">
+            <p className="font-medium text-danger">
               {petName}を削除しますか？
             </p>
-            <p className="mt-1 text-sm text-red-800">
+            <p className="mt-1 text-sm text-danger">
               このペットのプロフィール、思い出写真、AI解析結果も削除されます。この操作は取り消せません。
             </p>
           </div>
 
           {state.message ? (
-            <p role="alert" className="text-sm text-red-800">
+            <p role="alert" className="text-sm text-danger">
               {state.message}
             </p>
           ) : null}
@@ -69,14 +69,14 @@ export function PetDeleteControl({
               type="button"
               disabled={pending}
               onClick={() => setConfirming(false)}
-              className="rounded border border-zinc-300 bg-white px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+              className="app-button-secondary"
             >
               キャンセル
             </button>
             <button
               type="submit"
               disabled={pending}
-              className="rounded bg-red-700 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="app-button-danger border-transparent bg-danger text-white hover:bg-danger"
             >
               {pending ? "削除中..." : "削除する"}
             </button>

@@ -185,21 +185,21 @@ export function PetEditForm({
       />
 
       {state.message ? (
-        <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+        <p role="alert" className="app-error">
           {state.message}
         </p>
       ) : null}
 
-      <div className="flex flex-col gap-3 rounded border border-zinc-200 p-4">
+      <div className="app-card-flat flex flex-col gap-3">
         <div className="flex items-center gap-2 text-sm">
           <span>プロフィール写真</span>
-          <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">
+          <span className="app-optional">
             任意
           </span>
         </div>
         {previewUrl || currentAvatarUrl ? (
           <Image
-            className="size-28 rounded-full border border-zinc-200 object-cover"
+            className="size-28 rounded-full border object-cover"
             src={previewUrl ?? currentAvatarUrl!}
             alt={
               previewUrl
@@ -211,7 +211,7 @@ export function PetEditForm({
             unoptimized
           />
         ) : (
-          <div className="flex size-28 items-center justify-center rounded-full bg-zinc-100 text-sm text-zinc-500">
+          <div className="flex size-28 items-center justify-center rounded-full bg-primary-soft text-sm text-muted">
             画像未設定
           </div>
         )}
@@ -224,9 +224,9 @@ export function PetEditForm({
           aria-invalid={Boolean(avatarError)}
           className="block w-full text-sm"
         />
-        <p className="text-xs text-zinc-500">JPEG・PNG・WebP、5MBまで</p>
+        <p className="app-help">JPEG・PNG・WebP、5MBまで</p>
         {avatarError ? (
-          <p className="text-sm text-red-700">{avatarError}</p>
+          <p className="text-sm text-danger">{avatarError}</p>
         ) : null}
       </div>
 
@@ -243,7 +243,7 @@ export function PetEditForm({
           required
           autoFocus={firstError === "name"}
           aria-invalid={Boolean(state.fieldErrors.name)}
-          className="rounded border border-zinc-300 px-3 py-2"
+          className="app-input"
         />
         <FieldError message={state.fieldErrors.name} />
       </label>
@@ -259,7 +259,7 @@ export function PetEditForm({
           required
           autoFocus={firstError === "species"}
           aria-invalid={Boolean(state.fieldErrors.species)}
-          className="rounded border border-zinc-300 px-3 py-2"
+          className="app-input"
         >
           <option value="" disabled>
             選択してください
@@ -282,7 +282,7 @@ export function PetEditForm({
           defaultValue={state.values.breed}
           autoFocus={firstError === "breed"}
           aria-invalid={Boolean(state.fieldErrors.breed)}
-          className="rounded border border-zinc-300 px-3 py-2"
+          className="app-input"
         />
         <FieldError message={state.fieldErrors.breed} />
       </label>
@@ -297,7 +297,7 @@ export function PetEditForm({
           defaultValue={state.values.gender}
           autoFocus={firstError === "gender"}
           aria-invalid={Boolean(state.fieldErrors.gender)}
-          className="rounded border border-zinc-300 px-3 py-2"
+          className="app-input"
         >
           <option value="">選択しない</option>
           <option value="male">男の子</option>
@@ -319,7 +319,7 @@ export function PetEditForm({
           required
           autoFocus={firstError === "birthday"}
           aria-invalid={Boolean(state.fieldErrors.birthday)}
-          className="rounded border border-zinc-300 px-3 py-2"
+          className="app-input"
         />
         <FieldError message={state.fieldErrors.birthday} />
       </label>
@@ -335,7 +335,7 @@ export function PetEditForm({
           defaultValue={state.values.adoption_date}
           autoFocus={firstError === "adoption_date"}
           aria-invalid={Boolean(state.fieldErrors.adoption_date)}
-          className="rounded border border-zinc-300 px-3 py-2"
+          className="app-input"
         />
         <FieldError message={state.fieldErrors.adoption_date} />
       </label>
@@ -343,11 +343,11 @@ export function PetEditForm({
       <button
         type="submit"
         disabled={busy}
-        className="rounded bg-zinc-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60"
+        className="app-button-primary w-full"
       >
         {uploading ? "画像をアップロード中..." : pending ? "保存中..." : "保存"}
       </button>
-      <Link className="text-center text-sm underline" href={`/pets/${petId}`}>
+      <Link className="app-back-link self-center" href={`/pets/${petId}`}>
         キャンセル
       </Link>
     </form>
@@ -356,7 +356,7 @@ export function PetEditForm({
 
 function RequiredLabel() {
   return (
-    <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">
+    <span className="app-required">
       必須
     </span>
   );
@@ -364,7 +364,7 @@ function RequiredLabel() {
 
 function OptionalLabel() {
   return (
-    <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">
+    <span className="app-optional">
       任意
     </span>
   );
@@ -372,6 +372,6 @@ function OptionalLabel() {
 
 function FieldError({ message }: { message?: string }) {
   return message ? (
-    <span className="text-sm text-red-700">{message}</span>
+    <span className="text-sm text-danger">{message}</span>
   ) : null;
 }

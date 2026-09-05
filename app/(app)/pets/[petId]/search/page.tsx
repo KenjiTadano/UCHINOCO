@@ -192,14 +192,14 @@ export default async function PetSearchPage({
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col gap-6 px-6 py-12">
-      <Link className="text-sm underline" href={`/pets/${pet.id}`}>
+    <main className="app-page">
+      <Link className="app-back-link" href={`/pets/${pet.id}`}>
         {pet.name}の思い出へ戻る
       </Link>
 
       <header>
-        <p className="text-sm text-zinc-500">{pet.name}</p>
-        <h1 className="mt-1 text-2xl font-semibold">思い出を検索</h1>
+        <p className="app-eyebrow">{pet.name}</p>
+        <h1 className="app-title">思い出を検索</h1>
       </header>
 
       <form method="get" className="flex gap-2" role="search">
@@ -213,30 +213,30 @@ export default async function PetSearchPage({
           defaultValue={rawQuery}
           maxLength={MAX_QUERY_LENGTH}
           placeholder="公園、散歩、楽しそう…"
-          className="min-w-0 flex-1 rounded border border-zinc-300 px-3 py-2"
+          className="app-input min-w-0 flex-1"
         />
         <button
           type="submit"
-          className="shrink-0 rounded bg-zinc-900 px-4 py-2 text-white"
+          className="app-button-primary shrink-0"
         >
           検索
         </button>
       </form>
 
       {queryIsTooLong ? (
-        <p role="alert" className="text-sm text-red-700">
+        <p role="alert" className="app-error">
           キーワードは100文字以内で入力してください。
         </p>
       ) : searchFailed ? (
-        <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+        <p role="alert" className="app-error">
           思い出を検索できませんでした。時間をおいて再度お試しください。
         </p>
       ) : !shouldSearch ? (
-        <p className="rounded border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-600">
+        <p className="app-empty">
           キーワードを入力して思い出を検索できます。
         </p>
       ) : results.length === 0 ? (
-        <p className="rounded border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-600">
+        <p className="app-empty">
           該当する思い出が見つかりませんでした。
         </p>
       ) : (
@@ -245,7 +245,7 @@ export default async function PetSearchPage({
             <h2 id="search-results-heading" className="text-lg font-semibold">
               検索結果
             </h2>
-            <p className="text-sm text-zinc-500">{results.length}件</p>
+            <p className="text-sm text-muted">{results.length}件</p>
           </div>
 
           <ul className="grid gap-4 sm:grid-cols-2">
@@ -257,9 +257,9 @@ export default async function PetSearchPage({
                 <li key={photo.id}>
                   <Link
                     href={`/pets/${pet.id}/photos/${photo.id}`}
-                    className="block overflow-hidden rounded border border-zinc-200 transition-colors hover:border-zinc-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+                    className="app-card block overflow-hidden p-0 transition-colors hover:border-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                   >
-                    <div className="relative aspect-square bg-zinc-100">
+                    <div className="relative aspect-square bg-primary-soft">
                       {signedUrl ? (
                         <>
                           <Image
@@ -272,7 +272,7 @@ export default async function PetSearchPage({
                           />
                           {photo.favorite ? (
                             <span
-                              className="absolute right-2 top-2 rounded-full bg-black/65 px-2 py-1 text-sm text-amber-300"
+                              className="absolute right-2 top-2 rounded-full bg-white/90 px-2 py-1 text-sm text-favorite shadow-sm"
                               aria-label="お気に入り"
                             >
                               ★
@@ -280,13 +280,13 @@ export default async function PetSearchPage({
                           ) : null}
                         </>
                       ) : (
-                        <div className="flex size-full items-center justify-center text-sm text-zinc-500">
+                        <div className="flex size-full items-center justify-center text-sm text-muted">
                           表示できません
                         </div>
                       )}
                     </div>
                     <div className="grid gap-2 p-3 text-sm">
-                      <time className="text-zinc-500">
+                      <time className="text-muted">
                         {formatTokyoDateTime(photoTimestamp(photo))}
                       </time>
                       {photo.caption ? (
@@ -295,7 +295,7 @@ export default async function PetSearchPage({
                         </p>
                       ) : null}
                       {analysis?.description ? (
-                        <p className="line-clamp-3 text-zinc-700">
+                        <p className="line-clamp-3 text-muted">
                           {analysis.description}
                         </p>
                       ) : null}
@@ -304,7 +304,7 @@ export default async function PetSearchPage({
                           {analysis.tags.map((tag) => (
                             <li
                               key={tag}
-                              className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs"
+                              className="app-tag"
                             >
                               {tag}
                             </li>

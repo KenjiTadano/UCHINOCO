@@ -2,7 +2,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { formatTokyoDateTime, photoTimestamp } from "@/lib/photo-timeline";
+import {
+  formatTokyoDateTime,
+  formatTokyoDateTimeInput,
+  photoTimestamp,
+} from "@/lib/photo-timeline";
 import { createClient } from "@/lib/supabase/server";
 import { AiAnalysisButton } from "./ai-analysis-button";
 import { PhotoDeleteControl } from "./photo-delete-control";
@@ -87,22 +91,22 @@ export default async function PhotoDetailPage({
   const displayedTimestamp = photoTimestamp(photo);
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col gap-6 px-6 py-12">
-      <Link className="text-sm underline" href={`/pets/${pet.id}`}>
+    <main className="app-page">
+      <Link className="app-back-link" href={`/pets/${pet.id}`}>
         {pet.name}の思い出へ戻る
       </Link>
 
       <header>
-        <p className="text-sm text-zinc-500">{pet.name}</p>
-        <h1 className="mt-1 text-2xl font-semibold">思い出写真</h1>
+        <p className="app-eyebrow">{pet.name}</p>
+        <h1 className="app-title">思い出写真</h1>
       </header>
 
       {signedPhotoError || !signedPhoto?.signedUrl ? (
-        <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+        <p role="alert" className="app-error">
           写真を表示できませんでした。
         </p>
       ) : (
-        <div className="relative aspect-square overflow-hidden rounded bg-zinc-100">
+        <div className="app-photo-frame aspect-square border bg-surface">
           <Image
             className="size-full object-contain"
             src={signedPhoto.signedUrl}
@@ -115,26 +119,26 @@ export default async function PhotoDetailPage({
         </div>
       )}
 
-      <dl className="grid gap-4 rounded border border-zinc-200 p-4 text-sm">
+      <dl className="app-card-flat grid gap-4 text-sm">
         <div>
-          <dt className="text-zinc-500">撮影日時</dt>
+          <dt className="text-muted">撮影日時</dt>
           <dd className="mt-1">{formatTokyoDateTime(displayedTimestamp)}</dd>
         </div>
         <div>
-          <dt className="text-zinc-500">お気に入り</dt>
+          <dt className="text-muted">お気に入り</dt>
           <dd className="mt-1">
             {photo.favorite ? "お気に入りに登録済み" : "お気に入りではありません"}
           </dd>
         </div>
         {photo.caption ? (
           <div>
-            <dt className="text-zinc-500">キャプション</dt>
+            <dt className="text-muted">キャプション</dt>
             <dd className="mt-1 whitespace-pre-wrap break-words">{photo.caption}</dd>
           </div>
         ) : (
           <div>
-            <dt className="text-zinc-500">キャプション</dt>
-            <dd className="mt-1 text-zinc-500">未設定</dd>
+            <dt className="text-muted">キャプション</dt>
+            <dd className="mt-1 text-muted">未設定</dd>
           </div>
         )}
       </dl>
@@ -144,44 +148,46 @@ export default async function PhotoDetailPage({
         photoId={photo.id}
         caption={photo.caption}
         favorite={photo.favorite}
+        takenAtInputValue={formatTokyoDateTimeInput(displayedTimestamp)}
+        takenAtUsesCreatedAt={!photo.taken_at}
       />
 
-      <section className="flex flex-col gap-4 rounded border border-zinc-200 p-4" aria-labelledby="ai-analysis-heading">
+      <section className="app-card-flat flex flex-col gap-4" aria-labelledby="ai-analysis-heading">
         <h2 id="ai-analysis-heading" className="text-lg font-semibold">
           AI解析
         </h2>
 
         {analysisResult.error ? (
-          <p role="alert" className="text-sm text-red-700">
+          <p role="alert" className="text-sm text-danger">
             AI解析結果を取得できませんでした。
           </p>
         ) : !analysis ? (
           <>
-            <p className="text-sm text-zinc-600">AI解析はまだありません</p>
+            <p className="text-sm text-muted">AI解析はまだありません</p>
             <AiAnalysisButton petId={pet.id} photoId={photo.id} />
           </>
         ) : analysis.status === "pending" || analysis.status === "processing" ? (
-          <p role="status" className="text-sm text-zinc-600">
+          <p role="status" className="text-sm text-muted">
             AI解析中...
           </p>
         ) : analysis.status === "failed" ? (
           <>
-            <p className="text-sm text-red-700">AI解析に失敗しました</p>
+            <p className="text-sm text-danger">AI解析に失敗しました</p>
             <AiAnalysisButton petId={pet.id} photoId={photo.id} retry />
           </>
         ) : (
           <div className="grid gap-4 text-sm">
             <div>
-              <h3 className="text-zinc-500">AIの説明</h3>
+              <h3 className="text-muted">AIの説明</h3>
               <p className="mt-1 whitespace-pre-wrap">{analysis.description}</p>
             </div>
 
             {analysis.tags.length > 0 ? (
               <div>
-                <h3 className="text-zinc-500">タグ</h3>
+                <h3 className="text-muted">タグ</h3>
                 <ul className="mt-2 flex flex-wrap gap-2">
                   {analysis.tags.map((tag) => (
-                    <li key={tag} className="rounded-full bg-zinc-100 px-2.5 py-1">
+                    <li key={tag} className="app-tag">
                       {tag}
                     </li>
                   ))}
@@ -191,19 +197,19 @@ export default async function PhotoDetailPage({
 
             <dl className="grid gap-2">
               <div className="flex gap-2">
-                <dt className="text-zinc-500">アクティビティ</dt>
+                <dt className="text-muted">アクティビティ</dt>
                 <dd>{analysis.activity ?? "不明"}</dd>
               </div>
               <div className="flex gap-2">
-                <dt className="text-zinc-500">シーン</dt>
+                <dt className="text-muted">シーン</dt>
                 <dd>{analysis.scene ?? "不明"}</dd>
               </div>
               <div className="flex gap-2">
-                <dt className="text-zinc-500">雰囲気</dt>
+                <dt className="text-muted">雰囲気</dt>
                 <dd>{analysis.emotion ?? "不明"}</dd>
               </div>
               <div className="flex gap-2">
-                <dt className="text-zinc-500">ペット</dt>
+                <dt className="text-muted">ペット</dt>
                 <dd>
                   {analysis.contains_pet === true
                     ? "写っています"

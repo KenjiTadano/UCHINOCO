@@ -32,10 +32,10 @@ export default async function NewPhotosPage({ params }: NewPhotosPageProps) {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col gap-6 px-6 py-12">
+    <main className="app-page">
       <header>
-        <p className="text-sm text-zinc-500">{pet.name}</p>
-        <h1 className="mt-1 text-2xl font-semibold">思い出写真を追加</h1>
+        <p className="app-eyebrow">{pet.name}</p>
+        <h1 className="app-title">思い出写真を追加</h1>
       </header>
 
       <PhotoUploadForm petId={pet.id} petName={pet.name} />

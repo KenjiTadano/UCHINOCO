@@ -1,15 +1,26 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { BottomNavigation } from "./_components/bottom-navigation";
 
 export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const supabase = await createClient();
-  const { data, error } = await supabase.auth.getClaims();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
 
-  if (error || !data?.claims) {
+  if (error || !user) {
     redirect("/login");
   }
 
-  return children;
+  return (
+    <>
+      <div className="pb-[calc(5rem+env(safe-area-inset-bottom))]">
+        {children}
+      </div>
+      <BottomNavigation />
+    </>
+  );
 }

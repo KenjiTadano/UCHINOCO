@@ -195,6 +195,21 @@ function logPetDeletionFailure(
   });
 }
 
+function logPetAvatarMutationFailure(
+  stage: string,
+  error: { code?: string; name?: string; message?: string } | null,
+  petId: string,
+  hadExistingAvatar: boolean,
+) {
+  console.error("Pet avatar mutation failed", {
+    stage,
+    code: error?.code ?? error?.name ?? null,
+    message: error?.message ?? null,
+    pet_id: petId,
+    had_existing_avatar: hadExistingAvatar,
+  });
+}
+
 async function removeStoragePaths(
   supabase: Awaited<ReturnType<typeof createClient>>,
   bucket: "pet-avatars" | "pet-photos",
@@ -554,7 +569,7 @@ export async function updatePet(
 
   const { data: existingPet, error: petError } = await supabase
     .from("pets")
-    .select("id, owner_user_id")
+    .select("id, owner_user_id, avatar_url")
     .eq("id", petId)
     .eq("owner_user_id", user.id)
     .maybeSingle();
@@ -605,6 +620,12 @@ export async function updatePet(
       .from("pet-avatars")
       .createSignedUploadUrl(storagePath);
     if (error || !data) {
+      logPetAvatarMutationFailure(
+        "signed_upload_create",
+        error,
+        petId,
+        Boolean(existingPet.avatar_url),
+      );
       return updatePetErrorState(
         previousState,
         values,
@@ -730,7 +751,22 @@ export async function finalizeReplacementAvatar(
     data: { user },
     error: userError,
   } = await supabase.auth.getUser();
-  if (userError || !user || !isOwnedAvatarPath(user.id, petId, storagePath)) {
+  if (userError || !user) {
+    logPetAvatarMutationFailure(
+      "authorization_get_user",
+      userError,
+      petId,
+      false,
+    );
+    return failure;
+  }
+  if (!isOwnedAvatarPath(user.id, petId, storagePath)) {
+    logPetAvatarMutationFailure(
+      "storage_path_validation",
+      null,
+      petId,
+      false,
+    );
     return failure;
   }
 
@@ -741,15 +777,30 @@ export async function finalizeReplacementAvatar(
     .eq("owner_user_id", user.id)
     .maybeSingle();
   if (petError || !pet || pet.owner_user_id !== user.id) {
+    logPetAvatarMutationFailure(
+      "owned_pet_lookup",
+      petError,
+      petId,
+      Boolean(pet?.avatar_url),
+    );
     await removeReplacementAvatar(supabase, storagePath);
     return failure;
   }
+
+  const oldAvatarPath = pet.avatar_url;
+  const hadExistingAvatar = oldAvatarPath !== null;
 
   const fileName = storagePath.split("/")[2];
   const fileMatch = fileName?.match(
     /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(jpg|png|webp)$/i,
   );
   if (!fileMatch) {
+    logPetAvatarMutationFailure(
+      "uploaded_file_name_validation",
+      null,
+      petId,
+      hadExistingAvatar,
+    );
     await removeReplacementAvatar(supabase, storagePath);
     return failure;
   }
@@ -769,36 +820,35 @@ export async function finalizeReplacementAvatar(
     storedSize > MAX_IMAGE_SIZE ||
     storedMimeType !== expectedMimeType
   ) {
+    logPetAvatarMutationFailure(
+      "uploaded_object_validation",
+      infoError,
+      petId,
+      hadExistingAvatar,
+    );
     await removeReplacementAvatar(supabase, storagePath);
     return failure;
   }
 
-  const oldAvatarPath = pet.avatar_url;
-  const { error: updateError } = await supabase
+  let avatarUpdate = supabase
     .from("pets")
     .update({ avatar_url: storagePath })
     .eq("id", petId)
     .eq("owner_user_id", user.id);
-  if (updateError) {
-    await removeReplacementAvatar(supabase, storagePath);
-    return failure;
-  }
+  avatarUpdate = oldAvatarPath
+    ? avatarUpdate.eq("avatar_url", oldAvatarPath)
+    : avatarUpdate.is("avatar_url", null);
 
-  const { data: updatedPet, error: verifyError } = await supabase
-    .from("pets")
+  const { data: updatedPet, error: updateError } = await avatarUpdate
     .select("avatar_url")
-    .eq("id", petId)
-    .eq("owner_user_id", user.id)
     .maybeSingle();
-  if (verifyError) {
-    console.error("Pet avatar update verification failed", {
-      stage: "new_avatar_database_verify",
-      code: verifyError.code,
-      message: verifyError.message,
-    });
-    return failure;
-  }
-  if (updatedPet?.avatar_url !== storagePath) {
+  if (updateError || updatedPet?.avatar_url !== storagePath) {
+    logPetAvatarMutationFailure(
+      "database_update",
+      updateError,
+      petId,
+      hadExistingAvatar,
+    );
     await removeReplacementAvatar(supabase, storagePath);
     return failure;
   }
@@ -812,11 +862,12 @@ export async function finalizeReplacementAvatar(
       .from("pet-avatars")
       .remove([oldAvatarPath]);
     if (removeError) {
-      console.error("Old pet avatar deletion failed", {
-        stage: "old_avatar_delete_after_database_update",
-        code: removeError.name,
-        message: removeError.message,
-      });
+      logPetAvatarMutationFailure(
+        "old_avatar_delete_after_database_update",
+        removeError,
+        petId,
+        hadExistingAvatar,
+      );
     }
   }
 

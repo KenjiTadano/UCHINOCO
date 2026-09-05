@@ -30,15 +30,15 @@ export function AiAnalysisButton({
           role={state.success ? "status" : "alert"}
           className={
             state.success
-              ? "text-sm text-emerald-700"
-              : "text-sm text-red-700"
+              ? "text-sm text-success"
+              : "text-sm text-danger"
           }
         >
           {state.message}
         </p>
       ) : null}
       <button
-        className="rounded bg-zinc-900 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
+        className="app-button-primary"
         type="submit"
         disabled={pending}
       >

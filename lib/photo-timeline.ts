@@ -1,4 +1,5 @@
 const TOKYO_TIME_ZONE = "Asia/Tokyo";
+const TOKYO_OFFSET_MILLISECONDS = 9 * 60 * 60 * 1000;
 
 type TimelinePhoto = {
   taken_at: string | null;
@@ -51,6 +52,46 @@ export function formatTokyoDateTime(value: string) {
     minute: "2-digit",
     hour12: false,
   }).format(new Date(value));
+}
+
+export function formatTokyoDateTimeInput(value: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TOKYO_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(value));
+  const values = Object.fromEntries(
+    parts.map(({ type, value: partValue }) => [type, partValue]),
+  );
+  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`;
+}
+
+export function parseTokyoLocalDateTime(value: string) {
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const [, yearText, monthText, dayText, hourText, minuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const localAsUtc = Date.UTC(year, month - 1, day, hour, minute);
+  const date = new Date(localAsUtc - TOKYO_OFFSET_MILLISECONDS);
+  const roundTrip = new Date(date.getTime() + TOKYO_OFFSET_MILLISECONDS);
+
+  return roundTrip.getUTCFullYear() === year &&
+    roundTrip.getUTCMonth() === month - 1 &&
+    roundTrip.getUTCDate() === day &&
+    roundTrip.getUTCHours() === hour &&
+    roundTrip.getUTCMinutes() === minute
+    ? date
+    : null;
 }
 
 export function groupPhotosByTokyoDate<T extends TimelinePhoto>(

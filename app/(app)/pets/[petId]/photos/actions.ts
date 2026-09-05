@@ -2,6 +2,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
+import { parseTokyoLocalDateTime } from "@/lib/photo-timeline";
 import { createClient } from "@/lib/supabase/server";
 
 type PhotoMetadata = {
@@ -28,9 +29,15 @@ export type FinalizePhotoUploadsResult = {
   failedCount: number;
 };
 
+type FinalizePhotoUpload = {
+  storagePath: string;
+  takenAt: string | null;
+};
+
 const BUCKET = "pet-photos";
 const MAX_FILES = 10;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const FUTURE_TOLERANCE_MILLISECONDS = 5 * 60 * 1000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IMAGE_EXTENSIONS: Record<string, string> = {
@@ -153,16 +160,23 @@ export async function preparePhotoUploads(
 
 export async function finalizePhotoUploads(
   petId: string,
-  storagePaths: string[],
+  uploads: FinalizePhotoUpload[],
 ): Promise<FinalizePhotoUploadsResult> {
+  const uploadCount = Array.isArray(uploads) ? uploads.length : 0;
   if (
     !UUID_PATTERN.test(petId) ||
-    !Array.isArray(storagePaths) ||
-    storagePaths.length === 0 ||
-    storagePaths.length > MAX_FILES ||
-    new Set(storagePaths).size !== storagePaths.length
+    !Array.isArray(uploads) ||
+    uploads.length === 0 ||
+    uploads.length > MAX_FILES ||
+    uploads.some(
+      (upload) =>
+        !upload ||
+        typeof upload.storagePath !== "string" ||
+        (upload.takenAt !== null && typeof upload.takenAt !== "string"),
+    ) ||
+    new Set(uploads.map((upload) => upload.storagePath)).size !== uploads.length
   ) {
-    return { savedCount: 0, failedCount: storagePaths.length || 1 };
+    return { savedCount: 0, failedCount: uploadCount || 1 };
   }
 
   const supabase = await createClient();
@@ -171,18 +185,18 @@ export async function finalizePhotoUploads(
     error: userError,
   } = await supabase.auth.getUser();
   if (userError || !user) {
-    return { savedCount: 0, failedCount: storagePaths.length };
+    return { savedCount: 0, failedCount: uploads.length };
   }
 
   const client = albumClient(supabase);
   if (!(await ownedPet(client, petId, user.id))) {
-    return { savedCount: 0, failedCount: storagePaths.length };
+    return { savedCount: 0, failedCount: uploads.length };
   }
 
   let savedCount = 0;
   let failedCount = 0;
 
-  for (const storagePath of storagePaths) {
+  for (const { storagePath, takenAt: takenAtInput } of uploads) {
     const pathParts = storagePath.split("/");
     const [pathUserId, pathPetId, year, month, fileName] = pathParts;
     const fileMatch = fileName?.match(
@@ -197,6 +211,19 @@ export async function finalizePhotoUploads(
       Boolean(fileMatch);
 
     if (!validPath || !fileMatch) {
+      failedCount += 1;
+      continue;
+    }
+
+    const takenAt = takenAtInput
+      ? parseTokyoLocalDateTime(takenAtInput)
+      : null;
+    if (
+      (takenAtInput && !takenAt) ||
+      (takenAt &&
+        takenAt.getTime() > Date.now() + FUTURE_TOLERANCE_MILLISECONDS)
+    ) {
+      await supabase.storage.from(BUCKET).remove([storagePath]);
       failedCount += 1;
       continue;
     }
@@ -227,7 +254,7 @@ export async function finalizePhotoUploads(
       pet_id: petId,
       uploader_user_id: user.id,
       storage_path: storagePath,
-      taken_at: new Date().toISOString(),
+      taken_at: takenAt?.toISOString() ?? null,
     });
 
     if (insertError) {
@@ -241,6 +268,7 @@ export async function finalizePhotoUploads(
 
   if (savedCount > 0) {
     revalidatePath(`/pets/${petId}`);
+    revalidatePath("/home");
   }
 
   return { savedCount, failedCount };

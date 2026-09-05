@@ -39,10 +39,10 @@ export default async function PetEditPage({ params }: PetEditPageProps) {
     : { data: null, error: null };
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 px-6 py-12">
+    <main className="app-page-narrow">
       <header>
-        <p className="text-sm text-zinc-500">{pet.name}</p>
-        <h1 className="mt-1 text-2xl font-semibold">プロフィールを編集</h1>
+        <p className="app-eyebrow">{pet.name}</p>
+        <h1 className="app-title">プロフィールを編集</h1>
       </header>
 
       <PetEditForm

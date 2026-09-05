@@ -111,15 +111,15 @@ function AvatarPicker({
   const displayedError = clientError ?? error;
 
   return (
-    <div className="flex flex-col gap-3 rounded border border-zinc-200 p-4">
+    <div className="app-card-flat flex flex-col gap-3">
       <div className="flex items-center gap-2 text-sm">
         <span>プロフィール写真</span>
-        <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">任意</span>
+        <span className="app-optional">任意</span>
       </div>
 
       {previewUrl ? (
         <Image
-          className="size-28 rounded-full border border-zinc-200 object-cover"
+          className="size-28 rounded-full border object-cover"
           src={previewUrl}
           alt="選択したプロフィール写真のプレビュー"
           width={112}
@@ -127,7 +127,7 @@ function AvatarPicker({
           unoptimized
         />
       ) : (
-        <div className="flex size-28 items-center justify-center rounded-full bg-zinc-100 text-sm text-zinc-500">
+        <div className="flex size-28 items-center justify-center rounded-full bg-primary-soft text-sm text-muted">
           プレビュー
         </div>
       )}
@@ -141,11 +141,11 @@ function AvatarPicker({
         aria-describedby={displayedError ? "avatar-error" : "avatar-help"}
         autoFocus={autoFocus}
       />
-      <p id="avatar-help" className="text-xs text-zinc-500">
+      <p id="avatar-help" className="app-help">
         JPEG・PNG・WebP、5MBまで
       </p>
       {displayedError ? (
-        <p id="avatar-error" className="text-sm text-red-700">
+        <p id="avatar-error" className="text-sm text-danger">
           {displayedError}
         </p>
       ) : null}
@@ -231,7 +231,7 @@ export function PetForm() {
         value={selectedFile ? String(selectedFile.size) : ""}
       />
       {state.message ? (
-        <p role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+        <p role="alert" className="app-error">
           {state.message}
         </p>
       ) : null}
@@ -245,10 +245,10 @@ export function PetForm() {
       <label className="flex flex-col gap-1 text-sm">
         <span className="flex items-center gap-2">
           名前
-          <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">必須</span>
+          <span className="app-required">必須</span>
         </span>
         <input
-          className="rounded border border-zinc-300 px-3 py-2"
+          className="app-input"
           name="name"
           type="text"
           maxLength={50}
@@ -259,7 +259,7 @@ export function PetForm() {
           required
         />
         {state.fieldErrors.name ? (
-          <span id="name-error" className="text-sm text-red-700">
+          <span id="name-error" className="text-sm text-danger">
             {state.fieldErrors.name}
           </span>
         ) : null}
@@ -268,10 +268,10 @@ export function PetForm() {
       <label className="flex flex-col gap-1 text-sm">
         <span className="flex items-center gap-2">
           種類
-          <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">必須</span>
+          <span className="app-required">必須</span>
         </span>
         <select
-          className="rounded border border-zinc-300 px-3 py-2"
+          className="app-input"
           name="species"
           defaultValue={state.values.species}
           aria-invalid={Boolean(state.fieldErrors.species)}
@@ -286,7 +286,7 @@ export function PetForm() {
           <option value="cat">猫</option>
         </select>
         {state.fieldErrors.species ? (
-          <span id="species-error" className="text-sm text-red-700">
+          <span id="species-error" className="text-sm text-danger">
             {state.fieldErrors.species}
           </span>
         ) : null}
@@ -295,10 +295,10 @@ export function PetForm() {
       <label className="flex flex-col gap-1 text-sm">
         <span className="flex items-center gap-2">
           犬種・猫種
-          <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">任意</span>
+          <span className="app-optional">任意</span>
         </span>
         <input
-          className="rounded border border-zinc-300 px-3 py-2"
+          className="app-input"
           name="breed"
           type="text"
           maxLength={100}
@@ -308,7 +308,7 @@ export function PetForm() {
           autoFocus={firstError === "breed"}
         />
         {state.fieldErrors.breed ? (
-          <span id="breed-error" className="text-sm text-red-700">
+          <span id="breed-error" className="text-sm text-danger">
             {state.fieldErrors.breed}
           </span>
         ) : null}
@@ -317,10 +317,10 @@ export function PetForm() {
       <label className="flex flex-col gap-1 text-sm">
         <span className="flex items-center gap-2">
           性別
-          <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">任意</span>
+          <span className="app-optional">任意</span>
         </span>
         <select
-          className="rounded border border-zinc-300 px-3 py-2"
+          className="app-input"
           name="gender"
           defaultValue={state.values.gender}
           aria-invalid={Boolean(state.fieldErrors.gender)}
@@ -333,7 +333,7 @@ export function PetForm() {
           <option value="unknown">不明</option>
         </select>
         {state.fieldErrors.gender ? (
-          <span id="gender-error" className="text-sm text-red-700">
+          <span id="gender-error" className="text-sm text-danger">
             {state.fieldErrors.gender}
           </span>
         ) : null}
@@ -342,10 +342,10 @@ export function PetForm() {
       <label className="flex flex-col gap-1 text-sm">
         <span className="flex items-center gap-2">
           誕生日
-          <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">必須</span>
+          <span className="app-required">必須</span>
         </span>
         <input
-          className="rounded border border-zinc-300 px-3 py-2"
+          className="app-input"
           name="birthday"
           type="date"
           defaultValue={state.values.birthday}
@@ -355,7 +355,7 @@ export function PetForm() {
           required
         />
         {state.fieldErrors.birthday ? (
-          <span id="birthday-error" className="text-sm text-red-700">
+          <span id="birthday-error" className="text-sm text-danger">
             {state.fieldErrors.birthday}
           </span>
         ) : null}
@@ -364,10 +364,10 @@ export function PetForm() {
       <label className="flex flex-col gap-1 text-sm">
         <span className="flex items-center gap-2">
           お迎えした日
-          <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">任意</span>
+          <span className="app-optional">任意</span>
         </span>
         <input
-          className="rounded border border-zinc-300 px-3 py-2"
+          className="app-input"
           name="adoption_date"
           type="date"
           defaultValue={state.values.adoption_date}
@@ -378,21 +378,21 @@ export function PetForm() {
           autoFocus={firstError === "adoption_date"}
         />
         {state.fieldErrors.adoption_date ? (
-          <span id="adoption-date-error" className="text-sm text-red-700">
+          <span id="adoption-date-error" className="text-sm text-danger">
             {state.fieldErrors.adoption_date}
           </span>
         ) : null}
       </label>
 
       <button
-        className="rounded bg-zinc-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60"
+        className="app-button-primary w-full"
         type="submit"
         disabled={busy}
       >
         {uploading ? "画像をアップロード中..." : pending ? "登録中..." : "登録する"}
       </button>
 
-      <Link className="text-center text-sm underline" href="/home">
+      <Link className="app-back-link self-center" href="/home">
         homeへ戻る
       </Link>
     </form>

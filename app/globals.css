@@ -1,26 +1,100 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fff9f6;
+  --surface: #ffffff;
+  --foreground: #3f302b;
+  --muted: #7d6c66;
+  --border: #eaded8;
+  --primary: #e96545;
+  --primary-hover: #d95637;
+  --primary-foreground: #ffffff;
+  --primary-soft: #fff0ea;
+  --danger: #b94a4a;
+  --danger-soft: #fff1f0;
+  --success: #397a5c;
+  --success-soft: #edf8f1;
+  --favorite: #c98316;
+  --favorite-soft: #fff7df;
+  --shadow-card: 0 8px 28px rgb(107 76 62 / 0.07);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-favorite: var(--favorite);
+  --color-favorite-soft: var(--favorite-soft);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+* { border-color: var(--border); }
+html { background: var(--background); }
+body {
+  min-width: 320px;
+  overflow-x: hidden;
+  background: radial-gradient(circle at 50% -10%, rgb(244 123 90 / 0.1), transparent 32rem), var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), "Hiragino Sans", "Yu Gothic", sans-serif;
+}
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button, a { touch-action: manipulation; }
+input:not([type="hidden"]):not([type="file"]), select, textarea {
+  min-height: 2.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  color: var(--foreground);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+input::placeholder, textarea::placeholder { color: #a69791; }
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  border-color: var(--primary);
+  outline: 3px solid rgb(233 101 69 / 0.18);
+  outline-offset: 1px;
+}
+input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--danger); }
+button:disabled, [aria-disabled="true"] { cursor: not-allowed; opacity: 0.58; }
+
+@layer components {
+  .app-page { @apply mx-auto flex min-h-screen w-full max-w-xl flex-col gap-7 px-4 py-8 sm:px-6 sm:py-10; }
+  .app-page-narrow { @apply mx-auto flex min-h-screen w-full max-w-md flex-col gap-7 px-4 py-8 sm:px-6 sm:py-10; }
+  .app-eyebrow { @apply text-sm font-medium text-muted; }
+  .app-title { @apply mt-1 text-2xl font-bold tracking-tight text-foreground; }
+  .app-section-title { @apply text-xl font-semibold tracking-tight text-foreground; }
+  .app-card { @apply rounded-2xl border bg-surface p-4; box-shadow: var(--shadow-card); }
+  .app-card-flat { @apply rounded-2xl border bg-surface p-4; }
+  .app-button-primary, .app-button-secondary, .app-button-ghost, .app-button-danger {
+    @apply inline-flex min-h-11 items-center justify-center rounded-xl px-4 py-2.5 text-center text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2;
   }
+  .app-button-primary { @apply bg-primary text-primary-foreground hover:bg-[var(--primary-hover)] focus-visible:outline-primary; }
+  .app-button-secondary { @apply border bg-surface text-foreground hover:border-primary hover:bg-primary-soft focus-visible:outline-primary; }
+  .app-button-ghost { @apply text-muted hover:bg-primary-soft hover:text-primary focus-visible:outline-primary; }
+  .app-button-danger { @apply border border-danger/35 bg-surface text-danger hover:bg-danger-soft focus-visible:outline-danger; }
+  .app-back-link { @apply inline-flex min-h-11 items-center self-start rounded-lg px-1 text-sm font-medium text-muted underline decoration-border underline-offset-4 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary; }
+  .app-input { @apply w-full px-3.5 py-2.5 text-base sm:text-sm; }
+  .app-label { @apply flex flex-col gap-1.5 text-sm font-medium; }
+  .app-help { @apply text-xs font-normal leading-relaxed text-muted; }
+  .app-required { @apply rounded-full bg-danger-soft px-2 py-0.5 text-xs font-medium text-danger; }
+  .app-optional { @apply rounded-full bg-primary-soft px-2 py-0.5 text-xs font-medium text-muted; }
+  .app-error { @apply rounded-xl border border-danger/30 bg-danger-soft p-3 text-sm text-danger; }
+  .app-status { @apply rounded-xl border border-favorite/30 bg-favorite-soft p-3 text-sm text-foreground; }
+  .app-success { @apply rounded-xl border border-success/30 bg-success-soft p-3 text-sm text-success; }
+  .app-empty { @apply rounded-2xl border border-dashed bg-surface/70 p-7 text-center text-sm text-muted; }
+  .app-photo-frame { @apply relative overflow-hidden rounded-xl bg-primary-soft; }
+  .app-tag { @apply rounded-full bg-primary-soft px-2.5 py-1 text-xs text-muted; }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
 }
