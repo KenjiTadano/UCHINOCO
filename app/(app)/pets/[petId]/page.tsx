@@ -2,11 +2,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { groupPhotosByTokyoDate } from "@/lib/photo-timeline";
+import { getPhotoPage, nextPhotoCursor, paginationHref, parsePhotoCursor } from "@/lib/photo-pagination";
 import { createClient } from "@/lib/supabase/server";
 
 type PetDetailPageProps = {
   params: Promise<{ petId: string }>;
-  searchParams: Promise<{ message?: string }>;
+  searchParams: Promise<{ message?: string; before?: string; beforeId?: string }>;
 };
 
 const SPECIES_LABELS: Record<string, string> = {
@@ -23,7 +24,7 @@ export default async function PetDetailPage({
   params,
   searchParams,
 }: PetDetailPageProps) {
-  const [{ petId }, { message }] = await Promise.all([params, searchParams]);
+  const [{ petId }, { message, before, beforeId }] = await Promise.all([params, searchParams]);
   const supabase = await createClient();
   const {
     data: { user },
@@ -45,17 +46,18 @@ export default async function PetDetailPage({
     notFound();
   }
 
-  const { data: photos, error: photosError } = await supabase
-    .from("photos")
-    .select("id, storage_path, taken_at, created_at, favorite")
-    .eq("pet_id", pet.id)
-    .order("created_at", { ascending: false });
+  const { photos, hasMore, error: photosError } = await getPhotoPage(
+    supabase,
+    pet.id,
+    30,
+    parsePhotoCursor(before, beforeId),
+  );
 
   const [avatarResult, photoUrlsResult] = await Promise.all([
     pet.avatar_url
       ? supabase.storage.from("pet-avatars").createSignedUrl(pet.avatar_url, 3600)
       : Promise.resolve({ data: null, error: null }),
-    photos && photos.length > 0
+    photos.length > 0
       ? supabase.storage
           .from("pet-photos")
           .createSignedUrls(
@@ -69,7 +71,7 @@ export default async function PetDetailPage({
       .filter((item) => item.path && item.signedUrl && !item.error)
       .map((item) => [item.path as string, item.signedUrl as string]),
   );
-  const timeline = groupPhotosByTokyoDate(photos ?? []);
+  const timeline = groupPhotosByTokyoDate(photos);
 
   return (
     <main className="app-page">
@@ -132,13 +134,29 @@ export default async function PetDetailPage({
       </header>
 
       <section className="flex flex-col gap-4" aria-labelledby="photos-heading">
+        <nav className="grid grid-cols-3 gap-2" aria-label={`${pet.name}の思い出メニュー`}>
+          <Link
+            className="app-button-primary px-2"
+            href={`/pets/${pet.id}`}
+            aria-current="page"
+          >
+            思い出を見る
+          </Link>
+          <Link className="app-button-secondary px-2" href={`/pets/${pet.id}/album`}>
+            アルバムを見る
+          </Link>
+          <Link className="app-button-secondary px-2" href={`/pets/${pet.id}/favorites`}>
+            お気に入り
+          </Link>
+        </nav>
+
         <div className="flex items-center justify-between gap-4">
           <h2 id="photos-heading" className="app-section-title">
             思い出写真
           </h2>
           <div className="flex flex-wrap justify-end gap-2">
             <Link
-              className="app-button-secondary"
+              className="app-button-ghost"
               href={`/pets/${pet.id}/search`}
             >
               思い出を検索
@@ -211,6 +229,14 @@ export default async function PetDetailPage({
                 </ul>
               </section>
             ))}
+            {hasMore ? (
+              <Link
+                className="app-button-secondary self-center"
+                href={paginationHref(`/pets/${pet.id}`, nextPhotoCursor(photos))}
+              >
+                さらに見る
+              </Link>
+            ) : null}
           </div>
         ) : (
           <div className="app-empty">

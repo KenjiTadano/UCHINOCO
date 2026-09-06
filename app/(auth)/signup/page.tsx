@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { signup } from "../actions";
+import { PendingSubmitButton } from "../../_components/pending-submit-button";
 
 type SignupPageProps = {
   searchParams: Promise<{ error?: string; message?: string }>;
@@ -70,10 +71,16 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
             required
           />
         </label>
-        <button className="app-button-primary w-full" type="submit">
-          新規登録
-        </button>
+        <PendingSubmitButton pendingText="登録中...">新規登録</PendingSubmitButton>
       </form>
+
+      <p className="text-center text-xs leading-relaxed text-muted">
+        登録することで
+        <Link className="underline underline-offset-4" href="/terms">利用規約</Link>
+        と
+        <Link className="underline underline-offset-4" href="/privacy">プライバシーポリシー</Link>
+        に同意したものとみなします。
+      </p>
 
       <p className="text-center text-sm text-muted">
         すでにアカウントをお持ちの場合は、

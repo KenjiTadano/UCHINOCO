@@ -11,6 +11,7 @@ import {
   isHeicCandidate,
 } from "@/lib/exif-date";
 import { parseTokyoLocalDateTime } from "@/lib/photo-timeline";
+import { hasMatchingImageSignature } from "@/lib/image-signature";
 import {
   finalizePhotoUploads,
   preparePhotoUploads,
@@ -102,6 +103,11 @@ export function PhotoUploadForm({
             continue;
           }
 
+          if (!(await hasMatchingImageSignature(file, file.type))) {
+            conversionFailures += 1;
+            continue;
+          }
+
           const takenAt = originalTakenAt ?? (await extractExifDateTime(file));
           const previewUrl = URL.createObjectURL(file);
           objectUrls.current.add(previewUrl);
@@ -121,7 +127,7 @@ export function PhotoUploadForm({
       }
       if (conversionFailures > 0) {
         setError(
-          `${conversionFailures}枚の写真を変換できませんでした。別の写真を選択してください。`,
+          `${conversionFailures}枚の画像形式を確認できませんでした。別の写真を選択してください。`,
         );
       }
     } finally {

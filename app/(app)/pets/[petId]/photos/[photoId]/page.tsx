@@ -156,6 +156,9 @@ export default async function PhotoDetailPage({
         <h2 id="ai-analysis-heading" className="text-lg font-semibold">
           AI解析
         </h2>
+        <p className="app-help">
+          AI解析を実行した場合のみ、この写真が解析のため外部AIサービスへ送信されます。
+        </p>
 
         {analysisResult.error ? (
           <p role="alert" className="text-sm text-danger">

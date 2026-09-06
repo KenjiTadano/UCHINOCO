@@ -17,7 +17,7 @@ function field(formData: FormData, name: string, trim = true) {
 }
 
 function redirectWithMessage(
-  path: "/login" | "/signup" | "/home",
+  path: "/login" | "/signup" | "/home" | "/forgot-password" | "/reset-password",
   kind: "error" | "message",
   message: string,
 ): never {
@@ -49,6 +49,97 @@ function getEmailRedirectTo() {
   } catch {
     return null;
   }
+}
+
+export async function requestPasswordReset(formData: FormData) {
+  const email = field(formData, "email");
+  if (!EMAIL_PATTERN.test(email)) {
+    redirectWithMessage(
+      "/forgot-password",
+      "error",
+      "有効なメールアドレスを入力してください。",
+    );
+  }
+
+  const redirectTo = getEmailRedirectTo();
+  if (!redirectTo) {
+    redirectWithMessage(
+      "/forgot-password",
+      "error",
+      "現在、再設定メールを送信できません。時間をおいて再度お試しください。",
+    );
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo,
+  });
+  if (error) {
+    redirectWithMessage(
+      "/forgot-password",
+      "error",
+      "再設定メールを送信できませんでした。時間をおいて再度お試しください。",
+    );
+  }
+
+  redirectWithMessage(
+    "/forgot-password",
+    "message",
+    "パスワード再設定用の案内を送信しました。メールをご確認ください。",
+  );
+}
+
+export async function resetPassword(formData: FormData) {
+  const password = field(formData, "password", false);
+  const confirmation = field(formData, "password_confirmation", false);
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    redirectWithMessage(
+      "/reset-password",
+      "error",
+      `パスワードは${MIN_PASSWORD_LENGTH}文字以上で入力してください。`,
+    );
+  }
+  if (password !== confirmation) {
+    redirectWithMessage(
+      "/reset-password",
+      "error",
+      "パスワードと確認用パスワードが一致しません。",
+    );
+  }
+
+  const supabase = await createClient();
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  if (userError || !user) {
+    redirectWithMessage(
+      "/reset-password",
+      "error",
+      "再設定リンクが無効か、有効期限が切れています。もう一度お試しください。",
+    );
+  }
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) {
+    redirectWithMessage(
+      "/reset-password",
+      "error",
+      "パスワードを変更できませんでした。入力内容を確認して再度お試しください。",
+    );
+  }
+
+  const { error: signOutError } = await supabase.auth.signOut();
+  revalidatePath("/", "layout");
+  if (signOutError) {
+    redirectWithMessage(
+      "/home",
+      "message",
+      "パスワードを変更しました。現在のログイン状態はそのまま利用できます。",
+    );
+  }
+  redirectWithMessage(
+    "/login",
+    "message",
+    "パスワードを変更しました。新しいパスワードでログインしてください。",
+  );
 }
 
 export async function login(formData: FormData) {

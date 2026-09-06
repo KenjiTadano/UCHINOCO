@@ -14,7 +14,8 @@ export async function GET(request: NextRequest) {
     });
 
     if (!error) {
-      return NextResponse.redirect(new URL("/home", request.url));
+      const destination = type === "recovery" ? "/reset-password" : "/home";
+      return NextResponse.redirect(new URL(destination, request.url));
     }
   }
 

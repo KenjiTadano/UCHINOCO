@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { hasMatchingImageSignature } from "@/lib/image-signature";
 import {
   discardReplacementAvatar,
   finalizeReplacementAvatar,
@@ -62,7 +63,7 @@ export function PetEditForm({
     setPreviewUrl(null);
   }
 
-  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     clearPreview();
     setClientAvatarError(null);
     const file = event.target.files?.[0];
@@ -79,6 +80,13 @@ export function PetEditForm({
     }
     if (file.size <= 0 || file.size > maxImageSize) {
       setClientAvatarError("画像は5MB以下の有効なファイルを選択してください。");
+      event.target.value = "";
+      setSelectedFile(null);
+      return;
+    }
+
+    if (!(await hasMatchingImageSignature(file, file.type))) {
+      setClientAvatarError("画像の形式とファイル内容が一致しません。別の画像を選択してください。");
       event.target.value = "";
       setSelectedFile(null);
       return;

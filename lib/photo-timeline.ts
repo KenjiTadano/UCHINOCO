@@ -12,6 +12,12 @@ export type PhotoTimelineGroup<T extends TimelinePhoto> = {
   photos: T[];
 };
 
+export type PhotoMonthGroup<T extends TimelinePhoto> = {
+  monthKey: string;
+  monthLabel: string;
+  photos: T[];
+};
+
 function dateParts(value: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: TOKYO_TIME_ZONE,
@@ -29,6 +35,19 @@ export function photoTimestamp(photo: TimelinePhoto) {
 export function tokyoDateKey(value: string) {
   const parts = dateParts(value);
   return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function tokyoMonthKey(value: string) {
+  const parts = dateParts(value);
+  return `${parts.year}-${parts.month}`;
+}
+
+export function formatTokyoMonth(value: string) {
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: TOKYO_TIME_ZONE,
+    year: "numeric",
+    month: "long",
+  }).format(new Date(value));
 }
 
 export function formatTokyoDate(value: string) {
@@ -119,4 +138,31 @@ export function groupPhotosByTokyoDate<T extends TimelinePhoto>(
     dateLabel: formatTokyoDate(photoTimestamp(groupedPhotos[0])),
     photos: groupedPhotos,
   })).sort((left, right) => right.dateKey.localeCompare(left.dateKey));
+}
+
+export function groupPhotosByTokyoMonth<T extends TimelinePhoto>(
+  photos: T[],
+): PhotoMonthGroup<T>[] {
+  const sortedPhotos = [...photos].sort(
+    (left, right) =>
+      new Date(photoTimestamp(right)).getTime() -
+      new Date(photoTimestamp(left)).getTime(),
+  );
+  const groups = new Map<string, T[]>();
+
+  for (const photo of sortedPhotos) {
+    const key = tokyoMonthKey(photoTimestamp(photo));
+    const group = groups.get(key);
+    if (group) {
+      group.push(photo);
+    } else {
+      groups.set(key, [photo]);
+    }
+  }
+
+  return Array.from(groups, ([monthKey, groupedPhotos]) => ({
+    monthKey,
+    monthLabel: formatTokyoMonth(photoTimestamp(groupedPhotos[0])),
+    photos: groupedPhotos,
+  })).sort((left, right) => right.monthKey.localeCompare(left.monthKey));
 }

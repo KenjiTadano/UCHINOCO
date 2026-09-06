@@ -1,9 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { logout } from "../../(auth)/actions";
 import { formatTokyoDate, photoTimestamp } from "@/lib/photo-timeline";
 import { createClient } from "@/lib/supabase/server";
+import { PendingSubmitButton } from "../../_components/pending-submit-button";
 
 type HomePageProps = {
   searchParams: Promise<{ error?: string; message?: string }>;
@@ -30,17 +32,6 @@ const GENDER_LABELS: Record<string, string> = {
 function formatDate(value: string) {
   const [year, month, day] = value.split("-");
   return `${Number(year)}年${Number(month)}月${Number(day)}日`;
-}
-
-function newestPhotos(photos: DashboardPhoto[]) {
-  return [...photos]
-    .sort((left, right) => {
-      const difference =
-        new Date(photoTimestamp(right)).getTime() -
-        new Date(photoTimestamp(left)).getTime();
-      return difference || right.id.localeCompare(left.id);
-    })
-    .slice(0, DASHBOARD_PHOTO_LIMIT);
 }
 
 function toSignedUrlMap(
@@ -139,64 +130,17 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   ]);
 
   const pets = petsResult.data ?? [];
-  const petIds = pets.map((pet) => pet.id);
   const emptyPhotoResult = { data: [] as DashboardPhoto[], error: null };
-  const [
-    recentTakenResult,
-    recentCreatedResult,
-    favoriteTakenResult,
-    favoriteCreatedResult,
-  ] =
-    petIds.length > 0
+  const [recentResult, favoriteResult] =
+    pets.length > 0
       ? await Promise.all([
-          supabase
-            .from("photos")
-            .select("id, pet_id, storage_path, taken_at, created_at, favorite")
-            .in("pet_id", petIds)
-            .not("taken_at", "is", null)
-            .order("taken_at", { ascending: false })
-            .limit(DASHBOARD_PHOTO_LIMIT),
-          supabase
-            .from("photos")
-            .select("id, pet_id, storage_path, taken_at, created_at, favorite")
-            .in("pet_id", petIds)
-            .is("taken_at", null)
-            .order("created_at", { ascending: false })
-            .limit(DASHBOARD_PHOTO_LIMIT),
-          supabase
-            .from("photos")
-            .select("id, pet_id, storage_path, taken_at, created_at, favorite")
-            .in("pet_id", petIds)
-            .eq("favorite", true)
-            .not("taken_at", "is", null)
-            .order("taken_at", { ascending: false })
-            .limit(DASHBOARD_PHOTO_LIMIT),
-          supabase
-            .from("photos")
-            .select("id, pet_id, storage_path, taken_at, created_at, favorite")
-            .in("pet_id", petIds)
-            .eq("favorite", true)
-            .is("taken_at", null)
-            .order("created_at", { ascending: false })
-            .limit(DASHBOARD_PHOTO_LIMIT),
+          (supabase as unknown as SupabaseClient).rpc("get_dashboard_photos", { p_favorite_only: false, p_limit: DASHBOARD_PHOTO_LIMIT }),
+          (supabase as unknown as SupabaseClient).rpc("get_dashboard_photos", { p_favorite_only: true, p_limit: DASHBOARD_PHOTO_LIMIT }),
         ])
-      : [
-          emptyPhotoResult,
-          emptyPhotoResult,
-          emptyPhotoResult,
-          emptyPhotoResult,
-        ];
+      : [emptyPhotoResult, emptyPhotoResult];
 
-  const recentPhotos = newestPhotos([
-    ...((recentTakenResult.data ?? []) as DashboardPhoto[]),
-    ...((recentCreatedResult.data ?? []) as DashboardPhoto[]),
-  ]);
-  const favoritePhotos = newestPhotos(
-    [
-      ...((favoriteTakenResult.data ?? []) as DashboardPhoto[]),
-      ...((favoriteCreatedResult.data ?? []) as DashboardPhoto[]),
-    ],
-  );
+  const recentPhotos = (recentResult.data ?? []) as DashboardPhoto[];
+  const favoritePhotos = (favoriteResult.data ?? []) as DashboardPhoto[];
   const photoPaths = Array.from(
     new Set(
       [...recentPhotos, ...favoritePhotos].map((photo) => photo.storage_path),
@@ -221,10 +165,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     (pet) => pet.avatar_url && avatarUrlByPath.has(pet.avatar_url),
   )?.avatar_url;
   const photosFailed = Boolean(
-    recentTakenResult.error ||
-      recentCreatedResult.error ||
-      favoriteTakenResult.error ||
-      favoriteCreatedResult.error ||
+    recentResult.error ||
+      favoriteResult.error ||
       photoUrlsResult.error,
   );
 
@@ -387,9 +329,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       ) : null}
 
       <form action={logout}>
-        <button className="app-button-ghost" type="submit">
+        <PendingSubmitButton className="app-button-ghost" pendingText="ログアウト中...">
           ログアウト
-        </button>
+        </PendingSubmitButton>
       </form>
     </main>
   );

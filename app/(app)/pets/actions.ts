@@ -19,6 +19,7 @@ export type PetFieldErrors = Partial<Record<PetFieldName, string>>;
 type AvatarUpload = {
   petId: string;
   storagePath: string;
+  token: string;
 };
 
 export type CreatePetState = {
@@ -168,11 +169,16 @@ function isOwnedAvatarPath(userId: string, petId: string, storagePath: string) {
 
 function isOwnedPhotoPath(userId: string, petId: string, storagePath: string) {
   const pathParts = storagePath.split("/");
+  const [, , year, month, fileName] = pathParts;
   return (
-    pathParts.length >= 3 &&
-    pathParts.every((part) => part.length > 0 && part !== "." && part !== "..") &&
+    pathParts.length === 5 &&
     pathParts[0] === userId &&
-    pathParts[1] === petId
+    pathParts[1] === petId &&
+    /^\d{4}$/.test(year ?? "") &&
+    /^(0[1-9]|1[0-2])$/.test(month ?? "") &&
+    /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(jpg|png|webp)$/i.test(
+      fileName ?? "",
+    )
   );
 }
 
@@ -215,44 +221,8 @@ async function removeStoragePaths(
   bucket: "pet-avatars" | "pet-photos",
   storagePaths: string[],
 ) {
-  const pathsByFolder = new Map<string, Set<string>>();
-  for (const storagePath of storagePaths) {
-    const pathParts = storagePath.split("/");
-    const fileName = pathParts.pop();
-    const folder = pathParts.join("/");
-    if (!fileName || !folder) {
-      return { stage: "path_validation", error: null };
-    }
-    const names = pathsByFolder.get(folder) ?? new Set<string>();
-    names.add(fileName);
-    pathsByFolder.set(folder, names);
-  }
-
-  const existingPaths: string[] = [];
-  for (const [folder, expectedNames] of pathsByFolder) {
-    for (let offset = 0; ; offset += STORAGE_DELETE_BATCH_SIZE) {
-      const { data, error } = await supabase.storage.from(bucket).list(folder, {
-        limit: STORAGE_DELETE_BATCH_SIZE,
-        offset,
-        sortBy: { column: "name", order: "asc" },
-      });
-      if (error) {
-        return { stage: "lookup", error };
-      }
-
-      for (const object of data ?? []) {
-        if (expectedNames.has(object.name)) {
-          existingPaths.push(`${folder}/${object.name}`);
-        }
-      }
-      if ((data?.length ?? 0) < STORAGE_DELETE_BATCH_SIZE) {
-        break;
-      }
-    }
-  }
-
-  for (let offset = 0; offset < existingPaths.length; offset += STORAGE_DELETE_BATCH_SIZE) {
-    const paths = existingPaths.slice(offset, offset + STORAGE_DELETE_BATCH_SIZE);
+  for (let offset = 0; offset < storagePaths.length; offset += STORAGE_DELETE_BATCH_SIZE) {
+    const paths = storagePaths.slice(offset, offset + STORAGE_DELETE_BATCH_SIZE);
     const { error } = await supabase.storage.from(bucket).remove(paths);
     if (error) {
       return { stage: "delete", error };
@@ -383,6 +353,13 @@ export async function createPet(
 
   const extension = IMAGE_EXTENSIONS[avatarType];
   const storagePath = `${user.id}/${pet.id}/${crypto.randomUUID()}.${extension}`;
+  const { data: signedUpload, error: signedUploadError } = await supabase.storage
+    .from("pet-avatars")
+    .createSignedUploadUrl(storagePath);
+  if (signedUploadError || !signedUpload) {
+    await supabase.from("pets").delete().eq("id", pet.id).eq("owner_user_id", user.id);
+    return errorState(previousState, values, {}, "プロフィール画像のアップロード準備に失敗しました。");
+  }
 
   return {
     success: true,
@@ -393,6 +370,7 @@ export async function createPet(
     upload: {
       petId: pet.id,
       storagePath,
+      token: signedUpload.token,
     },
   };
 }
@@ -996,45 +974,6 @@ export async function deletePet(
     return { success: false, message: DELETE_PET_FAILURE_MESSAGE };
   }
 
-  const photoStorageResult = await removeStoragePaths(
-    supabase,
-    "pet-photos",
-    photoPaths,
-  );
-  if (photoStorageResult.error || photoStorageResult.stage) {
-    logPetDeletionFailure(
-      `photo_storage_${photoStorageResult.stage}`,
-      photoStorageResult.error,
-      pet.id,
-      false,
-      false,
-      false,
-    );
-    return { success: false, message: DELETE_PET_FAILURE_MESSAGE };
-  }
-  const photoObjectsDeleted = true;
-
-  let avatarObjectDeleted = !pet.avatar_url;
-  if (pet.avatar_url) {
-    const avatarStorageResult = await removeStoragePaths(
-      supabase,
-      "pet-avatars",
-      [pet.avatar_url],
-    );
-    if (avatarStorageResult.error || avatarStorageResult.stage) {
-      logPetDeletionFailure(
-        `avatar_storage_${avatarStorageResult.stage}`,
-        avatarStorageResult.error,
-        pet.id,
-        photoObjectsDeleted,
-        false,
-        false,
-      );
-      return { success: false, message: DELETE_PET_FAILURE_MESSAGE };
-    }
-    avatarObjectDeleted = true;
-  }
-
   const { error: databaseError } = await supabase
     .from("pets")
     .delete()
@@ -1042,11 +981,11 @@ export async function deletePet(
     .eq("owner_user_id", user.id);
   if (databaseError) {
     logPetDeletionFailure(
-      "database_delete_after_storage",
+      "database_delete",
       databaseError,
       pet.id,
-      photoObjectsDeleted,
-      avatarObjectDeleted,
+      false,
+      false,
       false,
     );
     return { success: false, message: DELETE_PET_FAILURE_MESSAGE };
@@ -1060,14 +999,39 @@ export async function deletePet(
     .maybeSingle();
   if (verifyError || remainingPet) {
     logPetDeletionFailure(
-      "database_delete_verify_after_storage",
+      "database_delete_verify",
       verifyError,
       pet.id,
-      photoObjectsDeleted,
-      avatarObjectDeleted,
+      false,
+      false,
       false,
     );
     return { success: false, message: DELETE_PET_FAILURE_MESSAGE };
+  }
+
+  const photoStorageResult = await removeStoragePaths(supabase, "pet-photos", photoPaths);
+  if (photoStorageResult.error || photoStorageResult.stage) {
+    logPetDeletionFailure(
+      `storage_cleanup_pet_photos_${photoStorageResult.stage}`,
+      photoStorageResult.error,
+      pet.id,
+      false,
+      false,
+      true,
+    );
+  }
+  if (pet.avatar_url) {
+    const avatarStorageResult = await removeStoragePaths(supabase, "pet-avatars", [pet.avatar_url]);
+    if (avatarStorageResult.error || avatarStorageResult.stage) {
+      logPetDeletionFailure(
+        `storage_cleanup_pet_avatars_${avatarStorageResult.stage}`,
+        avatarStorageResult.error,
+        pet.id,
+        !photoStorageResult.error && !photoStorageResult.stage,
+        false,
+        true,
+      );
+    }
   }
 
   revalidatePath("/home");

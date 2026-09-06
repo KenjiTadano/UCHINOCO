@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { login } from "../actions";
+import { PendingSubmitButton } from "../../_components/pending-submit-button";
 
 type LoginPageProps = {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; message?: string }>;
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const { error } = await searchParams;
+  const { error, message } = await searchParams;
 
   return (
     <main className="app-page-narrow max-w-sm justify-center">
@@ -20,6 +21,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           {error}
         </p>
       ) : null}
+      {message ? <p role="status" className="app-success">{message}</p> : null}
 
       <form action={login} className="flex flex-col gap-4">
         <label className="app-label">
@@ -43,10 +45,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             required
           />
         </label>
-        <button className="app-button-primary w-full" type="submit">
-          ログイン
-        </button>
+        <PendingSubmitButton pendingText="ログイン中...">ログイン</PendingSubmitButton>
       </form>
+
+      <Link className="app-back-link self-center" href="/forgot-password">
+        パスワードを忘れた方
+      </Link>
 
       <p className="text-center text-sm text-muted">
         アカウントをお持ちでない場合は、

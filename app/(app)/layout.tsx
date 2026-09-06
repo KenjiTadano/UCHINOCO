@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { BottomNavigation } from "./_components/bottom-navigation";
+import { LegalNavigation } from "../_components/legal-navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     <>
       <div className="pb-[calc(5rem+env(safe-area-inset-bottom))]">
         {children}
+        <LegalNavigation />
       </div>
       <BottomNavigation />
     </>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { hasMatchingImageSignature } from "@/lib/image-signature";
 import {
   createPet,
   discardPendingPet,
@@ -70,7 +71,7 @@ function AvatarPicker({
     setPreviewUrl(null);
   }
 
-  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     clearPreview();
     setClientError(null);
 
@@ -89,6 +90,13 @@ function AvatarPicker({
 
     if (file.size <= 0 || file.size > maxImageSize) {
       setClientError("画像は5MB以下の有効なファイルを選択してください。");
+      event.target.value = "";
+      onFileChange(null);
+      return;
+    }
+
+    if (!(await hasMatchingImageSignature(file, file.type))) {
+      setClientError("画像の形式とファイル内容が一致しません。別の画像を選択してください。");
       event.target.value = "";
       onFileChange(null);
       return;
@@ -191,10 +199,12 @@ export function PetForm() {
         const supabase = createClient();
         const { error: uploadError } = await supabase.storage
           .from("pet-avatars")
-          .upload(pendingUpload.storagePath, selectedFile, {
-            contentType: selectedFile.type,
-            upsert: false,
-          });
+          .uploadToSignedUrl(
+            pendingUpload.storagePath,
+            pendingUpload.token,
+            selectedFile,
+            { contentType: selectedFile.type },
+          );
 
         if (uploadError) {
           await handleUploadFailure();

@@ -515,8 +515,14 @@ export async function deletePhoto(
   const folder = pathParts.slice(0, -1).join("/");
   const storagePathIsOwned =
     photo.uploader_user_id === user.id &&
+    pathParts.length === 5 &&
     pathParts[0] === user.id &&
     pathParts[1] === petId &&
+    /^\d{4}$/.test(pathParts[2] ?? "") &&
+    /^(0[1-9]|1[0-2])$/.test(pathParts[3] ?? "") &&
+    /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(jpg|png|webp)$/i.test(
+      fileName ?? "",
+    ) &&
     Boolean(folder) &&
     Boolean(fileName);
 
@@ -531,42 +537,6 @@ export async function deletePhoto(
     return { success: false, message: "写真の削除に失敗しました。もう一度お試しください。" };
   }
 
-  const { data: storedObjects, error: listError } = await supabase.storage
-    .from("pet-photos")
-    .list(folder, { limit: 2, search: fileName });
-  if (listError) {
-    logPhotoDeletionFailure(
-      "storage_lookup",
-      listError,
-      photo.id,
-      false,
-      false,
-    );
-    return { success: false, message: "写真の削除に失敗しました。もう一度お試しください。" };
-  }
-
-  const storageObjectExists = (storedObjects ?? []).some(
-    (object) => object.name === fileName,
-  );
-  let storageDeleted = !storageObjectExists;
-
-  if (storageObjectExists) {
-    const { error: storageError } = await supabase.storage
-      .from("pet-photos")
-      .remove([photo.storage_path]);
-    if (storageError && !isMissingStorageObject(storageError)) {
-      logPhotoDeletionFailure(
-        "storage_delete",
-        storageError,
-        photo.id,
-        false,
-        false,
-      );
-      return { success: false, message: "写真の削除に失敗しました。もう一度お試しください。" };
-    }
-    storageDeleted = true;
-  }
-
   const { error: databaseError } = await supabase
     .from("photos")
     .delete()
@@ -575,10 +545,10 @@ export async function deletePhoto(
     .eq("uploader_user_id", user.id);
   if (databaseError) {
     logPhotoDeletionFailure(
-      "database_delete_after_storage",
+      "database_delete",
       databaseError,
       photo.id,
-      storageDeleted,
+      false,
       false,
     );
     return { success: false, message: "写真の削除に失敗しました。もう一度お試しください。" };
@@ -594,17 +564,32 @@ export async function deletePhoto(
 
   if (!databaseDeleted) {
     logPhotoDeletionFailure(
-      "database_delete_verify_after_storage",
+      "database_delete_verify",
       verifyError,
       photo.id,
-      storageDeleted,
+      false,
       false,
     );
     return { success: false, message: "写真の削除に失敗しました。もう一度お試しください。" };
   }
 
+  const { error: storageError } = await supabase.storage
+    .from("pet-photos")
+    .remove([photo.storage_path]);
+  if (storageError && !isMissingStorageObject(storageError)) {
+    logPhotoDeletionFailure(
+      "storage_cleanup_after_database_delete",
+      storageError,
+      photo.id,
+      false,
+      true,
+    );
+  }
+
   revalidatePath(`/pets/${petId}`);
   revalidatePath(`/pets/${petId}/search`);
+  revalidatePath(`/pets/${petId}/album`);
+  revalidatePath(`/pets/${petId}/favorites`);
   revalidatePath("/home");
   redirect(`/pets/${petId}`);
 }

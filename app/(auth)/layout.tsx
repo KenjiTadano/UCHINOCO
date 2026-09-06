@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { LegalNavigation } from "../_components/legal-navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -11,5 +12,10 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
     redirect("/home");
   }
 
-  return children;
+  return (
+    <>
+      {children}
+      <LegalNavigation />
+    </>
+  );
 }

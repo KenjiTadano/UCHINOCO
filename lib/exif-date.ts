@@ -1,3 +1,5 @@
+import { hasMatchingImageSignature } from "@/lib/image-signature";
+
 const JPEG_START = 0xffd8;
 const APP1_MARKER = 0xe1;
 const EXIF_HEADER = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00];
@@ -156,12 +158,6 @@ export function isHeicCandidate(file: File) {
   );
 }
 
-async function hasJpegSignature(blob: Blob) {
-  if (blob.size < 3) return false;
-  const bytes = new Uint8Array(await blob.slice(0, 3).arrayBuffer());
-  return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-}
-
 export async function convertHeicToJpeg(file: File, maxSize: number) {
   const { heicTo, isHeic } = await import("heic-to/next");
   if (!(await isHeic(file))) return null;
@@ -175,7 +171,7 @@ export async function convertHeicToJpeg(file: File, maxSize: number) {
     jpeg.type !== "image/jpeg" ||
     jpeg.size <= 0 ||
     jpeg.size > maxSize ||
-    !(await hasJpegSignature(jpeg))
+    !(await hasMatchingImageSignature(jpeg, "image/jpeg"))
   ) {
     return null;
   }
