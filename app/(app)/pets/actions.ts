@@ -36,6 +36,12 @@ export type FinalizePetAvatarResult = {
   message: string | null;
 };
 
+export type PrepareAvatarOptimizationResult = {
+  success: boolean;
+  message: string | null;
+  upload: AvatarReplacementUpload | null;
+};
+
 export type DiscardPendingPetResult = {
   success: boolean;
 };
@@ -64,12 +70,7 @@ const GENDERS = new Set(["male", "female", "unknown"]);
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
-const IMAGE_EXTENSIONS: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp",
-};
+const MAX_AVATAR_SIZE = 1024 * 1024;
 const EXTENSION_MIME_TYPES: Record<string, string> = {
   jpg: "image/jpeg",
   png: "image/png",
@@ -313,12 +314,12 @@ export async function createPet(
   }
 
   if (hasAvatar) {
-    if (!IMAGE_EXTENSIONS[avatarType]) {
-      fieldErrors.avatar = "JPEG、PNG、WebP形式の画像を選択してください。";
+    if (avatarType !== "image/webp") {
+      fieldErrors.avatar = "プロフィール画像を正しく選択してください。";
     } else if (!Number.isSafeInteger(avatarSize) || avatarSize <= 0) {
       fieldErrors.avatar = "空の画像ファイルは登録できません。";
-    } else if (avatarSize > MAX_IMAGE_SIZE) {
-      fieldErrors.avatar = "プロフィール画像は5MB以下にしてください。";
+    } else if (avatarSize > MAX_AVATAR_SIZE) {
+      fieldErrors.avatar = "プロフィール画像を変換できませんでした。画像を選び直してください。";
     }
   } else if (avatarType || avatarSizeValue) {
     fieldErrors.avatar = "画像情報が正しくありません。画像を選び直してください。";
@@ -366,8 +367,7 @@ export async function createPet(
     redirect("/home");
   }
 
-  const extension = IMAGE_EXTENSIONS[avatarType];
-  const storagePath = `${user.id}/${pet.id}/${crypto.randomUUID()}.${extension}`;
+  const storagePath = `${user.id}/${pet.id}/${crypto.randomUUID()}.webp`;
   const { data: signedUpload, error: signedUploadError } = await supabase.storage
     .from("pet-avatars")
     .createSignedUploadUrl(storagePath);
@@ -442,7 +442,7 @@ export async function finalizePetAvatar(
     !avatarObject ||
     !Number.isSafeInteger(storedSize) ||
     storedSize <= 0 ||
-    storedSize > MAX_IMAGE_SIZE ||
+    storedSize > MAX_AVATAR_SIZE ||
     storedMimeType !== expectedMimeType
   ) {
     await removePendingPet(supabase, user.id, petId, storagePath);
@@ -590,12 +590,12 @@ export async function updatePet(
   const avatarSize = Number(avatarSizeValue);
 
   if (hasAvatar) {
-    if (!IMAGE_EXTENSIONS[avatarType]) {
-      fieldErrors.avatar = "JPEG、PNG、WebP形式の画像を選択してください。";
+    if (avatarType !== "image/webp") {
+      fieldErrors.avatar = "プロフィール画像を正しく選択してください。";
     } else if (!Number.isSafeInteger(avatarSize) || avatarSize <= 0) {
       fieldErrors.avatar = "空の画像ファイルは登録できません。";
-    } else if (avatarSize > MAX_IMAGE_SIZE) {
-      fieldErrors.avatar = "プロフィール画像は5MB以下にしてください。";
+    } else if (avatarSize > MAX_AVATAR_SIZE) {
+      fieldErrors.avatar = "プロフィール画像を変換できませんでした。画像を選び直してください。";
     }
   } else if (avatarType || avatarSizeValue) {
     fieldErrors.avatar = "画像情報が正しくありません。画像を選び直してください。";
@@ -607,8 +607,7 @@ export async function updatePet(
 
   let upload: AvatarReplacementUpload | null = null;
   if (hasAvatar) {
-    const extension = IMAGE_EXTENSIONS[avatarType];
-    const storagePath = `${user.id}/${petId}/${crypto.randomUUID()}.${extension}`;
+    const storagePath = `${user.id}/${petId}/${crypto.randomUUID()}.webp`;
     const { data, error } = await supabase.storage
       .from("pet-avatars")
       .createSignedUploadUrl(storagePath);
@@ -731,6 +730,63 @@ export async function discardReplacementAvatar(
   return { success: await removeReplacementAvatar(supabase, storagePath) };
 }
 
+export async function prepareAvatarOptimization(
+  petId: string,
+): Promise<PrepareAvatarOptimizationResult & { originalSignedUrl?: string }> {
+  const failure: PrepareAvatarOptimizationResult = {
+    success: false,
+    message: "プロフィール画像の最適化を準備できませんでした。",
+    upload: null,
+  };
+  if (!UUID_PATTERN.test(petId)) return failure;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError || !user) return failure;
+
+  const { data: pet, error: petError } = await supabase
+    .from("pets")
+    .select("id, owner_user_id, avatar_url")
+    .eq("id", petId)
+    .eq("owner_user_id", user.id)
+    .maybeSingle();
+  if (
+    petError ||
+    !pet ||
+    pet.owner_user_id !== user.id ||
+    !pet.avatar_url ||
+    pet.avatar_url.toLowerCase().endsWith(".webp") ||
+    !isOwnedAvatarPath(user.id, petId, pet.avatar_url)
+  ) {
+    return failure;
+  }
+
+  const storagePath = `${user.id}/${petId}/${crypto.randomUUID()}.webp`;
+  const [original, upload] = await Promise.all([
+    supabase.storage.from("pet-avatars").createSignedUrl(pet.avatar_url, 300),
+    supabase.storage.from("pet-avatars").createSignedUploadUrl(storagePath),
+  ]);
+  if (original.error || !original.data || upload.error || !upload.data) {
+    logPetAvatarMutationFailure(
+      "optimization_signed_urls",
+      original.error ?? upload.error,
+      petId,
+      true,
+    );
+    return failure;
+  }
+
+  return {
+    success: true,
+    message: null,
+    originalSignedUrl: original.data.signedUrl,
+    upload: { storagePath, token: upload.data.token },
+  };
+}
+
 export async function finalizeReplacementAvatar(
   petId: string,
   storagePath: string,
@@ -810,7 +866,7 @@ export async function finalizeReplacementAvatar(
     !avatarObject ||
     !Number.isSafeInteger(storedSize) ||
     storedSize <= 0 ||
-    storedSize > MAX_IMAGE_SIZE ||
+    storedSize > MAX_AVATAR_SIZE ||
     storedMimeType !== expectedMimeType
   ) {
     logPetAvatarMutationFailure(

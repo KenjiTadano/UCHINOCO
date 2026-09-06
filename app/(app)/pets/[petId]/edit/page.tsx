@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PetDeleteControl } from "./pet-delete-control";
 import { PetEditForm } from "./pet-edit-form";
+import { AvatarOptimizationControl } from "./avatar-optimization-control";
 
 type PetEditPageProps = {
   params: Promise<{ petId: string }>;
@@ -57,6 +58,10 @@ export default async function PetEditPage({ params }: PetEditPageProps) {
         }}
         currentAvatarUrl={avatarResult.data?.signedUrl ?? null}
       />
+
+      {pet.avatar_url && !pet.avatar_url.toLowerCase().endsWith(".webp") ? (
+        <AvatarOptimizationControl petId={pet.id} />
+      ) : null}
 
       <PetDeleteControl petId={pet.id} petName={pet.name} />
     </main>

@@ -5,7 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { hasMatchingImageSignature } from "@/lib/image-signature";
+import {
+  AVATAR_FILE_ACCEPT,
+  AVATAR_SOURCE_MAX_SIZE,
+  isAcceptedAvatarSource,
+  prepareAvatarUpload,
+} from "@/lib/avatar-image";
 import {
   discardReplacementAvatar,
   finalizeReplacementAvatar,
@@ -15,8 +20,6 @@ import {
   type UpdatePetState,
 } from "../../actions";
 
-const acceptedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-const maxImageSize = 5 * 1024 * 1024;
 const fieldOrder: PetFieldName[] = [
   "avatar",
   "name",
@@ -37,10 +40,11 @@ export function PetEditForm({
   currentAvatarUrl: string | null;
 }) {
   const router = useRouter();
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFile, setSelectedFile] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [clientAvatarError, setClientAvatarError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [preparingAvatar, setPreparingAvatar] = useState(false);
   const previewUrlRef = useRef<string | null>(null);
   const uploadStartedForPath = useRef<string | null>(null);
   const action = updatePet.bind(null, petId);
@@ -53,7 +57,7 @@ export function PetEditForm({
     upload: null,
   } satisfies UpdatePetState);
   const firstError = fieldOrder.find((name) => state.fieldErrors[name]);
-  const busy = pending || uploading;
+  const busy = pending || uploading || preparingAvatar;
 
   function clearPreview() {
     if (previewUrlRef.current) {
@@ -72,30 +76,33 @@ export function PetEditForm({
       setSelectedFile(null);
       return;
     }
-    if (!acceptedImageTypes.has(file.type)) {
-      setClientAvatarError("JPEG、PNG、WebP形式の画像を選択してください。");
+    if (!isAcceptedAvatarSource(file)) {
+      setClientAvatarError("JPEG、PNG、WebP、HEIC、HEIF形式の画像を選択してください。");
       event.target.value = "";
       setSelectedFile(null);
       return;
     }
-    if (file.size <= 0 || file.size > maxImageSize) {
+    if (file.size <= 0 || file.size > AVATAR_SOURCE_MAX_SIZE) {
       setClientAvatarError("画像は5MB以下の有効なファイルを選択してください。");
       event.target.value = "";
       setSelectedFile(null);
       return;
     }
 
-    if (!(await hasMatchingImageSignature(file, file.type))) {
-      setClientAvatarError("画像の形式とファイル内容が一致しません。別の画像を選択してください。");
+    setPreparingAvatar(true);
+    try {
+      const avatar = await prepareAvatarUpload(file);
+      const objectUrl = URL.createObjectURL(avatar);
+      previewUrlRef.current = objectUrl;
+      setPreviewUrl(objectUrl);
+      setSelectedFile(avatar);
+    } catch {
+      setClientAvatarError("画像を変換できませんでした。別の画像を選択してください。");
       event.target.value = "";
       setSelectedFile(null);
-      return;
+    } finally {
+      setPreparingAvatar(false);
     }
-
-    const objectUrl = URL.createObjectURL(file);
-    previewUrlRef.current = objectUrl;
-    setPreviewUrl(objectUrl);
-    setSelectedFile(file);
   }
 
   useEffect(() => {
@@ -147,6 +154,7 @@ export function PetEditForm({
             selectedFile,
             {
               contentType: selectedFile.type,
+              upsert: false,
             },
           );
         if (uploadError) {
@@ -225,14 +233,16 @@ export function PetEditForm({
         )}
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept={AVATAR_FILE_ACCEPT}
           onChange={handleFileChange}
           disabled={busy}
           autoFocus={firstError === "avatar"}
           aria-invalid={Boolean(avatarError)}
           className="block w-full text-sm"
         />
-        <p className="app-help">JPEG・PNG・WebP、5MBまで</p>
+        <p className="app-help">
+          JPEG・PNG・WebP・HEIC・HEIF、5MBまで（保存時に軽量化します）
+        </p>
         {avatarError ? (
           <p className="text-sm text-danger">{avatarError}</p>
         ) : null}
@@ -353,7 +363,13 @@ export function PetEditForm({
         disabled={busy}
         className="app-button-primary w-full"
       >
-        {uploading ? "画像をアップロード中..." : pending ? "保存中..." : "保存"}
+        {preparingAvatar
+          ? "画像を最適化中..."
+          : uploading
+            ? "画像をアップロード中..."
+            : pending
+              ? "保存中..."
+              : "保存"}
       </button>
       <Link className="app-back-link self-center" href={`/pets/${petId}`}>
         キャンセル

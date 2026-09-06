@@ -5,7 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { hasMatchingImageSignature } from "@/lib/image-signature";
+import {
+  AVATAR_FILE_ACCEPT,
+  AVATAR_SOURCE_MAX_SIZE,
+  isAcceptedAvatarSource,
+  prepareAvatarUpload,
+} from "@/lib/avatar-image";
 import {
   createPet,
   discardPendingPet,
@@ -43,21 +48,23 @@ const fieldOrder: PetFieldName[] = [
   "adoption_date",
 ];
 
-const acceptedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-const maxImageSize = 5 * 1024 * 1024;
 const uploadFailureMessage =
   "プロフィール画像を保存できなかったため、ペットは登録されませんでした。もう一度お試しください。";
 
 type AvatarPickerProps = {
-  onFileChange: (file: File | null) => void;
+  onFileChange: (file: Blob | null) => void;
+  onProcessingChange: (processing: boolean) => void;
   error?: string;
   autoFocus: boolean;
+  disabled: boolean;
 };
 
 function AvatarPicker({
   onFileChange,
+  onProcessingChange,
   error,
   autoFocus,
+  disabled,
 }: AvatarPickerProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [clientError, setClientError] = useState<string | null>(null);
@@ -81,31 +88,34 @@ function AvatarPicker({
       return;
     }
 
-    if (!acceptedImageTypes.has(file.type)) {
-      setClientError("JPEG、PNG、WebP形式の画像を選択してください。");
+    if (!isAcceptedAvatarSource(file)) {
+      setClientError("JPEG、PNG、WebP、HEIC、HEIF形式の画像を選択してください。");
       event.target.value = "";
       onFileChange(null);
       return;
     }
 
-    if (file.size <= 0 || file.size > maxImageSize) {
+    if (file.size <= 0 || file.size > AVATAR_SOURCE_MAX_SIZE) {
       setClientError("画像は5MB以下の有効なファイルを選択してください。");
       event.target.value = "";
       onFileChange(null);
       return;
     }
 
-    if (!(await hasMatchingImageSignature(file, file.type))) {
-      setClientError("画像の形式とファイル内容が一致しません。別の画像を選択してください。");
+    onProcessingChange(true);
+    try {
+      const avatar = await prepareAvatarUpload(file);
+      const objectUrl = URL.createObjectURL(avatar);
+      previewUrlRef.current = objectUrl;
+      setPreviewUrl(objectUrl);
+      onFileChange(avatar);
+    } catch {
+      setClientError("画像を変換できませんでした。別の画像を選択してください。");
       event.target.value = "";
       onFileChange(null);
-      return;
+    } finally {
+      onProcessingChange(false);
     }
-
-    const objectUrl = URL.createObjectURL(file);
-    previewUrlRef.current = objectUrl;
-    setPreviewUrl(objectUrl);
-    onFileChange(file);
   }
 
   useEffect(() => {
@@ -143,14 +153,15 @@ function AvatarPicker({
       <input
         className="block w-full text-sm"
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept={AVATAR_FILE_ACCEPT}
         onChange={handleFileChange}
+        disabled={disabled}
         aria-invalid={Boolean(displayedError)}
         aria-describedby={displayedError ? "avatar-error" : "avatar-help"}
         autoFocus={autoFocus}
       />
       <p id="avatar-help" className="app-help">
-        JPEG・PNG・WebP、5MBまで
+        JPEG・PNG・WebP・HEIC・HEIF、5MBまで（保存時に軽量化します）
       </p>
       {displayedError ? (
         <p id="avatar-error" className="text-sm text-danger">
@@ -163,12 +174,13 @@ function AvatarPicker({
 
 export function PetForm() {
   const router = useRouter();
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFile, setSelectedFile] = useState<Blob | null>(null);
+  const [preparingAvatar, setPreparingAvatar] = useState(false);
   const [uploading, setUploading] = useState(false);
   const uploadStartedForPet = useRef<string | null>(null);
   const [state, formAction, pending] = useActionState(createPet, initialState);
   const firstError = fieldOrder.find((field) => state.fieldErrors[field]);
-  const busy = pending || uploading;
+  const busy = pending || uploading || preparingAvatar;
 
   useEffect(() => {
     const upload = state.upload;
@@ -203,7 +215,7 @@ export function PetForm() {
             pendingUpload.storagePath,
             pendingUpload.token,
             selectedFile,
-            { contentType: selectedFile.type },
+            { contentType: selectedFile.type, upsert: false },
           );
 
         if (uploadError) {
@@ -248,8 +260,10 @@ export function PetForm() {
 
       <AvatarPicker
         onFileChange={setSelectedFile}
+        onProcessingChange={setPreparingAvatar}
         error={state.fieldErrors.avatar}
         autoFocus={firstError === "avatar"}
+        disabled={busy}
       />
 
       <label className="flex flex-col gap-1 text-sm">
@@ -399,7 +413,13 @@ export function PetForm() {
         type="submit"
         disabled={busy}
       >
-        {uploading ? "画像をアップロード中..." : pending ? "登録中..." : "登録する"}
+        {preparingAvatar
+          ? "画像を最適化中..."
+          : uploading
+            ? "画像をアップロード中..."
+            : pending
+              ? "登録中..."
+              : "登録する"}
       </button>
 
       <Link className="app-back-link self-center" href="/home">
