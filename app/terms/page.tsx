@@ -18,6 +18,20 @@ export default function TermsPage() {
         <header><p className="app-eyebrow">UCHINOCO</p><h1 className="app-title">利用規約</h1></header>
         <p className="text-sm leading-relaxed text-muted">本規約はUCHINOCOのMVP利用条件を定めます。公開時の運営形態に応じて改定することがあります。</p>
         {sections.map(([title, body]) => <section key={title} className="grid gap-2"><h2 className="app-section-title text-lg">{title}</h2><p className="text-sm leading-7">{body}</p></section>)}
+        <section className="grid gap-2">
+          <h2 className="app-section-title text-lg">お問い合わせ</h2>
+          <p className="text-sm leading-7">
+            運営：UCHINOCO運営
+            <br />
+            問い合わせ先：
+            <a
+              className="underline decoration-border underline-offset-4 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              href="mailto:support@uchinoco.app"
+            >
+              support@uchinoco.app
+            </a>
+          </p>
+        </section>
         <p className="text-xs text-muted">制定日：2026年9月6日</p>
         <Link className="app-back-link" href="/">UCHINOCOへ戻る</Link>
       </main>

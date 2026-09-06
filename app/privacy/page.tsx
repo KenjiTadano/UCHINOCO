@@ -7,7 +7,6 @@ const sections = [
   ["AI解析", "ユーザーが写真詳細でAI解析を明示的に実行した場合のみ、対象写真を解析のため外部AIサービスへ送信します。AI検索は保存済みの解析結果を利用し、検索のたびに写真を再送信しません。"],
   ["利用目的", "サービスの提供、本人確認、データ保存、機能改善、不正利用防止、障害調査、セキュリティ確保のために必要な範囲で情報を処理します。"],
   ["データの削除", "写真とペット情報はサービス内の削除機能から削除できます。ペットを削除すると、そのペットの写真と関連するAI解析結果も削除対象になります。"],
-  ["お問い合わせ", "お問い合わせ方法および運営者情報は、公開時にサービス内の案内から確認できるようにします。"],
 ] as const;
 
 export default function PrivacyPage() {
@@ -17,6 +16,20 @@ export default function PrivacyPage() {
         <header><p className="app-eyebrow">UCHINOCO</p><h1 className="app-title">プライバシーポリシー</h1></header>
         <p className="text-sm leading-relaxed text-muted">本ページはMVPにおける情報の取り扱い方針を説明するものです。公開時の運営形態や適用法令に応じて内容を更新することがあります。</p>
         {sections.map(([title, body]) => <section key={title} className="grid gap-2"><h2 className="app-section-title text-lg">{title}</h2><p className="text-sm leading-7">{body}</p></section>)}
+        <section className="grid gap-2">
+          <h2 className="app-section-title text-lg">お問い合わせ</h2>
+          <p className="text-sm leading-7">
+            運営：UCHINOCO運営
+            <br />
+            問い合わせ先：
+            <a
+              className="underline decoration-border underline-offset-4 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              href="mailto:support@uchinoco.app"
+            >
+              support@uchinoco.app
+            </a>
+          </p>
+        </section>
         <p className="text-xs text-muted">制定日：2026年9月6日</p>
         <Link className="app-back-link" href="/">UCHINOCOへ戻る</Link>
       </main>
