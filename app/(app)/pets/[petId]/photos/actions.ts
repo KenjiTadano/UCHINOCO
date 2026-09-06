@@ -15,6 +15,8 @@ export type SignedPhotoUpload = {
   clientId: string;
   path: string;
   token: string;
+  thumbnailPath: string;
+  thumbnailToken: string;
 };
 
 export type PreparePhotoUploadsResult = {
@@ -31,12 +33,14 @@ export type FinalizePhotoUploadsResult = {
 
 type FinalizePhotoUpload = {
   storagePath: string;
+  thumbnailPath: string | null;
   takenAt: string | null;
 };
 
 const BUCKET = "pet-photos";
 const MAX_FILES = 10;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_THUMBNAIL_SIZE = 1024 * 1024;
 const FUTURE_TOLERANCE_MILLISECONDS = 5 * 60 * 1000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -87,6 +91,19 @@ async function ownedPet(client: SupabaseClient, petId: string, userId: string) {
   return !error && data?.owner_user_id === userId ? data : null;
 }
 
+async function cleanupUploadedPhoto(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  storagePath: string,
+  thumbnailPath: string | null,
+) {
+  await supabase.storage.from(BUCKET).remove([storagePath]);
+  if (thumbnailPath) {
+    await supabase.storage
+      .from("pet-photo-thumbnails")
+      .remove([thumbnailPath]);
+  }
+}
+
 export async function preparePhotoUploads(
   petId: string,
   metadata: PhotoMetadata[],
@@ -135,14 +152,25 @@ export async function preparePhotoUploads(
   const results = await Promise.all(
     metadata.map(async (item) => {
       const extension = IMAGE_EXTENSIONS[item.mimeType];
-      const path = `${user.id}/${petId}/${year}/${month}/${crypto.randomUUID()}.${extension}`;
-      const { data, error } = await supabase.storage
-        .from(BUCKET)
-        .createSignedUploadUrl(path);
+      const photoId = crypto.randomUUID();
+      const path = `${user.id}/${petId}/${year}/${month}/${photoId}.${extension}`;
+      const thumbnailPath = `${user.id}/${petId}/${year}/${month}/${photoId}.webp`;
+      const [original, thumbnail] = await Promise.all([
+        supabase.storage.from(BUCKET).createSignedUploadUrl(path),
+        supabase.storage
+          .from("pet-photo-thumbnails")
+          .createSignedUploadUrl(thumbnailPath),
+      ]);
 
-      return error || !data
+      return original.error || !original.data || thumbnail.error || !thumbnail.data
         ? null
-        : { clientId: item.clientId, path, token: data.token };
+        : {
+            clientId: item.clientId,
+            path,
+            token: original.data.token,
+            thumbnailPath,
+            thumbnailToken: thumbnail.data.token,
+          };
     }),
   );
   const uploads = results.filter(
@@ -172,9 +200,11 @@ export async function finalizePhotoUploads(
       (upload) =>
         !upload ||
         typeof upload.storagePath !== "string" ||
+        (upload.thumbnailPath !== null && typeof upload.thumbnailPath !== "string") ||
         (upload.takenAt !== null && typeof upload.takenAt !== "string"),
     ) ||
     new Set(uploads.map((upload) => upload.storagePath)).size !== uploads.length
+    || new Set(uploads.flatMap((upload) => upload.thumbnailPath ? [upload.thumbnailPath] : [])).size !== uploads.filter((upload) => upload.thumbnailPath).length
   ) {
     return { savedCount: 0, failedCount: uploadCount || 1 };
   }
@@ -196,7 +226,7 @@ export async function finalizePhotoUploads(
   let savedCount = 0;
   let failedCount = 0;
 
-  for (const { storagePath, takenAt: takenAtInput } of uploads) {
+  for (const { storagePath, thumbnailPath, takenAt: takenAtInput } of uploads) {
     const pathParts = storagePath.split("/");
     const [pathUserId, pathPetId, year, month, fileName] = pathParts;
     const fileMatch = fileName?.match(
@@ -215,6 +245,14 @@ export async function finalizePhotoUploads(
       continue;
     }
 
+    const expectedThumbnailPath = `${pathUserId}/${pathPetId}/${year}/${month}/${fileMatch[1]}.webp`;
+    const validThumbnailPath = thumbnailPath === null || thumbnailPath === expectedThumbnailPath;
+    if (!validThumbnailPath) {
+      await supabase.storage.from(BUCKET).remove([storagePath]);
+      failedCount += 1;
+      continue;
+    }
+
     const takenAt = takenAtInput
       ? parseTokyoLocalDateTime(takenAtInput)
       : null;
@@ -223,7 +261,7 @@ export async function finalizePhotoUploads(
       (takenAt &&
         takenAt.getTime() > Date.now() + FUTURE_TOLERANCE_MILLISECONDS)
     ) {
-      await supabase.storage.from(BUCKET).remove([storagePath]);
+      await cleanupUploadedPhoto(supabase, storagePath, thumbnailPath);
       failedCount += 1;
       continue;
     }
@@ -245,20 +283,44 @@ export async function finalizePhotoUploads(
       storedSize > MAX_FILE_SIZE ||
       storedMimeType !== expectedMimeType
     ) {
-      await supabase.storage.from(BUCKET).remove([storagePath]);
+      await cleanupUploadedPhoto(supabase, storagePath, thumbnailPath);
       failedCount += 1;
       continue;
+    }
+
+    let confirmedThumbnailPath: string | null = null;
+    if (thumbnailPath) {
+      const thumbnailFolder = `${user.id}/${petId}/${year}/${month}`;
+      const thumbnailName = `${fileMatch[1]}.webp`;
+      const { data: thumbnailObjects, error: thumbnailListError } = await supabase.storage
+        .from("pet-photo-thumbnails")
+        .list(thumbnailFolder, { limit: 2, search: thumbnailName });
+      const thumbnailObject = thumbnailObjects?.find((object) => object.name === thumbnailName);
+      const thumbnailSize = Number(thumbnailObject?.metadata?.size);
+      if (
+        !thumbnailListError &&
+        thumbnailObject &&
+        Number.isSafeInteger(thumbnailSize) &&
+        thumbnailSize > 0 &&
+        thumbnailSize <= MAX_THUMBNAIL_SIZE &&
+        thumbnailObject.metadata?.mimetype === "image/webp"
+      ) {
+        confirmedThumbnailPath = thumbnailPath;
+      } else {
+        await supabase.storage.from("pet-photo-thumbnails").remove([thumbnailPath]);
+      }
     }
 
     const { error: insertError } = await client.from("photos").insert({
       pet_id: petId,
       uploader_user_id: user.id,
       storage_path: storagePath,
+      thumbnail_path: confirmedThumbnailPath,
       taken_at: takenAt?.toISOString() ?? null,
     });
 
     if (insertError) {
-      await supabase.storage.from(BUCKET).remove([storagePath]);
+      await cleanupUploadedPhoto(supabase, storagePath, confirmedThumbnailPath);
       failedCount += 1;
       continue;
     }

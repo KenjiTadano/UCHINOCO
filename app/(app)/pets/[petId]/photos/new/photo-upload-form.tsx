@@ -12,6 +12,7 @@ import {
 } from "@/lib/exif-date";
 import { parseTokyoLocalDateTime } from "@/lib/photo-timeline";
 import { hasMatchingImageSignature } from "@/lib/image-signature";
+import { createPhotoThumbnail } from "@/lib/photo-thumbnail";
 import {
   finalizePhotoUploads,
   preparePhotoUploads,
@@ -20,6 +21,7 @@ import {
 type SelectedPhoto = {
   id: string;
   file: File;
+  thumbnail: Blob | null;
   previewUrl: string;
   takenAt: string;
   dateSource: "checking" | "exif" | "manual" | "none";
@@ -107,6 +109,16 @@ export function PhotoUploadForm({
             conversionFailures += 1;
             continue;
           }
+          let thumbnail: Blob | null = null;
+          try {
+            const generatedThumbnail = await createPhotoThumbnail(file);
+            if (await hasMatchingImageSignature(generatedThumbnail, "image/webp")) {
+              thumbnail = generatedThumbnail;
+            }
+          } catch {
+            // WebP canvas encoding is not available in every browser. The
+            // original photo remains uploadable and is used as the list fallback.
+          }
 
           const takenAt = originalTakenAt ?? (await extractExifDateTime(file));
           const previewUrl = URL.createObjectURL(file);
@@ -114,6 +126,7 @@ export function PhotoUploadForm({
           additions.push({
             id: crypto.randomUUID(),
             file,
+            thumbnail,
             previewUrl,
             takenAt: takenAt ?? "",
             dateSource: takenAt ? "exif" : "none",
@@ -222,15 +235,32 @@ export function PhotoUploadForm({
               contentType: selectedPhoto.file.type,
             });
 
-          return uploadError
-            ? null
-            : { clientId: upload.clientId, storagePath: upload.path };
+          if (uploadError) return null;
+
+          const thumbnailUploadError = selectedPhoto.thumbnail
+            ? (
+                await supabase.storage
+                  .from("pet-photo-thumbnails")
+                  .uploadToSignedUrl(
+                    upload.thumbnailPath,
+                    upload.thumbnailToken,
+                    selectedPhoto.thumbnail,
+                    { contentType: "image/webp" },
+                  )
+              ).error
+            : true;
+
+          return {
+            clientId: upload.clientId,
+            storagePath: upload.path,
+            thumbnailPath: thumbnailUploadError ? null : upload.thumbnailPath,
+          };
         }),
       );
       const uploadedPhotos = uploadResults.filter(
         (
           upload,
-        ): upload is { clientId: string; storagePath: string } =>
+        ): upload is { clientId: string; storagePath: string; thumbnailPath: string | null } =>
           upload !== null,
       );
       const uploadFailedCount =
@@ -250,6 +280,7 @@ export function PhotoUploadForm({
         petId,
         uploadedPhotos.map((upload) => ({
           storagePath: upload.storagePath,
+          thumbnailPath: upload.thumbnailPath,
           takenAt: photoById.get(upload.clientId)?.takenAt || null,
         })),
       );

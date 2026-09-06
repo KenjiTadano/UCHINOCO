@@ -4,6 +4,7 @@ import { MonthPhotoGrid } from "../_components/month-photo-grid";
 import { groupPhotosByTokyoMonth } from "@/lib/photo-timeline";
 import { createClient } from "@/lib/supabase/server";
 import { getPhotoPage, nextPhotoCursor, paginationHref, parsePhotoCursor } from "@/lib/photo-pagination";
+import { createListImageUrls } from "@/lib/photo-list-images";
 
 type PetAlbumPageProps = {
   params: Promise<{ petId: string }>;
@@ -33,19 +34,8 @@ export default async function PetAlbumPage({ params, searchParams }: PetAlbumPag
     supabase, pet.id, 60, parsePhotoCursor(before, beforeId),
   );
 
-  const signedUrlsResult = photos.length
-    ? await supabase.storage
-        .from("pet-photos")
-        .createSignedUrls(
-          photos.map((photo) => photo.storage_path),
-          3600,
-        )
-    : { data: [], error: null };
-  const signedUrlByPath = new Map(
-    (signedUrlsResult.data ?? [])
-      .filter((item) => item.path && item.signedUrl && !item.error)
-      .map((item) => [item.path as string, item.signedUrl as string]),
-  );
+  const signedUrlsResult = await createListImageUrls(supabase, photos);
+  const signedUrlByPath = signedUrlsResult.signedUrlByPath;
   const monthGroups = groupPhotosByTokyoMonth(photos);
 
   return (

@@ -246,7 +246,7 @@ async function getOwnedPhotoContext(petId: string, photoId: string) {
       .maybeSingle(),
     supabase
       .from("photos")
-      .select("id, pet_id, uploader_user_id, storage_path, favorite")
+      .select("id, pet_id, uploader_user_id, storage_path, thumbnail_path, favorite")
       .eq("id", photoId)
       .eq("pet_id", petId)
       .maybeSingle(),
@@ -525,8 +525,12 @@ export async function deletePhoto(
     ) &&
     Boolean(folder) &&
     Boolean(fileName);
+  const thumbnailPathIsOwned =
+    !photo.thumbnail_path ||
+    (photo.thumbnail_path ===
+      `${pathParts[0]}/${pathParts[1]}/${pathParts[2]}/${pathParts[3]}/${fileName?.replace(/\.(jpg|png|webp)$/i, ".webp")}`);
 
-  if (!storagePathIsOwned || !fileName) {
+  if (!storagePathIsOwned || !thumbnailPathIsOwned || !fileName) {
     logPhotoDeletionFailure(
       "storage_path_validation",
       null,
@@ -584,6 +588,20 @@ export async function deletePhoto(
       false,
       true,
     );
+  }
+  if (photo.thumbnail_path) {
+    const { error: thumbnailError } = await supabase.storage
+      .from("pet-photo-thumbnails")
+      .remove([photo.thumbnail_path]);
+    if (thumbnailError && !isMissingStorageObject(thumbnailError)) {
+      logPhotoDeletionFailure(
+        "thumbnail_cleanup_after_database_delete",
+        thumbnailError,
+        photo.id,
+        !storageError,
+        true,
+      );
+    }
   }
 
   revalidatePath(`/pets/${petId}`);

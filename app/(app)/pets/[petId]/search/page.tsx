@@ -4,13 +4,14 @@ import { notFound, redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatTokyoDateTime, parseTokyoLocalDateTime, photoTimestamp } from "@/lib/photo-timeline";
 import { paginationHref, parsePhotoCursor } from "@/lib/photo-pagination";
+import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
 import { createClient } from "@/lib/supabase/server";
 
 type Props = {
   params: Promise<{ petId: string }>;
   searchParams: Promise<Record<"q" | "from" | "to" | "favorite" | "before" | "beforeId", string | string[] | undefined>>;
 };
-type SearchPhoto = { id: string; pet_id: string; storage_path: string; taken_at: string | null; created_at: string; caption: string | null; favorite: boolean; timeline_at: string; description: string | null; tags: string[] };
+type SearchPhoto = { id: string; pet_id: string; storage_path: string; thumbnail_path: string | null; taken_at: string | null; created_at: string; caption: string | null; favorite: boolean; timeline_at: string; description: string | null; tags: string[] };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -83,9 +84,9 @@ export default async function PetSearchPage({ params, searchParams }: Props) {
     else {
       results = (data ?? []) as SearchPhoto[];
       hasMore = results.length === MAX_RESULTS;
-      const urls = results.length ? await supabase.storage.from("pet-photos").createSignedUrls(results.map((photo) => photo.storage_path), 3600) : { data: [], error: null };
+      const urls = await createListImageUrls(supabase, results);
       if (urls.error) { searchFailed = true; results = []; }
-      else signedUrlByPath = new Map((urls.data ?? []).filter((item) => item.path && item.signedUrl && !item.error).map((item) => [item.path as string, item.signedUrl as string]));
+      else signedUrlByPath = urls.signedUrlByPath;
     }
   }
 
@@ -127,7 +128,7 @@ export default async function PetSearchPage({ params, searchParams }: Props) {
           <div className="mb-4 flex items-baseline justify-between gap-3"><h2 id="search-results-heading" className="text-lg font-semibold">検索結果</h2><p className="text-right text-sm text-muted">{results.length}件の思い出が見つかりました</p></div>
           <ul className="grid gap-4 sm:grid-cols-2">
             {results.map((photo) => {
-              const url = signedUrlByPath.get(photo.storage_path);
+              const url = signedUrlByPath.get(listImagePath(photo));
               const dateLabel = formatTokyoDateTime(photoTimestamp(photo));
               return <li key={photo.id}><Link href={`/pets/${pet.id}/photos/${photo.id}`} aria-label={`${pet.name}の${dateLabel}の思い出を詳しく見る${photo.favorite ? "（お気に入り）" : ""}`} className="app-card block overflow-hidden p-0 transition-colors hover:border-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
                 <div className="relative aspect-square bg-primary-soft">

@@ -134,6 +134,8 @@ export type Database = {
           id: string
           pet_id: string
           storage_path: string
+          thumbnail_path: string | null
+          timeline_at: string
           taken_at: string | null
           updated_at: string
           uploader_user_id: string
@@ -145,6 +147,8 @@ export type Database = {
           id?: string
           pet_id: string
           storage_path: string
+          thumbnail_path?: string | null
+          timeline_at?: never
           taken_at?: string | null
           updated_at?: string
           uploader_user_id: string
@@ -156,6 +160,8 @@ export type Database = {
           id?: string
           pet_id?: string
           storage_path?: string
+          thumbnail_path?: string | null
+          timeline_at?: never
           taken_at?: string | null
           updated_at?: string
           uploader_user_id?: string

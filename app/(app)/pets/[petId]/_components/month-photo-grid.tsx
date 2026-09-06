@@ -1,10 +1,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { PhotoMonthGroup } from "@/lib/photo-timeline";
+import { listImagePath } from "@/lib/photo-list-images";
 
 type MonthPhoto = {
   id: string;
   storage_path: string;
+  thumbnail_path: string | null;
   taken_at: string | null;
   created_at: string;
   favorite: boolean;
@@ -41,7 +43,7 @@ export function MonthPhotoGrid({
 
           <ul className="grid grid-cols-3 gap-1.5">
             {group.photos.map((photo, index) => {
-              const signedUrl = signedUrlByPath.get(photo.storage_path);
+              const signedUrl = signedUrlByPath.get(listImagePath(photo));
               return (
                 <li key={photo.id} className="app-photo-frame aspect-square">
                   {signedUrl ? (

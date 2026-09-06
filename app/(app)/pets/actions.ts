@@ -182,6 +182,21 @@ function isOwnedPhotoPath(userId: string, petId: string, storagePath: string) {
   );
 }
 
+function isOwnedThumbnailPath(userId: string, petId: string, storagePath: string) {
+  const pathParts = storagePath.split("/");
+  const [, , year, month, fileName] = pathParts;
+  return (
+    pathParts.length === 5 &&
+    pathParts[0] === userId &&
+    pathParts[1] === petId &&
+    /^\d{4}$/.test(year ?? "") &&
+    /^(0[1-9]|1[0-2])$/.test(month ?? "") &&
+    /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.webp$/i.test(
+      fileName ?? "",
+    )
+  );
+}
+
 function logPetDeletionFailure(
   stage: string,
   error: { code?: string; error?: string; message?: string } | null,
@@ -218,7 +233,7 @@ function logPetAvatarMutationFailure(
 
 async function removeStoragePaths(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  bucket: "pet-avatars" | "pet-photos",
+  bucket: "pet-avatars" | "pet-photos" | "pet-photo-thumbnails",
   storagePaths: string[],
 ) {
   for (let offset = 0; offset < storagePaths.length; offset += STORAGE_DELETE_BATCH_SIZE) {
@@ -915,11 +930,12 @@ export async function deletePet(
     pet_id: string;
     uploader_user_id: string;
     storage_path: string;
+    thumbnail_path: string | null;
   }> = [];
   for (let offset = 0; ; offset += PHOTO_RECORD_BATCH_SIZE) {
     const { data, error } = await supabase
       .from("photos")
-      .select("id, pet_id, uploader_user_id, storage_path")
+      .select("id, pet_id, uploader_user_id, storage_path, thumbnail_path")
       .eq("pet_id", pet.id)
       .order("id", { ascending: true })
       .range(offset, offset + PHOTO_RECORD_BATCH_SIZE - 1);
@@ -942,11 +958,16 @@ export async function deletePet(
   }
 
   const photoPaths = photos.map((photo) => photo.storage_path);
+  const thumbnailPaths = photos.flatMap((photo) =>
+    photo.thumbnail_path ? [photo.thumbnail_path] : [],
+  );
   const photoRecordsAreOwned = photos.every(
     (photo) =>
       photo.pet_id === pet.id &&
       photo.uploader_user_id === user.id &&
-      isOwnedPhotoPath(user.id, pet.id, photo.storage_path),
+      isOwnedPhotoPath(user.id, pet.id, photo.storage_path) &&
+      (!photo.thumbnail_path ||
+        isOwnedThumbnailPath(user.id, pet.id, photo.thumbnail_path)),
   );
   if (!photoRecordsAreOwned) {
     logPetDeletionFailure(
@@ -1016,6 +1037,21 @@ export async function deletePet(
       photoStorageResult.error,
       pet.id,
       false,
+      false,
+      true,
+    );
+  }
+  const thumbnailStorageResult = await removeStoragePaths(
+    supabase,
+    "pet-photo-thumbnails",
+    thumbnailPaths,
+  );
+  if (thumbnailStorageResult.error || thumbnailStorageResult.stage) {
+    logPetDeletionFailure(
+      `storage_cleanup_pet_photo_thumbnails_${thumbnailStorageResult.stage}`,
+      thumbnailStorageResult.error,
+      pet.id,
+      !photoStorageResult.error && !photoStorageResult.stage,
       false,
       true,
     );

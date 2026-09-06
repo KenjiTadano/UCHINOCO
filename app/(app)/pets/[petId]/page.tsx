@@ -3,7 +3,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { groupPhotosByTokyoDate } from "@/lib/photo-timeline";
 import { getPhotoPage, nextPhotoCursor, paginationHref, parsePhotoCursor } from "@/lib/photo-pagination";
+import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
 import { createClient } from "@/lib/supabase/server";
+import { PhotoThumbnailBackfill } from "./_components/photo-thumbnail-backfill";
 
 type PetDetailPageProps = {
   params: Promise<{ petId: string }>;
@@ -46,31 +48,29 @@ export default async function PetDetailPage({
     notFound();
   }
 
-  const { photos, hasMore, error: photosError } = await getPhotoPage(
-    supabase,
-    pet.id,
-    30,
-    parsePhotoCursor(before, beforeId),
-  );
+  const [{ photos, hasMore, error: photosError }, backfillCountResult] =
+    await Promise.all([
+      getPhotoPage(
+        supabase,
+        pet.id,
+        30,
+        parsePhotoCursor(before, beforeId),
+      ),
+      supabase
+        .from("photos")
+        .select("id", { count: "exact", head: true })
+        .eq("pet_id", pet.id)
+        .eq("uploader_user_id", user.id)
+        .is("thumbnail_path", null),
+    ]);
 
   const [avatarResult, photoUrlsResult] = await Promise.all([
     pet.avatar_url
       ? supabase.storage.from("pet-avatars").createSignedUrl(pet.avatar_url, 3600)
       : Promise.resolve({ data: null, error: null }),
-    photos.length > 0
-      ? supabase.storage
-          .from("pet-photos")
-          .createSignedUrls(
-            photos.map((photo) => photo.storage_path),
-            3600,
-          )
-      : Promise.resolve({ data: [], error: null }),
+    createListImageUrls(supabase, photos),
   ]);
-  const signedUrlByPath = new Map(
-    (photoUrlsResult.data ?? [])
-      .filter((item) => item.path && item.signedUrl && !item.error)
-      .map((item) => [item.path as string, item.signedUrl as string]),
-  );
+  const signedUrlByPath = photoUrlsResult.signedUrlByPath;
   const timeline = groupPhotosByTokyoDate(photos);
 
   return (
@@ -189,7 +189,7 @@ export default async function PetDetailPage({
 
                 <ul className="grid grid-cols-3 gap-1.5">
                   {group.photos.map((photo, index) => {
-                    const signedUrl = signedUrlByPath.get(photo.storage_path);
+                    const signedUrl = signedUrlByPath.get(listImagePath(photo));
                     return (
                       <li
                         key={photo.id}
@@ -250,6 +250,13 @@ export default async function PetDetailPage({
           </div>
         )}
       </section>
+
+      <PhotoThumbnailBackfill
+        petId={pet.id}
+        initialPendingCount={
+          backfillCountResult.error ? null : (backfillCountResult.count ?? 0)
+        }
+      />
     </main>
   );
 }

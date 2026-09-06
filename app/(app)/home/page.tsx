@@ -6,6 +6,7 @@ import { logout } from "../../(auth)/actions";
 import { formatTokyoDate, photoTimestamp } from "@/lib/photo-timeline";
 import { createClient } from "@/lib/supabase/server";
 import { PendingSubmitButton } from "../../_components/pending-submit-button";
+import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
 
 type HomePageProps = {
   searchParams: Promise<{ error?: string; message?: string }>;
@@ -15,6 +16,7 @@ type DashboardPhoto = {
   id: string;
   pet_id: string;
   storage_path: string;
+  thumbnail_path: string | null;
   taken_at: string | null;
   created_at: string;
   favorite: boolean;
@@ -64,7 +66,7 @@ function MemoryGrid({
       {photos.map((photo) => {
         const petName = petNameById.get(photo.pet_id) ?? "うちの子";
         const dateLabel = formatTokyoDate(photoTimestamp(photo));
-        const signedUrl = signedUrlByPath.get(photo.storage_path);
+        const signedUrl = signedUrlByPath.get(listImagePath(photo));
 
         return (
           <li key={photo.id} className="min-w-0">
@@ -141,11 +143,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
   const recentPhotos = (recentResult.data ?? []) as DashboardPhoto[];
   const favoritePhotos = (favoriteResult.data ?? []) as DashboardPhoto[];
-  const photoPaths = Array.from(
-    new Set(
-      [...recentPhotos, ...favoritePhotos].map((photo) => photo.storage_path),
-    ),
-  );
   const avatarPaths = Array.from(
     new Set(pets.flatMap((pet) => (pet.avatar_url ? [pet.avatar_url] : []))),
   );
@@ -154,12 +151,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     avatarPaths.length
       ? supabase.storage.from("pet-avatars").createSignedUrls(avatarPaths, 3600)
       : Promise.resolve({ data: [], error: null }),
-    photoPaths.length
-      ? supabase.storage.from("pet-photos").createSignedUrls(photoPaths, 3600)
-      : Promise.resolve({ data: [], error: null }),
+    createListImageUrls(supabase, [...recentPhotos, ...favoritePhotos]),
   ]);
   const avatarUrlByPath = toSignedUrlMap(avatarUrlsResult.data ?? []);
-  const photoUrlByPath = toSignedUrlMap(photoUrlsResult.data ?? []);
+  const photoUrlByPath = photoUrlsResult.signedUrlByPath;
   const petNameById = new Map(pets.map((pet) => [pet.id, pet.name]));
   const eagerAvatarPath = pets.find(
     (pet) => pet.avatar_url && avatarUrlByPath.has(pet.avatar_url),

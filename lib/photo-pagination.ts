@@ -4,6 +4,7 @@ export type PaginatedPhoto = {
   id: string;
   pet_id: string;
   storage_path: string;
+  thumbnail_path: string | null;
   taken_at: string | null;
   created_at: string;
   caption: string | null;
