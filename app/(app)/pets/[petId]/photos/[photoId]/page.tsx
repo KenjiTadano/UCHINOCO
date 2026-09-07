@@ -55,10 +55,11 @@ export default async function PhotoDetailPage({
     supabase
       .from("photos")
       .select(
-        "id, pet_id, storage_path, taken_at, created_at, caption, favorite",
+        "id, pet_id, uploader_user_id, storage_path, taken_at, created_at, caption, favorite",
       )
       .eq("id", photoId)
       .eq("pet_id", petId)
+      .eq("uploader_user_id", user.id)
       .maybeSingle(),
   ]);
   const { data: pet, error: petError } = petResult;
@@ -70,7 +71,8 @@ export default async function PhotoDetailPage({
     !pet ||
     !photo ||
     pet.owner_user_id !== user.id ||
-    photo.pet_id !== pet.id
+    photo.pet_id !== pet.id ||
+    photo.uploader_user_id !== user.id
   ) {
     notFound();
   }

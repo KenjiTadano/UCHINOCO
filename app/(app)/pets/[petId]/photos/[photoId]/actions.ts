@@ -249,6 +249,7 @@ async function getOwnedPhotoContext(petId: string, photoId: string) {
       .select("id, pet_id, uploader_user_id, storage_path, thumbnail_path, favorite")
       .eq("id", photoId)
       .eq("pet_id", petId)
+      .eq("uploader_user_id", user.id)
       .maybeSingle(),
   ]);
   const pet = petResult.data;
@@ -271,7 +272,8 @@ async function getOwnedPhotoContext(petId: string, photoId: string) {
     !pet ||
     !photo ||
     pet.owner_user_id !== user.id ||
-    photo.pet_id !== pet.id
+    photo.pet_id !== pet.id ||
+    photo.uploader_user_id !== user.id
   ) {
     if (pet && photo && !petResult.error && !photoResult.error) {
       logPhotoMutationFailure("authorization_ownership_check", null, false);
@@ -332,7 +334,8 @@ export async function updatePhotoTakenAt(
     .from("photos")
     .update({ taken_at: isoTakenAt })
     .eq("id", context.photo.id)
-    .eq("pet_id", petId);
+    .eq("pet_id", petId)
+    .eq("uploader_user_id", context.user.id);
 
   if (updateError) {
     logPhotoMutationFailure("taken_at_update", updateError, false);
@@ -348,6 +351,7 @@ export async function updatePhotoTakenAt(
     .select("id, taken_at")
     .eq("id", context.photo.id)
     .eq("pet_id", petId)
+    .eq("uploader_user_id", context.user.id)
     .maybeSingle();
   const takenAtWasUpdated = updatedPhoto?.taken_at
     ? new Date(updatedPhoto.taken_at).getTime() === takenAt.getTime()
@@ -405,7 +409,8 @@ export async function updatePhotoCaption(
     .from("photos")
     .update({ caption: caption || null })
     .eq("id", context.photo.id)
-    .eq("pet_id", petId);
+    .eq("pet_id", petId)
+    .eq("uploader_user_id", context.user.id);
 
   if (updateError) {
     logPhotoMutationFailure("caption_update", updateError, false);
@@ -417,6 +422,7 @@ export async function updatePhotoCaption(
     .select("id, caption")
     .eq("id", context.photo.id)
     .eq("pet_id", petId)
+    .eq("uploader_user_id", context.user.id)
     .maybeSingle();
   const captionWasUpdated =
     Boolean(updatedPhoto) && updatedPhoto?.caption === (caption || null);
@@ -454,7 +460,8 @@ export async function togglePhotoFavorite(
     .from("photos")
     .update({ favorite: nextFavorite })
     .eq("id", context.photo.id)
-    .eq("pet_id", petId);
+    .eq("pet_id", petId)
+    .eq("uploader_user_id", context.user.id);
 
   if (updateError) {
     logPhotoMutationFailure("favorite_update", updateError, false);
@@ -466,6 +473,7 @@ export async function togglePhotoFavorite(
     .select("id, favorite")
     .eq("id", context.photo.id)
     .eq("pet_id", petId)
+    .eq("uploader_user_id", context.user.id)
     .maybeSingle();
   const favoriteWasUpdated =
     Boolean(updatedPhoto) && updatedPhoto?.favorite === nextFavorite;
@@ -563,6 +571,7 @@ export async function deletePhoto(
     .select("id")
     .eq("id", photo.id)
     .eq("pet_id", petId)
+    .eq("uploader_user_id", user.id)
     .maybeSingle();
   const databaseDeleted = !remainingPhoto && !verifyError;
 
@@ -643,9 +652,10 @@ export async function analyzePhoto(
       .maybeSingle(),
     supabase
       .from("photos")
-      .select("id, pet_id, storage_path")
+      .select("id, pet_id, uploader_user_id, storage_path")
       .eq("id", photoId)
       .eq("pet_id", petId)
+      .eq("uploader_user_id", user.id)
       .maybeSingle(),
   ]);
   const pet = petResult.data;
@@ -656,7 +666,8 @@ export async function analyzePhoto(
     !pet ||
     !photo ||
     pet.owner_user_id !== user.id ||
-    photo.pet_id !== pet.id
+    photo.pet_id !== pet.id ||
+    photo.uploader_user_id !== user.id
   ) {
     return errorState("写真を確認できませんでした。");
   }
