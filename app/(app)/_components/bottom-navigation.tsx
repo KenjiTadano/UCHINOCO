@@ -58,10 +58,10 @@ function NavigationLink({
       <Link
         href={item.href}
         aria-current={isActive ? "page" : undefined}
-        className={`m-0.5 flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] leading-tight transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:text-xs ${
+        className={`ds-focus m-0.5 flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] leading-tight transition-colors sm:text-xs ${
           isActive
-            ? "bg-primary-soft font-semibold text-primary"
-            : "text-muted hover:bg-primary-soft/60 hover:text-foreground"
+            ? "bg-brand-terracotta-soft font-semibold text-brand-terracotta-strong"
+            : "text-muted hover:bg-brand-terracotta-soft/60 hover:text-foreground"
         }`}
       >
         <NavigationIcon icon={item.icon} />
@@ -91,7 +91,8 @@ export function BottomNavigation() {
       active: (current) =>
         current === "/memories" ||
         /^\/pets\/[^/]+$/.test(current) ||
-        /^\/pets\/[^/]+\/photos\/(?!new$)[^/]+$/.test(current),
+        /^\/pets\/[^/]+\/photos\/(?!new$)[^/]+$/.test(current) ||
+        /^\/pets\/[^/]+\/favorites(?:\/|$)/.test(current),
       icon: "memories",
     },
     {
@@ -106,7 +107,7 @@ export function BottomNavigation() {
       href: "/album",
       active: (current) =>
         current === "/album" ||
-        /^\/pets\/[^/]+\/(album|favorites)$/.test(current),
+        /^\/pets\/[^/]+\/album(?:\/|$)/.test(current),
       icon: "album",
     },
   ];
@@ -124,10 +125,10 @@ export function BottomNavigation() {
   return (
     <nav
       aria-label="メインナビゲーション"
-      className="fixed inset-x-0 bottom-0 z-50 border-t bg-[color:var(--background)]/95 backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-background/95 backdrop-blur"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <ul className="mx-auto grid h-[4.5rem] w-full max-w-xl grid-cols-5 px-1">
+      <ul className="mx-auto grid h-16 w-full max-w-xl grid-cols-5 px-1 sm:h-[4.5rem]">
         <NavigationLink item={items[0]} pathname={pathname} />
         <NavigationLink item={items[1]} pathname={pathname} />
         <li className="relative flex min-w-0 justify-center">
@@ -142,9 +143,9 @@ export function BottomNavigation() {
                   ? "写真追加画面を表示中"
                   : "写真を追加"
             }
-            className="group absolute -top-5 flex min-h-16 w-full min-w-0 flex-col items-center justify-start gap-1 rounded-xl pt-0 text-[10px] font-semibold text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:text-xs"
+            className="ds-focus group absolute -top-3 flex min-h-14 w-full min-w-0 flex-col items-center justify-start gap-0.5 rounded-xl pt-0 text-[10px] font-semibold text-brand-terracotta-strong sm:text-xs"
           >
-            <span className="flex size-14 items-center justify-center rounded-full border-4 border-[var(--background)] bg-primary text-3xl font-light leading-none text-primary-foreground transition-colors group-hover:bg-[var(--primary-hover)]" aria-hidden="true">
+            <span className="flex size-12 items-center justify-center rounded-full border-4 border-background bg-brand-terracotta text-2xl font-light leading-none text-white transition-colors group-hover:bg-brand-terracotta-strong" aria-hidden="true">
               +
             </span>
             <span className="whitespace-nowrap">写真を追加</span>
