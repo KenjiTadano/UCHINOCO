@@ -17,6 +17,7 @@ import {
   finalizePhotoUploads,
   preparePhotoUploads,
 } from "../actions";
+import { FavoriteButton } from "@/app/_components/ui";
 
 type SelectedPhoto = {
   id: string;
@@ -25,6 +26,7 @@ type SelectedPhoto = {
   previewUrl: string;
   takenAt: string;
   dateSource: "checking" | "exif" | "manual" | "none";
+  favorite: boolean;
 };
 
 const MAX_FILES = 10;
@@ -130,6 +132,7 @@ export function PhotoUploadForm({
             previewUrl,
             takenAt: takenAt ?? "",
             dateSource: takenAt ? "exif" : "none",
+            favorite: false,
           });
         } catch {
           conversionFailures += 1;
@@ -282,6 +285,7 @@ export function PhotoUploadForm({
           storagePath: upload.storagePath,
           thumbnailPath: upload.thumbnailPath,
           takenAt: photoById.get(upload.clientId)?.takenAt || null,
+          favorite: photoById.get(upload.clientId)?.favorite,
         })),
       );
       const failedCount = uploadFailedCount + finalized.failedCount;
@@ -325,7 +329,7 @@ export function PhotoUploadForm({
             onClick={() => fileInputRef.current?.click()}
             disabled={pending || preparing || photos.length >= MAX_FILES}
           >
-            写真を選択
+            写真を選ぶ
           </button>
         </div>
 
@@ -367,6 +371,12 @@ export function PhotoUploadForm({
                     >
                       写真{index + 1}の撮影日時
                     </label>
+                    <div className="flex items-center gap-1">
+                    <FavoriteButton
+                      favorite={photo.favorite}
+                      disabled={pending}
+                      onClick={() => setPhotos((current) => current.map((item) => item.id === photo.id ? { ...item, favorite: !item.favorite } : item))}
+                    />
                     <button
                       className="app-button-ghost min-h-11 shrink-0 px-2"
                       type="button"
@@ -376,6 +386,7 @@ export function PhotoUploadForm({
                     >
                       外す
                     </button>
+                    </div>
                   </div>
                   <input
                     id={`photo-taken-at-${photo.id}`}
@@ -418,7 +429,7 @@ export function PhotoUploadForm({
           ? "写真を準備しています..."
           : pending
             ? "アップロード中..."
-            : "写真を保存する"}
+            : photos.length > 0 ? `${photos.length}枚を追加` : "写真を追加"}
       </button>
 
       <Link className="app-back-link self-center" href={returnTo}>

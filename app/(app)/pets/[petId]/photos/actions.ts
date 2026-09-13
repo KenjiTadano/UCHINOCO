@@ -35,6 +35,7 @@ type FinalizePhotoUpload = {
   storagePath: string;
   thumbnailPath: string | null;
   takenAt: string | null;
+  favorite?: boolean;
 };
 
 const BUCKET = "pet-photos";
@@ -226,7 +227,7 @@ export async function finalizePhotoUploads(
   let savedCount = 0;
   let failedCount = 0;
 
-  for (const { storagePath, thumbnailPath, takenAt: takenAtInput } of uploads) {
+  for (const { storagePath, thumbnailPath, takenAt: takenAtInput, favorite = false } of uploads) {
     const pathParts = storagePath.split("/");
     const [pathUserId, pathPetId, year, month, fileName] = pathParts;
     const fileMatch = fileName?.match(
@@ -317,6 +318,7 @@ export async function finalizePhotoUploads(
       storage_path: storagePath,
       thumbnail_path: confirmedThumbnailPath,
       taken_at: takenAt?.toISOString() ?? null,
+      favorite: favorite === true,
     });
 
     if (insertError) {
