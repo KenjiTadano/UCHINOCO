@@ -3,10 +3,11 @@ import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { logout } from "../../(auth)/actions";
-import { formatTokyoDate, photoTimestamp } from "@/lib/photo-timeline";
 import { createClient } from "@/lib/supabase/server";
 import { PendingSubmitButton } from "../../_components/pending-submit-button";
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
+import { EditorialPhotoGrid, PageHeader } from "@/app/_components/ui";
+import { findMemoryCandidate } from "@/lib/home-memory";
 
 type HomePageProps = {
   searchParams: Promise<{ error?: string; message?: string }>;
@@ -61,52 +62,12 @@ function MemoryGrid({
   signedUrlByPath: Map<string, string>;
   favorite?: boolean;
 }) {
-  return (
-    <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-      {photos.map((photo) => {
+  const editorialPhotos = photos.flatMap((photo) => {
         const petName = petNameById.get(photo.pet_id) ?? "うちの子";
-        const dateLabel = formatTokyoDate(photoTimestamp(photo));
         const signedUrl = signedUrlByPath.get(listImagePath(photo));
-
-        return (
-          <li key={photo.id} className="min-w-0">
-            <Link
-              className="group block rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-              href={`/pets/${photo.pet_id}/photos/${photo.id}`}
-              aria-label={`${petName}の${dateLabel}の思い出を見る`}
-            >
-              <div className="app-photo-frame aspect-square">
-                {signedUrl ? (
-                  <Image
-                    className="object-cover transition-opacity group-hover:opacity-85"
-                    src={signedUrl}
-                    alt={`${petName}の思い出写真`}
-                    fill
-                    sizes="(max-width: 640px) 50vw, 190px"
-                    unoptimized
-                  />
-                ) : (
-                  <div className="flex size-full items-center justify-center px-2 text-center text-xs text-muted">
-                    写真を表示できません
-                  </div>
-                )}
-                {favorite ? (
-                  <span
-                    className="absolute right-2 top-2 rounded-full bg-white/90 px-2 py-1 text-sm text-favorite shadow-sm"
-                    aria-label="お気に入り"
-                  >
-                    ★
-                  </span>
-                ) : null}
-              </div>
-              <p className="mt-2 truncate text-sm font-medium">{petName}</p>
-              <p className="truncate text-xs text-muted">{dateLabel}</p>
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
-  );
+        return signedUrl ? [{ id: photo.id, src: signedUrl, alt: `${petName}の思い出写真`, href: `/pets/${photo.pet_id}/photos/${photo.id}`, favorite }] : [];
+      });
+  return <EditorialPhotoGrid photos={editorialPhotos} />;
 }
 
 export default async function HomePage({ searchParams }: HomePageProps) {
@@ -146,12 +107,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const avatarPaths = Array.from(
     new Set(pets.flatMap((pet) => (pet.avatar_url ? [pet.avatar_url] : []))),
   );
+  const resurfacingResult = await findMemoryCandidate(supabase, pets.map((pet) => pet.id));
+  const heroPhotos = resurfacingResult.photo ? [resurfacingResult.photo] : recentPhotos.slice(0, 1);
 
   const [avatarUrlsResult, photoUrlsResult] = await Promise.all([
     avatarPaths.length
       ? supabase.storage.from("pet-avatars").createSignedUrls(avatarPaths, 3600)
       : Promise.resolve({ data: [], error: null }),
-    createListImageUrls(supabase, [...recentPhotos, ...favoritePhotos]),
+    createListImageUrls(supabase, [...recentPhotos, ...favoritePhotos, ...heroPhotos]),
   ]);
   const avatarUrlByPath = toSignedUrlMap(avatarUrlsResult.data ?? []);
   const photoUrlByPath = photoUrlsResult.signedUrlByPath;
@@ -192,6 +155,16 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         <p role="status" className="app-status">
           {actionMessage}
         </p>
+      ) : null}
+
+      {heroPhotos.length > 0 && !photosFailed ? (
+        <section aria-labelledby="reunion-heading" className="flex flex-col gap-3">
+          <PageHeader eyebrow="MEMORIES" title={resurfacingResult.label ?? "最近の思い出"} description={resurfacingResult.photo?.caption ?? "また会いたくなる、うちの子との時間。"} />
+          <EditorialPhotoGrid photos={heroPhotos.flatMap((photo) => {
+            const signedUrl = photoUrlByPath.get(listImagePath(photo));
+            return signedUrl ? [{ id: photo.id, src: signedUrl, alt: `${petNameById.get(photo.pet_id) ?? "うちの子"}の思い出`, href: `/pets/${photo.pet_id}/photos/${photo.id}`, favorite: photo.favorite }] : [];
+          })} />
+        </section>
       ) : null}
 
       <section className="flex flex-col gap-3" aria-labelledby="pets-heading">
