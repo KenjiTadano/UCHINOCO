@@ -27,12 +27,18 @@ type SelectedPhoto = {
   takenAt: string;
   dateSource: "checking" | "exif" | "manual" | "none";
   favorite: boolean;
+  contentHash: string;
 };
 
 const MAX_FILES = 10;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ACCEPTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const FUTURE_TOLERANCE_MILLISECONDS = 5 * 60 * 1000;
+
+async function sha256Hex(file: Blob) {
+  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 function resultMessage(total: number, saved: number, failed: number) {
   if (failed === 0) {
@@ -56,6 +62,7 @@ export function PhotoUploadForm({
   const [status, setStatus] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null);
   const exifChecking = photos.some((photo) => photo.dateSource === "checking");
 
   useEffect(() => {
@@ -70,6 +77,7 @@ export function PhotoUploadForm({
     const selected = Array.from(event.target.files ?? []);
     event.target.value = "";
     setError(null);
+    setDuplicateNotice(null);
 
     if (selected.length === 0) {
       return;
@@ -94,7 +102,9 @@ export function PhotoUploadForm({
 
     setPreparing(true);
     let conversionFailures = 0;
+    let batchDuplicates = 0;
     const additions: SelectedPhoto[] = [];
+    const knownHashes = new Set(photos.map((photo) => photo.contentHash));
     try {
       for (const originalFile of selected) {
         try {
@@ -123,6 +133,12 @@ export function PhotoUploadForm({
           }
 
           const takenAt = originalTakenAt ?? (await extractExifDateTime(file));
+          const contentHash = await sha256Hex(file);
+          if (knownHashes.has(contentHash)) {
+            batchDuplicates += 1;
+            continue;
+          }
+          knownHashes.add(contentHash);
           const previewUrl = URL.createObjectURL(file);
           objectUrls.current.add(previewUrl);
           additions.push({
@@ -133,6 +149,7 @@ export function PhotoUploadForm({
             takenAt: takenAt ?? "",
             dateSource: takenAt ? "exif" : "none",
             favorite: false,
+            contentHash,
           });
         } catch {
           conversionFailures += 1;
@@ -146,6 +163,7 @@ export function PhotoUploadForm({
           `${conversionFailures}枚の画像形式を確認できませんでした。別の写真を選択してください。`,
         );
       }
+      if (batchDuplicates > 0) setDuplicateNotice(`${batchDuplicates}枚は同じ写真のため追加しません。`);
     } finally {
       setPreparing(false);
     }
@@ -214,11 +232,18 @@ export function PhotoUploadForm({
           clientId: photo.id,
           mimeType: photo.file.type,
           size: photo.file.size,
+          contentHash: photo.contentHash,
         })),
       );
 
-      if (!prepared.success || prepared.uploads.length === 0) {
+      if (!prepared.success) {
         setError(prepared.message ?? "写真のアップロード準備に失敗しました。");
+        return;
+      }
+      if (prepared.duplicateCount > 0) setDuplicateNotice(`${prepared.duplicateCount}枚はすでに保存されているため追加しません。`);
+      if (prepared.uploads.length === 0) {
+        setStatus(null);
+        setPending(false);
         return;
       }
 
@@ -257,13 +282,14 @@ export function PhotoUploadForm({
             clientId: upload.clientId,
             storagePath: upload.path,
             thumbnailPath: thumbnailUploadError ? null : upload.thumbnailPath,
+            contentHash: upload.contentHash,
           };
         }),
       );
       const uploadedPhotos = uploadResults.filter(
         (
           upload,
-        ): upload is { clientId: string; storagePath: string; thumbnailPath: string | null } =>
+        ): upload is { clientId: string; storagePath: string; thumbnailPath: string | null; contentHash: string } =>
           upload !== null,
       );
       const uploadFailedCount =
@@ -286,16 +312,18 @@ export function PhotoUploadForm({
           thumbnailPath: upload.thumbnailPath,
           takenAt: photoById.get(upload.clientId)?.takenAt || null,
           favorite: photoById.get(upload.clientId)?.favorite,
+          contentHash: upload.contentHash,
         })),
       );
       const failedCount = uploadFailedCount + finalized.failedCount;
+      const duplicateCount = prepared.duplicateCount + finalized.duplicateCount;
       router.replace(
         `/pets/${petId}?${new URLSearchParams({
-          message: resultMessage(
-            photos.length,
-            finalized.savedCount,
-            failedCount,
-          ),
+          message: `${resultMessage(
+              photos.length,
+              finalized.savedCount,
+              failedCount,
+            )}${duplicateCount ? `${duplicateCount}枚はすでに保存されています。` : ""}`,
         }).toString()}`,
       );
       router.refresh();
@@ -314,6 +342,7 @@ export function PhotoUploadForm({
           {error}
         </p>
       ) : null}
+      {duplicateNotice ? <p role="status" className="app-status">{duplicateNotice}</p> : null}
 
       <div className="app-card-flat">
         <div className="flex items-center justify-between gap-3">

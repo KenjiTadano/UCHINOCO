@@ -9,6 +9,7 @@ type PhotoMetadata = {
   clientId: string;
   mimeType: string;
   size: number;
+  contentHash: string;
 };
 
 export type SignedPhotoUpload = {
@@ -17,6 +18,7 @@ export type SignedPhotoUpload = {
   token: string;
   thumbnailPath: string;
   thumbnailToken: string;
+  contentHash: string;
 };
 
 export type PreparePhotoUploadsResult = {
@@ -24,11 +26,13 @@ export type PreparePhotoUploadsResult = {
   message: string | null;
   uploads: SignedPhotoUpload[];
   failedCount: number;
+  duplicateCount: number;
 };
 
 export type FinalizePhotoUploadsResult = {
   savedCount: number;
   failedCount: number;
+  duplicateCount: number;
 };
 
 type FinalizePhotoUpload = {
@@ -36,6 +40,7 @@ type FinalizePhotoUpload = {
   thumbnailPath: string | null;
   takenAt: string | null;
   favorite?: boolean;
+  contentHash: string;
 };
 
 const BUCKET = "pet-photos";
@@ -45,6 +50,7 @@ const MAX_THUMBNAIL_SIZE = 1024 * 1024;
 const FUTURE_TOLERANCE_MILLISECONDS = 5 * 60 * 1000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const IMAGE_EXTENSIONS: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
@@ -78,6 +84,7 @@ function validMetadata(metadata: PhotoMetadata) {
     Number.isSafeInteger(metadata.size) &&
     metadata.size > 0 &&
     metadata.size <= MAX_FILE_SIZE
+    && SHA256_PATTERN.test(metadata.contentHash)
   );
 }
 
@@ -122,6 +129,7 @@ export async function preparePhotoUploads(
       message: "選択した写真を確認してください。",
       uploads: [],
       failedCount: 0,
+      duplicateCount: 0,
     };
   }
 
@@ -136,6 +144,7 @@ export async function preparePhotoUploads(
       message: "ログイン状態を確認してください。",
       uploads: [],
       failedCount: 0,
+      duplicateCount: 0,
     };
   }
 
@@ -146,12 +155,18 @@ export async function preparePhotoUploads(
       message: "ペット情報を確認できませんでした。",
       uploads: [],
       failedCount: 0,
+      duplicateCount: 0,
     };
   }
 
+  const { data: existing, error: duplicateError } = await client.from("photos").select("content_hash").eq("pet_id", petId).eq("uploader_user_id", user.id).in("content_hash", metadata.map((item) => item.contentHash));
+  if (duplicateError) return { success: false, message: "写真の重複を確認できませんでした。", uploads: [], failedCount: 0, duplicateCount: 0 };
+  const existingHashes = new Set((existing ?? []).flatMap((item) => item.content_hash ? [item.content_hash as string] : []));
+  const newMetadata = metadata.filter((item) => !existingHashes.has(item.contentHash));
+  const duplicateCount = metadata.length - newMetadata.length;
   const { year, month } = uploadYearMonth();
   const results = await Promise.all(
-    metadata.map(async (item) => {
+    newMetadata.map(async (item) => {
       const extension = IMAGE_EXTENSIONS[item.mimeType];
       const photoId = crypto.randomUUID();
       const path = `${user.id}/${petId}/${year}/${month}/${photoId}.${extension}`;
@@ -171,6 +186,7 @@ export async function preparePhotoUploads(
             token: original.data.token,
             thumbnailPath,
             thumbnailToken: thumbnail.data.token,
+            contentHash: item.contentHash,
           };
     }),
   );
@@ -179,11 +195,12 @@ export async function preparePhotoUploads(
   );
 
   return {
-    success: uploads.length > 0,
+    success: uploads.length > 0 || newMetadata.length === 0,
     message:
-      uploads.length > 0 ? null : "写真のアップロード準備に失敗しました。",
+      uploads.length > 0 ? null : "選んだ写真はすべて保存済みです。",
     uploads,
-    failedCount: metadata.length - uploads.length,
+    failedCount: newMetadata.length - uploads.length,
+    duplicateCount,
   };
 }
 
@@ -202,12 +219,14 @@ export async function finalizePhotoUploads(
         !upload ||
         typeof upload.storagePath !== "string" ||
         (upload.thumbnailPath !== null && typeof upload.thumbnailPath !== "string") ||
-        (upload.takenAt !== null && typeof upload.takenAt !== "string"),
+        (upload.takenAt !== null && typeof upload.takenAt !== "string") ||
+        (upload.favorite !== undefined && typeof upload.favorite !== "boolean") ||
+        !SHA256_PATTERN.test(upload.contentHash),
     ) ||
     new Set(uploads.map((upload) => upload.storagePath)).size !== uploads.length
     || new Set(uploads.flatMap((upload) => upload.thumbnailPath ? [upload.thumbnailPath] : [])).size !== uploads.filter((upload) => upload.thumbnailPath).length
   ) {
-    return { savedCount: 0, failedCount: uploadCount || 1 };
+    return { savedCount: 0, failedCount: uploadCount || 1, duplicateCount: 0 };
   }
 
   const supabase = await createClient();
@@ -216,18 +235,19 @@ export async function finalizePhotoUploads(
     error: userError,
   } = await supabase.auth.getUser();
   if (userError || !user) {
-    return { savedCount: 0, failedCount: uploads.length };
+    return { savedCount: 0, failedCount: uploads.length, duplicateCount: 0 };
   }
 
   const client = albumClient(supabase);
   if (!(await ownedPet(client, petId, user.id))) {
-    return { savedCount: 0, failedCount: uploads.length };
+    return { savedCount: 0, failedCount: uploads.length, duplicateCount: 0 };
   }
 
   let savedCount = 0;
   let failedCount = 0;
+  let duplicateCount = 0;
 
-  for (const { storagePath, thumbnailPath, takenAt: takenAtInput, favorite = false } of uploads) {
+  for (const { storagePath, thumbnailPath, takenAt: takenAtInput, favorite = false, contentHash } of uploads) {
     const pathParts = storagePath.split("/");
     const [pathUserId, pathPetId, year, month, fileName] = pathParts;
     const fileMatch = fileName?.match(
@@ -319,11 +339,13 @@ export async function finalizePhotoUploads(
       thumbnail_path: confirmedThumbnailPath,
       taken_at: takenAt?.toISOString() ?? null,
       favorite: favorite === true,
+      content_hash: contentHash,
     });
 
     if (insertError) {
       await cleanupUploadedPhoto(supabase, storagePath, confirmedThumbnailPath);
-      failedCount += 1;
+      if (insertError.code === "23505") duplicateCount += 1;
+      else failedCount += 1;
       continue;
     }
 
@@ -335,5 +357,5 @@ export async function finalizePhotoUploads(
     revalidatePath("/home");
   }
 
-  return { savedCount, failedCount };
+  return { savedCount, failedCount, duplicateCount };
 }

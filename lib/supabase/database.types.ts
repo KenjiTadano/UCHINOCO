@@ -129,6 +129,7 @@ export type Database = {
       photos: {
         Row: {
           caption: string | null
+          content_hash: string | null
           created_at: string
           favorite: boolean
           id: string
@@ -142,6 +143,7 @@ export type Database = {
         }
         Insert: {
           caption?: string | null
+          content_hash?: string | null
           created_at?: string
           favorite?: boolean
           id?: string
@@ -155,6 +157,7 @@ export type Database = {
         }
         Update: {
           caption?: string | null
+          content_hash?: string | null
           created_at?: string
           favorite?: boolean
           id?: string
