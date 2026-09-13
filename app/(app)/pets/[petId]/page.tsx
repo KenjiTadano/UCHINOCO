@@ -6,6 +6,7 @@ import { getPhotoPage, nextPhotoCursor, paginationHref, parsePhotoCursor } from 
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
 import { createClient } from "@/lib/supabase/server";
 import { PhotoThumbnailBackfill } from "./_components/photo-thumbnail-backfill";
+import { ContentHashBackfill } from "./_components/content-hash-backfill";
 import {
   EditorialPhotoGrid,
   MemoryDateHeader,
@@ -54,7 +55,7 @@ export default async function PetDetailPage({
     notFound();
   }
 
-  const [{ photos, hasMore, error: photosError }, backfillCountResult] =
+  const [{ photos, hasMore, error: photosError }, backfillCountResult, hashBackfillCountResult] =
     await Promise.all([
       getPhotoPage(
         supabase,
@@ -68,6 +69,13 @@ export default async function PetDetailPage({
         .eq("pet_id", pet.id)
         .eq("uploader_user_id", user.id)
         .is("thumbnail_path", null),
+      supabase
+        .from("photos")
+        .select("id", { count: "exact", head: true })
+        .eq("pet_id", pet.id)
+        .eq("uploader_user_id", user.id)
+        .is("content_hash", null)
+        .is("content_hash_backfilled_at", null),
     ]);
 
   const [avatarResult, photoUrlsResult] = await Promise.all([
@@ -214,6 +222,9 @@ export default async function PetDetailPage({
           backfillCountResult.error ? null : (backfillCountResult.count ?? 0)
         }
       />
+      {!hashBackfillCountResult.error ? (
+        <ContentHashBackfill petId={pet.id} initialPendingCount={hashBackfillCountResult.count ?? 0} />
+      ) : null}
     </main>
   );
 }

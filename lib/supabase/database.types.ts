@@ -130,6 +130,7 @@ export type Database = {
         Row: {
           caption: string | null
           content_hash: string | null
+          content_hash_backfilled_at: string | null
           created_at: string
           favorite: boolean
           id: string
@@ -144,6 +145,7 @@ export type Database = {
         Insert: {
           caption?: string | null
           content_hash?: string | null
+          content_hash_backfilled_at?: string | null
           created_at?: string
           favorite?: boolean
           id?: string
@@ -158,6 +160,7 @@ export type Database = {
         Update: {
           caption?: string | null
           content_hash?: string | null
+          content_hash_backfilled_at?: string | null
           created_at?: string
           favorite?: boolean
           id?: string
