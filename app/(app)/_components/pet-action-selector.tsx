@@ -7,8 +7,10 @@ const SPECIES_LABELS: Record<string, string> = { dog: "犬", cat: "猫" };
 
 export async function PetActionSelector({
   mode,
+  returnTo,
 }: {
-  mode: "photo" | "search";
+  mode: "photo" | "search" | "memories" | "album";
+  returnTo?: string;
 }) {
   const supabase = await createClient();
   const {
@@ -28,11 +30,15 @@ export async function PetActionSelector({
     redirect("/pets/new");
   }
   if (!petsError && pets?.length === 1) {
-    redirect(
+    const destination =
       mode === "photo"
-        ? `/pets/${pets[0].id}/photos/new`
-        : `/pets/${pets[0].id}/search`,
-    );
+        ? `/pets/${pets[0].id}/photos/new${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ""}`
+        : mode === "search"
+          ? `/pets/${pets[0].id}/search`
+          : mode === "album"
+            ? `/pets/${pets[0].id}/album`
+            : `/pets/${pets[0].id}`;
+    redirect(destination);
   }
 
   const avatarPaths = Array.from(
@@ -51,7 +57,11 @@ export async function PetActionSelector({
   const title =
     mode === "photo"
       ? "どの子の思い出を追加しますか？"
-      : "どの子の思い出を検索しますか？";
+      : mode === "search"
+        ? "どの子の思い出を検索しますか？"
+        : mode === "album"
+          ? "どの子のアルバムを見ますか？"
+          : "どの子の思い出を見ますか？";
 
   return (
     <main className="app-page">
@@ -75,8 +85,12 @@ export async function PetActionSelector({
               : null;
             const destination =
               mode === "photo"
-                ? `/pets/${pet.id}/photos/new`
-                : `/pets/${pet.id}/search`;
+                ? `/pets/${pet.id}/photos/new${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ""}`
+                : mode === "search"
+                  ? `/pets/${pet.id}/search`
+                  : mode === "album"
+                    ? `/pets/${pet.id}/album`
+                    : `/pets/${pet.id}`;
 
             return (
               <li key={pet.id}>

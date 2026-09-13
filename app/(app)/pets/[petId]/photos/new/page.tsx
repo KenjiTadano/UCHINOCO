@@ -1,14 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { safeAppReturnPath } from "@/lib/app-return-path";
 import { PhotoUploadForm } from "./photo-upload-form";
 
 type NewPhotosPageProps = {
   params: Promise<{ petId: string }>;
+  searchParams: Promise<{ returnTo?: string | string[] }>;
 };
 
-export default async function NewPhotosPage({ params }: NewPhotosPageProps) {
-  const { petId } = await params;
+export default async function NewPhotosPage({ params, searchParams }: NewPhotosPageProps) {
+  const [{ petId }, query] = await Promise.all([params, searchParams]);
   const supabase = await createClient();
   const {
     data: { user },
@@ -38,7 +40,10 @@ export default async function NewPhotosPage({ params }: NewPhotosPageProps) {
         <h1 className="app-title">思い出写真を追加</h1>
       </header>
 
-      <PhotoUploadForm petId={pet.id} petName={pet.name} />
+      <PhotoUploadForm
+        petId={pet.id}
+        returnTo={safeAppReturnPath(query.returnTo) ?? `/pets/${pet.id}`}
+      />
     </main>
   );
 }

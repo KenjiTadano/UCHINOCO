@@ -41,10 +41,10 @@ function resultMessage(total: number, saved: number, failed: number) {
 
 export function PhotoUploadForm({
   petId,
-  petName,
+  returnTo,
 }: {
   petId: string;
-  petName: string;
+  returnTo: string;
 }) {
   const router = useRouter();
   const objectUrls = useRef(new Set<string>());
@@ -421,8 +421,8 @@ export function PhotoUploadForm({
             : "写真を保存する"}
       </button>
 
-      <Link className="app-back-link self-center" href={`/pets/${petId}`}>
-        {petName}のページへ戻る
+      <Link className="app-back-link self-center" href={returnTo}>
+        写真追加をキャンセル
       </Link>
     </form>
   );

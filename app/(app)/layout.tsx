@@ -18,7 +18,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
   return (
     <>
-      <div className="pb-[calc(5rem+env(safe-area-inset-bottom))]">
+      <div className="pb-[calc(6rem+env(safe-area-inset-bottom))]">
         {children}
         <LegalNavigation />
       </div>
