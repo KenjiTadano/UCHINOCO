@@ -10,10 +10,16 @@
   --primary-hover: #d95637;
   --primary-foreground: #ffffff;
   --primary-soft: #fff0ea;
+  --brand-terracotta: #b9583e;
+  --brand-terracotta-strong: #91412f;
+  --brand-terracotta-soft: #f6e5df;
+  --surface-warm: #f8f0eb;
   --danger: #b94a4a;
   --danger-soft: #fff1f0;
   --success: #397a5c;
   --success-soft: #edf8f1;
+  --warning: #8a5a16;
+  --warning-soft: #fff5dc;
   --favorite: #c98316;
   --favorite-soft: #fff7df;
   --shadow-card: 0 8px 28px rgb(107 76 62 / 0.07);
@@ -28,10 +34,16 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-soft: var(--primary-soft);
+  --color-brand-terracotta: var(--brand-terracotta);
+  --color-brand-terracotta-strong: var(--brand-terracotta-strong);
+  --color-brand-terracotta-soft: var(--brand-terracotta-soft);
+  --color-surface-warm: var(--surface-warm);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
   --color-favorite: var(--favorite);
   --color-favorite-soft: var(--favorite-soft);
   --font-sans: var(--font-geist-sans);
@@ -67,6 +79,13 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 button:disabled, [aria-disabled="true"] { cursor: not-allowed; opacity: 0.58; }
 
 @layer components {
+  .ds-display { @apply text-4xl font-semibold tracking-[-0.04em] text-foreground sm:text-5xl; }
+  .ds-editorial { @apply font-serif text-sm uppercase tracking-[0.18em] text-muted; }
+  .ds-heading { @apply text-2xl font-semibold tracking-[-0.02em] text-foreground; }
+  .ds-body { @apply text-base leading-7 text-foreground; }
+  .ds-caption { @apply text-xs leading-5 text-muted; }
+  .ds-label { @apply text-sm font-medium leading-5 text-foreground; }
+  .ds-focus { @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-terracotta-strong; }
   .app-page { @apply mx-auto flex min-h-screen w-full max-w-xl flex-col gap-7 px-4 py-8 sm:px-6 sm:py-10; }
   .app-page-narrow { @apply mx-auto flex min-h-screen w-full max-w-md flex-col gap-7 px-4 py-8 sm:px-6 sm:py-10; }
   .app-eyebrow { @apply text-sm font-medium text-muted; }
