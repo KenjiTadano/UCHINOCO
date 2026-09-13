@@ -6,6 +6,12 @@ import { getPhotoPage, nextPhotoCursor, paginationHref, parsePhotoCursor } from 
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
 import { createClient } from "@/lib/supabase/server";
 import { PhotoThumbnailBackfill } from "./_components/photo-thumbnail-backfill";
+import {
+  EditorialPhotoGrid,
+  MemoryDateHeader,
+  PageHeader,
+  SegmentControl,
+} from "@/app/_components/ui";
 
 type PetDetailPageProps = {
   params: Promise<{ petId: string }>;
@@ -105,7 +111,7 @@ export default async function PetDetailPage({
         )}
 
         <div className="min-w-0 flex-1">
-          <h1 className="break-words text-2xl font-bold tracking-tight">{pet.name}</h1>
+          <PageHeader eyebrow="思い出" title={pet.name} />
           <dl className="mt-2 grid gap-1 text-sm">
             <div className="flex gap-2">
               <dt className="text-muted">種類</dt>
@@ -134,21 +140,16 @@ export default async function PetDetailPage({
       </header>
 
       <section className="flex flex-col gap-4" aria-labelledby="photos-heading">
-        <nav className="grid grid-cols-3 gap-2" aria-label={`${pet.name}の思い出メニュー`}>
-          <Link
-            className="app-button-primary px-2"
-            href={`/pets/${pet.id}`}
-            aria-current="page"
-          >
-            思い出を見る
-          </Link>
-          <Link className="app-button-secondary px-2" href={`/pets/${pet.id}/album`}>
-            アルバムを見る
-          </Link>
-          <Link className="app-button-secondary px-2" href={`/pets/${pet.id}/favorites`}>
-            お気に入り
-          </Link>
-        </nav>
+        <SegmentControl
+          currentHref={`/pets/${pet.id}`}
+          items={[
+            { label: "すべて", href: `/pets/${pet.id}` },
+            { label: "♡ お気に入り", href: `/pets/${pet.id}/favorites` },
+          ]}
+        />
+        <div className="flex justify-end gap-2">
+          <Link className="app-button-secondary" href={`/pets/${pet.id}/album`}>アルバムを見る</Link>
+        </div>
 
         <div className="flex items-center justify-between gap-4">
           <h2 id="photos-heading" className="app-section-title">
@@ -178,55 +179,11 @@ export default async function PetDetailPage({
           <div className="flex flex-col gap-8">
             {timeline.map((group) => (
               <section key={group.dateKey} aria-labelledby={`date-${group.dateKey}`}>
-                <div className="mb-3 flex items-baseline justify-between gap-3">
-                  <h3 id={`date-${group.dateKey}`} className="font-semibold">
-                    {group.dateLabel}
-                  </h3>
-                  <p className="shrink-0 text-sm text-muted">
-                    {group.photos.length}枚
-                  </p>
-                </div>
-
-                <ul className="grid grid-cols-3 gap-1.5">
-                  {group.photos.map((photo, index) => {
-                    const signedUrl = signedUrlByPath.get(listImagePath(photo));
-                    return (
-                      <li
-                        key={photo.id}
-                        className="app-photo-frame aspect-square"
-                      >
-                        {signedUrl ? (
-                          <Link
-                            className="relative block size-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                            href={`/pets/${pet.id}/photos/${photo.id}`}
-                            aria-label={`${group.dateLabel}の思い出写真${index + 1}を詳しく見る`}
-                          >
-                            <Image
-                              className="size-full object-cover transition-opacity hover:opacity-85"
-                              src={signedUrl}
-                              alt={`${pet.name}の思い出写真${index + 1}`}
-                              fill
-                              sizes="(max-width: 640px) 33vw, 180px"
-                              unoptimized
-                            />
-                            {photo.favorite ? (
-                              <span
-                                className="absolute right-1.5 top-1.5 rounded-full bg-white/90 px-1.5 py-0.5 text-sm text-favorite shadow-sm"
-                                aria-label="お気に入り"
-                              >
-                                ★
-                              </span>
-                            ) : null}
-                          </Link>
-                        ) : (
-                          <div className="flex size-full items-center justify-center text-xs text-muted">
-                            表示できません
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
+                <MemoryDateHeader date={group.dateLabel} count={group.photos.length} />
+                <EditorialPhotoGrid photos={group.photos.flatMap((photo) => {
+                  const signedUrl = signedUrlByPath.get(listImagePath(photo));
+                  return signedUrl ? [{ id: photo.id, src: signedUrl, alt: `${pet.name}の思い出写真`, href: `/pets/${pet.id}/photos/${photo.id}`, favorite: photo.favorite }] : [];
+                })} />
               </section>
             ))}
             {hasMore ? (

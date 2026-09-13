@@ -55,7 +55,7 @@ export default async function PetAlbumPage({ params, searchParams }: PetAlbumPag
         </p>
       ) : monthGroups.length > 0 ? (
         <div className="flex flex-col gap-6">
-          <MonthPhotoGrid groups={monthGroups} petId={pet.id} petName={pet.name} signedUrlByPath={signedUrlByPath} />
+          <MonthPhotoGrid variant="classic" groups={monthGroups} petId={pet.id} petName={pet.name} signedUrlByPath={signedUrlByPath} />
           {hasMore ? <Link className="app-button-secondary self-center" href={paginationHref(`/pets/${pet.id}/album`, nextPhotoCursor(photos))}>さらに見る</Link> : null}
         </div>
       ) : (
