@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      photo_pets: {
+        Row: {
+          photo_id: string
+          pet_id: string
+          source: string
+          confidence: number | null
+          confirmed_by_user: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          photo_id: string
+          pet_id: string
+          source: string
+          confidence?: number | null
+          confirmed_by_user?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          photo_id?: string
+          pet_id?: string
+          source?: string
+          confidence?: number | null
+          confirmed_by_user?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "photo_pets_photo_id_fkey"
+            columns: ["photo_id"]
+            isOneToOne: false
+            referencedRelation: "photos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "photo_pets_pet_id_fkey"
+            columns: ["pet_id"]
+            isOneToOne: false
+            referencedRelation: "pets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pets: {
         Row: {
           adoption_date: string | null
@@ -221,6 +266,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_photo_pets: {
+        Args: { p_photo_id: string }
+        Returns: { pet_id: string; pet_name: string; source: string; confidence: number | null; confirmed_by_user: boolean }[]
+      }
+      add_photo_pet: { Args: { p_photo_id: string; p_pet_id: string }; Returns: undefined }
+      remove_photo_pet: { Args: { p_photo_id: string; p_pet_id: string }; Returns: undefined }
+      require_photo_pet_management: { Args: { p_photo_id: string; p_pet_id: string }; Returns: string }
       normalize_search_word: { Args: { p_value: string; p_kind?: string }; Returns: string }
       photo_search_words: { Args: { p_tags: string[]; p_activity: string; p_scene: string; p_emotion: string }; Returns: { kind: string; value: string }[] }
       get_search_facets: { Args: { p_pet_id?: string }; Returns: Json }
