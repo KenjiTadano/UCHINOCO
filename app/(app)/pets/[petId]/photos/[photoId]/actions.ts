@@ -1,6 +1,6 @@
 "use server";
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { canClaimAnalysis, MAX_ANALYSIS_ATTEMPTS, ANALYSIS_STALE_MS } from "@/lib/photo-analysis-policy";
 import OpenAI from "openai";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -109,11 +109,6 @@ const ANALYSIS_PROMPT = `
 健康状態、病気、品種、個体識別を断定しないでください。
 タグは検索しやすい短い日本語を最大10件にしてください。
 `.trim();
-
-function analysisClient(client: Awaited<ReturnType<typeof createClient>>) {
-  // Task 009 migration適用・型再生成までの限定的な型境界。
-  return client as unknown as SupabaseClient;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -672,10 +667,10 @@ export async function analyzePhoto(
     return errorState("写真を確認できませんでした。");
   }
 
-  const client = analysisClient(supabase);
+  const client = supabase;
   const { data: existing, error: existingError } = await client
     .from("photo_ai_analyses")
-    .select("id, status")
+    .select("id, status, attempts, updated_at, error_code")
     .eq("photo_id", photo.id)
     .maybeSingle();
   if (existingError) {
@@ -684,58 +679,41 @@ export async function analyzePhoto(
   if (existing?.status === "completed") {
     return errorState("この写真はすでにAI解析済みです。");
   }
-  if (existing?.status === "processing") {
-    return errorState("この写真はAI解析中です。");
+  // The row version and attempt number fence off late responses from an old claim.
+  if (existing?.status === "processing" &&
+      Date.now() - Date.parse(existing.updated_at) >= ANALYSIS_STALE_MS &&
+      existing.attempts >= MAX_ANALYSIS_ATTEMPTS) {
+    await client.from("photo_ai_analyses")
+      .update({ status: "failed", error_code: "retry_limit_reached" })
+      .eq("id", existing.id).eq("status", "processing")
+      .eq("attempts", existing.attempts).eq("updated_at", existing.updated_at);
+    return errorState("写真の整理を停止しました。");
+  }
+  if (existing && !canClaimAnalysis(existing)) {
+    return errorState("現在は再試行できません。自動再試行は最大3回までです。");
   }
 
-  let analysisId: string | null = null;
-  if (existing) {
-    const { data: claimed, error: claimError } = await client
-      .from("photo_ai_analyses")
-      .update({
-        status: "processing",
-        description: null,
-        tags: [],
-        activity: null,
-        scene: null,
-        emotion: null,
-        contains_pet: null,
-        model: null,
-        prompt_version: PROMPT_VERSION,
-        error_code: null,
-        analyzed_at: null,
-      })
-      .eq("id", existing.id)
-      .in("status", ["pending", "failed"])
-      .select("id")
-      .maybeSingle();
-    if (claimError || !claimed) {
-      return errorState("この写真は現在AI解析できません。");
-    }
-    analysisId = claimed.id;
-  } else {
-    const { data: created, error: createError } = await client
-      .from("photo_ai_analyses")
-      .insert({
-        photo_id: photo.id,
-        status: "processing",
-        prompt_version: PROMPT_VERSION,
-      })
-      .select("id")
-      .maybeSingle();
-    if (createError || !created) {
-      return errorState("この写真は現在AI解析できません。");
-    }
-    analysisId = created.id;
+  const attempt = (existing?.attempts ?? 0) + 1;
+  const claim = existing
+    ? client.from("photo_ai_analyses")
+        .update({ status: "processing", attempts: attempt, error_code: null })
+        .eq("id", existing.id).eq("status", existing.status)
+        .eq("attempts", existing.attempts).eq("updated_at", existing.updated_at)
+    : client.from("photo_ai_analyses")
+        .insert({ photo_id: photo.id, status: "processing", attempts: attempt,
+          prompt_version: PROMPT_VERSION });
+  const { data: claimed, error: claimError } = await claim.select("id").maybeSingle();
+  if (claimError || !claimed) {
+    // Includes deletion races and another runner winning the unique photo_id insert.
+    return errorState("この写真は現在整理できません。");
   }
+  const analysisId = claimed.id;
 
   async function markFailed(errorCode: string) {
-    await client
-      .from("photo_ai_analyses")
+    await client.from("photo_ai_analyses")
       .update({ status: "failed", error_code: errorCode })
-      .eq("id", analysisId)
-      .eq("status", "processing");
-    revalidatePath(`/pets/${petId}/photos/${photoId}`);
+      .eq("id", analysisId).eq("status", "processing").eq("attempts", attempt);
+    revalidatePath("/pets/" + petId + "/photos/" + photoId);
   }
 
   const apiKey = process.env.OPENAI_API_KEY?.trim();
@@ -746,35 +724,36 @@ export async function analyzePhoto(
     return errorState("AI解析の設定が完了していません。");
   }
 
-  const { data: image, error: downloadError } = await supabase.storage
-    .from("pet-photos")
-    .download(photo.storage_path);
-  if (downloadError || !image || image.size <= 0) {
-    await markFailed("storage_download_failed");
-    return errorState("写真を読み込めませんでした。");
-  }
-  if (!ALLOWED_MIME_TYPES.has(image.type)) {
-    await markFailed("unsupported_image");
-    return errorState("この画像形式はAI解析に対応していません。");
-  }
-  if (image.size > MAX_AI_IMAGE_SIZE) {
-    await markFailed("image_too_large");
-    return errorState("AI解析できる画像サイズは5MBまでです。");
-  }
-
-  let imageBytes: Uint8Array;
   try {
-    imageBytes = new Uint8Array(await image.arrayBuffer());
-  } catch {
-    await markFailed("image_read_failed");
-    return errorState("写真を読み込めませんでした。");
-  }
-  if (!hasExpectedImageSignature(image.type, imageBytes.slice(0, 12))) {
-    await markFailed("invalid_image_content");
-    return errorState("画像の内容を確認できませんでした。");
-  }
+    const { data: image, error: downloadError } = await supabase.storage
+      .from("pet-photos")
+      .download(photo.storage_path);
+    if (downloadError || !image || image.size <= 0) {
+      await markFailed(downloadError && isMissingStorageObject(downloadError)
+        ? "storage_missing" : "storage_download_failed");
+      return errorState("写真を読み込めませんでした。");
+    }
+    if (!ALLOWED_MIME_TYPES.has(image.type)) {
+      await markFailed("unsupported_image");
+      return errorState("この画像形式はAI解析に対応していません。");
+    }
+    if (image.size > MAX_AI_IMAGE_SIZE) {
+      await markFailed("image_too_large");
+      return errorState("AI解析できる画像サイズは5MBまでです。");
+    }
 
-  try {
+    let imageBytes: Uint8Array;
+    try {
+      imageBytes = new Uint8Array(await image.arrayBuffer());
+    } catch {
+      await markFailed("image_read_failed");
+      return errorState("写真を読み込めませんでした。");
+    }
+    if (!hasExpectedImageSignature(image.type, imageBytes.slice(0, 12))) {
+      await markFailed("invalid_image_content");
+      return errorState("画像の内容を確認できませんでした。");
+    }
+
     const openai = new OpenAI({
       apiKey,
       timeout: 45_000,
@@ -835,6 +814,7 @@ export async function analyzePhoto(
       })
       .eq("id", analysisId)
       .eq("status", "processing")
+      .eq("attempts", attempt)
       .select("id")
       .maybeSingle();
     if (completeError || !completed) {
@@ -843,7 +823,11 @@ export async function analyzePhoto(
     }
 
     revalidatePath(`/pets/${petId}/photos/${photoId}`);
-    return { success: true, message: "AI解析が完了しました。" };
+    revalidatePath("/search");
+    revalidatePath("/pets/" + petId + "/search");
+    revalidatePath("/home");
+    revalidatePath("/memories");
+    return { success: true, message: "写真を整理しました。" };
   } catch (error) {
     if (error instanceof OpenAI.APIError) {
       console.error("OpenAI API request failed", {

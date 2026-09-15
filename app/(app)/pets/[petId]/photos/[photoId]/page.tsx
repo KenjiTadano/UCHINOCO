@@ -1,3 +1,4 @@
+import { isTerminalAnalysisError } from "@/lib/photo-analysis-policy";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
 import Link from "next/link";
@@ -20,6 +21,8 @@ type PhotoDetailPageProps = {
 
 type PhotoAiAnalysis = {
   status: "pending" | "processing" | "completed" | "failed";
+  attempts: number;
+  error_code: string | null;
   description: string | null;
   tags: string[];
   activity: string | null;
@@ -83,7 +86,7 @@ export default async function PhotoDetailPage({
     analysisClient
       .from("photo_ai_analyses")
       .select(
-        "status, description, tags, activity, scene, emotion, contains_pet, model, prompt_version, analyzed_at",
+        "status, attempts, error_code, description, tags, activity, scene, emotion, contains_pet, model, prompt_version, analyzed_at",
       )
       .eq("photo_id", photo.id)
       .maybeSingle(),
@@ -156,10 +159,10 @@ export default async function PhotoDetailPage({
 
       <section className="app-card-flat flex flex-col gap-4" aria-labelledby="ai-analysis-heading">
         <h2 id="ai-analysis-heading" className="text-lg font-semibold">
-          AI解析
+          写真の整理
         </h2>
         <p className="app-help">
-          AI解析を実行した場合のみ、この写真が解析のため外部AIサービスへ送信されます。
+          写真は外部AIサービスで自動的に整理され、説明やタグが検索に使われます。
         </p>
 
         {analysisResult.error ? (
@@ -168,22 +171,25 @@ export default async function PhotoDetailPage({
           </p>
         ) : !analysis ? (
           <>
-            <p className="text-sm text-muted">AI解析はまだありません</p>
-            <AiAnalysisButton petId={pet.id} photoId={photo.id} />
+            <p className="text-sm text-muted">この写真は順番に整理されます。</p>
           </>
         ) : analysis.status === "pending" || analysis.status === "processing" ? (
           <p role="status" className="text-sm text-muted">
-            AI解析中...
+            写真を整理しています…
           </p>
         ) : analysis.status === "failed" ? (
           <>
-            <p className="text-sm text-danger">AI解析に失敗しました</p>
-            <AiAnalysisButton petId={pet.id} photoId={photo.id} retry />
+            <p className="text-sm text-muted">
+              写真は保存されています。{analysis.attempts >= 3 || isTerminalAnalysisError(analysis.error_code)
+                ? "この写真の自動整理を停止しました。"
+                : "時間をおいて整理を再試行します。"}
+            </p>
+            {analysis.attempts < 3 && !isTerminalAnalysisError(analysis.error_code) ? <AiAnalysisButton petId={pet.id} photoId={photo.id} retry /> : null}
           </>
         ) : (
           <div className="grid gap-4 text-sm">
             <div>
-              <h3 className="text-muted">AIの説明</h3>
+              <h3 className="text-muted">写真の説明</h3>
               <p className="mt-1 whitespace-pre-wrap">{analysis.description}</p>
             </div>
 

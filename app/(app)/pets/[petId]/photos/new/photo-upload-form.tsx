@@ -362,6 +362,9 @@ export function PhotoUploadForm({
           </button>
         </div>
 
+        <p className="mt-3 text-xs text-muted">
+          追加した写真は外部AIサービスで自動的に整理され、説明やタグが付きます。
+        </p>
         <input
           ref={fileInputRef}
           className="sr-only"

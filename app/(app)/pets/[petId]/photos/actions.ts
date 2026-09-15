@@ -332,7 +332,7 @@ export async function finalizePhotoUploads(
       }
     }
 
-    const { error: insertError } = await client.from("photos").insert({
+    const { data: insertedPhoto, error: insertError } = await client.from("photos").insert({
       pet_id: petId,
       uploader_user_id: user.id,
       storage_path: storagePath,
@@ -340,7 +340,7 @@ export async function finalizePhotoUploads(
       taken_at: takenAt?.toISOString() ?? null,
       favorite: favorite === true,
       content_hash: contentHash,
-    });
+    }).select("id").single();
 
     if (insertError) {
       await cleanupUploadedPhoto(supabase, storagePath, confirmedThumbnailPath);
@@ -350,6 +350,18 @@ export async function finalizePhotoUploads(
     }
 
     savedCount += 1;
+    // Photo registration has succeeded. Queue failure must never undo that success.
+    // A persisted photo without an analysis is also discovered by the runner.
+    try {
+      if (insertedPhoto) {
+        await supabase.from("photo_ai_analyses").upsert(
+          { photo_id: insertedPhoto.id, status: "pending" },
+          { onConflict: "photo_id", ignoreDuplicates: true },
+        );
+      }
+    } catch {
+      // Retry discovery on the next authenticated visit; never delete the photo.
+    }
   }
 
   if (savedCount > 0) {

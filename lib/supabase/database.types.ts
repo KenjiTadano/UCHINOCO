@@ -66,6 +66,7 @@ export type Database = {
       }
       photo_ai_analyses: {
         Row: {
+          attempts: number
           activity: string | null
           analyzed_at: string | null
           contains_pet: boolean | null
@@ -83,6 +84,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          attempts?: number
           activity?: string | null
           analyzed_at?: string | null
           contains_pet?: boolean | null
@@ -100,6 +102,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          attempts?: number
           activity?: string | null
           analyzed_at?: string | null
           contains_pet?: boolean | null

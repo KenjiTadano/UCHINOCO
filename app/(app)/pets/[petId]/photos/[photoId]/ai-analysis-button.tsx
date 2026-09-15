@@ -38,11 +38,11 @@ export function AiAnalysisButton({
         </p>
       ) : null}
       <button
-        className="app-button-primary"
+        className="app-button-ghost text-sm"
         type="submit"
         disabled={pending}
       >
-        {pending ? "AI解析中..." : retry ? "AI解析を再試行" : "AIで写真を解析"}
+        {pending ? "写真を整理しています…" : retry ? "整理を再試行" : "写真を整理"}
       </button>
     </form>
   );

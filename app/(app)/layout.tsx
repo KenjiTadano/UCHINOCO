@@ -1,3 +1,4 @@
+import { AIAnalysisRunner } from "./_components/ai-analysis-runner";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { BottomNavigation } from "./_components/bottom-navigation";
@@ -19,6 +20,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   return (
     <>
       <div className="pb-[calc(6rem+env(safe-area-inset-bottom))]">
+        <AIAnalysisRunner key={user.id} />
         {children}
         <LegalNavigation />
       </div>
