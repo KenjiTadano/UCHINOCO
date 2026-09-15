@@ -206,7 +206,15 @@ export function TagChip({ children }: { children: ReactNode }) {
   return <span className="inline-flex min-h-8 items-center rounded-full bg-brand-terracotta-soft px-3 text-xs text-brand-terracotta-strong">{children}</span>;
 }
 
-export function SearchChip({ children, href }: { children: ReactNode; href?: string }) {
+export function SearchChip({ children, href, onClick, pressed = false, disabled = false }: {
+  children: ReactNode; href?: string; onClick?: () => void; pressed?: boolean; disabled?: boolean;
+}) {
+  if (onClick) return <button type="button" onClick={onClick} aria-pressed={pressed} disabled={disabled}
+    className={`ds-focus inline-flex min-h-11 max-w-full items-center gap-1.5 break-words rounded-full border px-3 py-2 text-sm transition-colors disabled:cursor-default ${pressed
+      ? "border-brand-terracotta/60 bg-brand-terracotta-soft font-medium text-brand-terracotta-strong"
+      : "border-border bg-surface text-foreground hover:border-brand-terracotta/60"}`}>
+    {pressed ? <span aria-hidden="true">✓</span> : null}{children}
+  </button>;
   const chip = <span className="inline-flex min-h-8 items-center rounded-full border bg-surface px-3 text-xs text-muted">{children}</span>;
   return href ? <Link href={href} className="ds-focus inline-flex rounded-full">{chip}</Link> : chip;
 }

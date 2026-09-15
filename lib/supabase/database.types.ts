@@ -221,6 +221,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      normalize_search_word: { Args: { p_value: string; p_kind?: string }; Returns: string }
+      photo_search_words: { Args: { p_tags: string[]; p_activity: string; p_scene: string; p_emotion: string }; Returns: { kind: string; value: string }[] }
+      get_search_facets: { Args: { p_pet_id?: string }; Returns: Json }
+      search_photos_page: {
+        Args: { p_pet_id?: string; p_query?: string; p_kind?: string; p_value?: string; p_favorite_only?: boolean; p_from?: string; p_to?: string; p_limit?: number; p_cursor_at?: string; p_cursor_id?: string }
+        Returns: Json
+      }
       is_owned_pet: { Args: { pet_id_text: string }; Returns: boolean }
     }
     Enums: {
