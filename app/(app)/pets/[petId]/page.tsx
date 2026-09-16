@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { groupPhotosByTokyoDate } from "@/lib/photo-timeline";
-import { getPhotoPage, nextPhotoCursor, paginationHref, parsePhotoCursor } from "@/lib/photo-pagination";
+import { getMemoryPhotoPage, nextPhotoCursor, paginationHref, parsePhotoCursor } from "@/lib/photo-pagination";
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
 import { createClient } from "@/lib/supabase/server";
 import { PhotoThumbnailBackfill } from "./_components/photo-thumbnail-backfill";
@@ -57,7 +57,7 @@ export default async function PetDetailPage({
 
   const [{ photos, hasMore, error: photosError }, backfillCountResult, hashBackfillCountResult] =
     await Promise.all([
-      getPhotoPage(
+      getMemoryPhotoPage(
         supabase,
         pet.id,
         30,
@@ -190,7 +190,7 @@ export default async function PetDetailPage({
                 <MemoryDateHeader date={group.dateLabel} count={group.photos.length} />
                 <EditorialPhotoGrid photos={group.photos.flatMap((photo) => {
                   const signedUrl = signedUrlByPath.get(listImagePath(photo));
-                  return signedUrl ? [{ id: photo.id, src: signedUrl, alt: `${pet.name}の思い出写真`, href: `/pets/${pet.id}/photos/${photo.id}`, favorite: photo.favorite }] : [];
+                  return signedUrl ? [{ id: photo.id, src: signedUrl, alt: `${pet.name}の思い出写真`, href: `/pets/${photo.pet_id}/photos/${photo.id}`, favorite: photo.favorite }] : [];
                 })} />
               </section>
             ))}

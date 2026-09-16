@@ -266,6 +266,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_pet_memories_page: {
+        Args: { p_pet_id: string; p_limit?: number; p_cursor_at?: string; p_cursor_id?: string; p_favorite_only?: boolean }
+        Returns: {
+          id: string; pet_id: string; storage_path: string; thumbnail_path: string | null;
+          taken_at: string | null; created_at: string; caption: string | null;
+          favorite: boolean; timeline_at: string
+        }[]
+      }
       get_photo_pets: {
         Args: { p_photo_id: string }
         Returns: { pet_id: string; pet_name: string; source: string; confidence: number | null; confirmed_by_user: boolean }[]

@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { MonthPhotoGrid } from "../_components/month-photo-grid";
 import { groupPhotosByTokyoMonth } from "@/lib/photo-timeline";
 import { createClient } from "@/lib/supabase/server";
-import { getPhotoPage, nextPhotoCursor, paginationHref, parsePhotoCursor } from "@/lib/photo-pagination";
+import { getMemoryPhotoPage, nextPhotoCursor, paginationHref, parsePhotoCursor } from "@/lib/photo-pagination";
 import { createListImageUrls } from "@/lib/photo-list-images";
 
 type PetFavoritesPageProps = {
@@ -33,7 +33,7 @@ export default async function PetFavoritesPage({
 
   if (petError || !pet || pet.owner_user_id !== user.id) notFound();
 
-  const { photos, hasMore, error: photosError } = await getPhotoPage(
+  const { photos, hasMore, error: photosError } = await getMemoryPhotoPage(
     supabase, pet.id, 60, parsePhotoCursor(before, beforeId), true,
   );
 

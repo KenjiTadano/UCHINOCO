@@ -3,6 +3,8 @@ import { listImagePath } from "@/lib/photo-list-images";
 import { EditorialPhotoGrid, MemoryDateHeader } from "@/app/_components/ui";
 
 type MonthPhoto = {
+  /** Registration/primary pet, even when this photo is shown via a relation. */
+  pet_id: string;
   id: string;
   storage_path: string;
   thumbnail_path: string | null;
@@ -21,7 +23,6 @@ type MonthPhotoGridProps = {
 
 export function MonthPhotoGrid({
   groups,
-  petId,
   petName,
   signedUrlByPath,
   variant = "editorial",
@@ -38,12 +39,12 @@ export function MonthPhotoGrid({
           )}
           {variant === "editorial" ? <EditorialPhotoGrid photos={group.photos.flatMap((photo) => {
             const signedUrl = signedUrlByPath.get(listImagePath(photo));
-            return signedUrl ? [{ id: photo.id, src: signedUrl, alt: `${petName}の${group.monthLabel}の思い出写真`, href: `/pets/${petId}/photos/${photo.id}`, favorite: photo.favorite }] : [];
+            return signedUrl ? [{ id: photo.id, src: signedUrl, alt: `${petName}の${group.monthLabel}の思い出写真`, href: `/pets/${photo.pet_id}/photos/${photo.id}`, favorite: photo.favorite }] : [];
           })} /> : (
             <ul className="grid grid-cols-3 gap-1.5">
               {group.photos.map((photo, index) => {
                 const signedUrl = signedUrlByPath.get(listImagePath(photo));
-                return <li key={photo.id} className="app-photo-frame aspect-square">{signedUrl ? <Link className="relative block size-full ds-focus" href={`/pets/${petId}/photos/${photo.id}`} aria-label={`${group.monthLabel}の${petName}の思い出写真${index + 1}を詳しく見る`}><Image src={signedUrl} alt={`${petName}の写真`} fill sizes="(max-width: 640px) 33vw, 180px" className="object-cover" unoptimized />{photo.favorite ? <span className="absolute right-1.5 top-1.5 text-favorite" aria-hidden="true">★</span> : null}</Link> : <div className="flex size-full items-center justify-center text-xs text-muted">表示できません</div>}</li>;
+                return <li key={photo.id} className="app-photo-frame aspect-square">{signedUrl ? <Link className="relative block size-full ds-focus" href={`/pets/${photo.pet_id}/photos/${photo.id}`} aria-label={`${group.monthLabel}の${petName}の思い出写真${index + 1}を詳しく見る`}><Image src={signedUrl} alt={`${petName}の写真`} fill sizes="(max-width: 640px) 33vw, 180px" className="object-cover" unoptimized />{photo.favorite ? <span className="absolute right-1.5 top-1.5 text-favorite" aria-hidden="true">★</span> : null}</Link> : <div className="flex size-full items-center justify-center text-xs text-muted">表示できません</div>}</li>;
               })}
             </ul>
           )}

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type PaginatedPhoto = {
   id: string;
+  /** Registration/primary pet ID, never the current list filter. */
   pet_id: string;
   storage_path: string;
   thumbnail_path: string | null;
@@ -25,8 +26,9 @@ export async function getPhotoPage(
   limit: number,
   cursor: PhotoCursor,
   favoriteOnly = false,
+  scope: "primary" | "memories" = "primary",
 ) {
-  const result = await supabase.rpc("get_pet_photos_page", {
+  const result = await supabase.rpc(scope === "memories" ? "get_pet_memories_page" : "get_pet_photos_page", {
     p_pet_id: petId,
     p_limit: limit + 1,
     p_cursor_at: cursor?.at ?? null,
@@ -35,6 +37,14 @@ export async function getPhotoPage(
   });
   const rows = (result.data ?? []) as PaginatedPhoto[];
   return { photos: rows.slice(0, limit), hasMore: rows.length > limit, error: result.error };
+}
+
+// Album keeps getPhotoPage's primary-only default; opt in explicitly here.
+export function getMemoryPhotoPage(
+  supabase: SupabaseClient, petId: string, limit: number,
+  cursor: PhotoCursor, favoriteOnly = false,
+) {
+  return getPhotoPage(supabase, petId, limit, cursor, favoriteOnly, "memories");
 }
 
 export function nextPhotoCursor(photos: PaginatedPhoto[]) {

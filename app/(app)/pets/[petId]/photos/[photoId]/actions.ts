@@ -288,8 +288,11 @@ function revalidatePhotoPages(petId: string, photoId: string) {
 
 function revalidatePhotoRelationPages(primaryPetId: string, photoId: string, targetPetId: string) {
   revalidatePath(`/pets/${primaryPetId}/photos/${photoId}`);
-  revalidatePath(`/pets/${primaryPetId}`);
-  revalidatePath(`/pets/${targetPetId}`);
+  for (const petId of new Set([primaryPetId, targetPetId])) {
+    revalidatePath(`/pets/${petId}`);
+    revalidatePath(`/pets/${petId}/favorites`);
+    revalidatePath(`/pets/${petId}/search`);
+  }
   revalidatePath("/search");
 }
 
