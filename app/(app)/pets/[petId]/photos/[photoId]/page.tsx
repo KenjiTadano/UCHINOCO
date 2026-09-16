@@ -12,6 +12,8 @@ import { createClient } from "@/lib/supabase/server";
 import { AiAnalysisButton } from "./ai-analysis-button";
 import { PhotoDeleteControl } from "./photo-delete-control";
 import { PhotoEditControls } from "./photo-edit-controls";
+import { PhotoPetControls } from "./photo-pet-controls";
+import { getPhotoPetOptions } from "@/lib/photo-pets";
 
 export const maxDuration = 60;
 
@@ -51,7 +53,7 @@ export default async function PhotoDetailPage({
   const [petResult, photoResult] = await Promise.all([
     supabase
       .from("pets")
-      .select("id, name, owner_user_id")
+      .select("id, name, owner_user_id, avatar_url")
       .eq("id", petId)
       .eq("owner_user_id", user.id)
       .maybeSingle(),
@@ -81,7 +83,7 @@ export default async function PhotoDetailPage({
   }
 
   const analysisClient = supabase as unknown as SupabaseClient;
-  const [signedPhotoResult, analysisResult] = await Promise.all([
+  const [signedPhotoResult, analysisResult, relationsResult, ownedPetsResult] = await Promise.all([
     supabase.storage.from("pet-photos").createSignedUrl(photo.storage_path, 3600),
     analysisClient
       .from("photo_ai_analyses")
@@ -90,7 +92,21 @@ export default async function PhotoDetailPage({
       )
       .eq("photo_id", photo.id)
       .maybeSingle(),
+    supabase.rpc("get_photo_pets", { p_photo_id: photo.id }),
+    supabase.from("pets").select("id, name, avatar_url")
+      .eq("owner_user_id", user.id).order("name").order("id"),
   ]);
+  const ownedPets = ownedPetsResult.data ?? [];
+  const avatarPaths = [...new Set([pet.avatar_url, ...ownedPets.map((item) => item.avatar_url)]
+    .filter((path): path is string => Boolean(path)))];
+  const avatarResult = avatarPaths.length
+    ? await supabase.storage.from("pet-avatars").createSignedUrls(avatarPaths, 3600)
+    : { data: [] };
+  const avatarUrls = new Map((avatarResult.data ?? []).map((item) => [item.path, item.signedUrl]));
+  const primaryPet = { id: pet.id, name: pet.name, avatarUrl: avatarUrls.get(pet.avatar_url ?? "") ?? null };
+  const photoPetOptions = getPhotoPetOptions(pet.id, relationsResult.data ?? [], ownedPets.map((item) => ({
+    id: item.id, name: item.name, avatarUrl: avatarUrls.get(item.avatar_url ?? "") ?? null,
+  })));
   const { data: signedPhoto, error: signedPhotoError } = signedPhotoResult;
   const analysis = analysisResult.data as PhotoAiAnalysis | null;
   const displayedTimestamp = photoTimestamp(photo);
@@ -147,6 +163,9 @@ export default async function PhotoDetailPage({
           </div>
         )}
       </dl>
+
+      <PhotoPetControls primaryPet={primaryPet} photoId={photo.id} {...photoPetOptions}
+        unavailable={Boolean(relationsResult.error || ownedPetsResult.error)} />
 
       <PhotoEditControls
         petId={pet.id}

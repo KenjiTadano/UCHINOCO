@@ -199,5 +199,33 @@ await test('Original photo RLS still denies foreign deletion and reading', async
   await db.exec('reset role');
   assert.equal(await scalar(`select count(*)::int from public.photos where id = '${foreignPhoto}'`), 1);
 });
+await db.exec(`begin; ${await sql('20260915150000_protect_related_pet_photos.sql')} commit;`);
+await test('Task042-2 L: primary pet deletion blocked; photo and relations survive', async () => {
+  await asUser(); await db.exec(add());
+  await denied(`delete from public.pets where id = '${primary}'`, 'P0422');
+  assert.equal(await scalar(`select count(*)::int from public.photos where id = '${photo}'`), 1);
+  assert.equal(await scalar(`select count(*)::int from public.photo_pets where photo_id = '${photo}'`), 2);
+});
+await test('Task042-2 M: primary pet without secondary relations can still be deleted', async () => {
+  await asUser(); await db.exec(`delete from public.pets where id = '${primary}'`);
+  assert.equal(await scalar(`select count(*)::int from public.photos where id = '${photo}'`), 0);
+});
+await test('Task042-2 K: deleting secondary pet keeps other primary photo', async () => {
+  await asUser(); await db.exec(add()); await db.exec(`delete from public.pets where id = '${secondary}'`);
+  assert.equal(await scalar(`select count(*)::int from public.photos where id = '${photo}'`), 1);
+  assert.equal(await scalar(`select count(*)::int from public.photo_pets where photo_id = '${photo}'`), 1);
+});
+await test('Task042-2 J: explicit photo deletion still cascades all relations', async () => {
+  await asUser(); await db.exec(add()); await db.exec(`delete from public.photos where id = '${photo}'`);
+  assert.equal(await scalar(`select count(*)::int from public.photo_pets where photo_id = '${photo}'`), 0);
+});
+await test('Task042-2: removing secondary relation permits primary pet deletion', async () => {
+  await asUser(); await db.exec(add()); await db.exec(remove());
+  await db.exec(`delete from public.pets where id = '${primary}'`);
+});
+await test('Task042-2: unconfirmed AI relation also protects primary pet', async () => {
+  await db.exec(`insert into public.photo_pets(photo_id,pet_id,source) values ('${photo}','${secondary}','ai')`);
+  await asUser(); await denied(`delete from public.pets where id = '${primary}'`, 'P0422');
+});
 await db.close();
 console.log(`${passed} isolated PostgreSQL security tests passed`);

@@ -286,6 +286,53 @@ function revalidatePhotoPages(petId: string, photoId: string) {
   revalidatePath("/home");
 }
 
+function revalidatePhotoRelationPages(primaryPetId: string, photoId: string, targetPetId: string) {
+  revalidatePath(`/pets/${primaryPetId}/photos/${photoId}`);
+  revalidatePath(`/pets/${primaryPetId}`);
+  revalidatePath(`/pets/${targetPetId}`);
+  revalidatePath("/search");
+}
+
+async function mutatePhotoPet(
+  operation: "add_photo_pet" | "remove_photo_pet",
+  primaryPetId: string,
+  photoId: string,
+  targetPetId: string,
+): Promise<PhotoMutationState> {
+  const failure = operation === "add_photo_pet"
+    ? "ペットを追加できませんでした。"
+    : "関連を解除できませんでした。";
+  try {
+    if (!UUID_PATTERN.test(targetPetId) || targetPetId === primaryPetId) {
+      return { success: false, message: failure };
+    }
+    // Preserve the existing primary-route/uploader boundary before calling the
+    // RPC, which independently checks uploader + primary owner + target owner.
+    const context = await getOwnedPhotoContext(primaryPetId, photoId);
+    if (!context) return { success: false, message: failure };
+    const { error } = await context.supabase.rpc(operation, {
+      p_photo_id: context.photo.id,
+      p_pet_id: targetPetId,
+    });
+    if (error) return { success: false, message: failure };
+  } catch {
+    return { success: false, message: failure };
+  }
+  revalidatePhotoRelationPages(primaryPetId, photoId, targetPetId);
+  return {
+    success: true,
+    message: operation === "add_photo_pet" ? "ペットを追加しました。" : "関連を解除しました。",
+  };
+}
+
+export async function addPhotoPet(primaryPetId: string, photoId: string, targetPetId: string) {
+  return mutatePhotoPet("add_photo_pet", primaryPetId, photoId, targetPetId);
+}
+
+export async function removePhotoPet(primaryPetId: string, photoId: string, targetPetId: string) {
+  return mutatePhotoPet("remove_photo_pet", primaryPetId, photoId, targetPetId);
+}
+
 const FUTURE_TOLERANCE_MILLISECONDS = 5 * 60 * 1000;
 
 export async function updatePhotoTakenAt(

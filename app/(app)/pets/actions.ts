@@ -981,6 +981,24 @@ export async function deletePet(
     return { success: false, message: DELETE_PET_FAILURE_MESSAGE };
   }
 
+  // Fail closed before collecting Storage paths. The DB trigger repeats this
+  // check at DELETE time to cover a concurrent relation addition.
+  const { data: relatedPhotos, error: relatedPhotosError } = await supabase
+    .from("photo_pets")
+    .select("photo_id, photos!inner(pet_id)")
+    .eq("photos.pet_id", pet.id)
+    .neq("pet_id", pet.id)
+    .limit(1);
+  if (relatedPhotosError) {
+    return { success: false, message: DELETE_PET_FAILURE_MESSAGE };
+  }
+  if (relatedPhotos?.length) {
+    return {
+      success: false,
+      message: "このペットには、ほかのペットとも関連している写真があります。先に写真の整理が必要です。",
+    };
+  }
+
   const photos: Array<{
     id: string;
     pet_id: string;
@@ -1057,6 +1075,12 @@ export async function deletePet(
     .eq("id", pet.id)
     .eq("owner_user_id", user.id);
   if (databaseError) {
+    if (databaseError.code === "P0422") {
+      return {
+        success: false,
+        message: "このペットには、ほかのペットとも関連している写真があります。先に写真の整理が必要です。",
+      };
+    }
     logPetDeletionFailure(
       "database_delete",
       databaseError,
