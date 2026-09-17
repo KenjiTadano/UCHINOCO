@@ -1,5 +1,6 @@
 -- Task042-1: relations are metadata, never an authorization grant.
--- Supabase migrations execute transactionally. Abort rather than bless bad data.
+-- Explicit transaction required by CLI statement execution; keep lock and backfill atomic.
+begin;
 lock table public.photos, public.pets in share row exclusive mode;
 do $$
 begin
@@ -218,3 +219,4 @@ revoke all on function public.get_photo_pets(uuid),
   public.require_photo_pet_management(uuid, uuid),
   public.guard_photo_pet_write(), public.guard_photo_relation_anchor(),
   public.create_primary_photo_pet() from service_role;
+commit;
