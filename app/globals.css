@@ -88,6 +88,12 @@ button:disabled, [aria-disabled="true"] { cursor: not-allowed; opacity: 0.58; }
   .ds-focus { @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-terracotta-strong; }
   .app-page { @apply mx-auto flex min-h-screen w-full max-w-xl flex-col gap-7 px-4 py-8 sm:px-6 sm:py-10; }
   .app-page-narrow { @apply mx-auto flex min-h-screen w-full max-w-md flex-col gap-7 px-4 py-8 sm:px-6 sm:py-10; }
+  /* Editorial order flow: wider desktop column, more vertical rhythm */
+  .app-page-order {
+    @apply mx-auto flex min-h-screen w-full max-w-lg flex-col gap-8 px-4 py-8 sm:max-w-2xl sm:gap-10 sm:px-8 sm:py-12 lg:max-w-3xl;
+  }
+  .app-order-divider { @apply border-t border-border/70; }
+  .app-price-accent { @apply font-semibold tabular-nums text-brand-terracotta-strong; }
   .app-eyebrow { @apply text-sm font-medium text-muted; }
   .app-title { @apply mt-1 text-2xl font-semibold tracking-tight text-foreground; }
   .app-section-title { @apply text-lg font-semibold tracking-tight text-foreground; }

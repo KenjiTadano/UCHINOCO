@@ -8,7 +8,8 @@ import {
   formatPrice,
   getPageOptions,
 } from "@/lib/photobook-products";
-import { AlbumCoverCollage } from "../../_components/album-cover-collage";
+import { OrderFlowSteps } from "../../_components/order-flow-steps";
+import { PhotobookCoverMock } from "../../_components/photobook-cover-mock";
 
 type Props = {
   petId: string;
@@ -35,6 +36,7 @@ export function ProductSelector({
   const pageOptions = getPageOptions(selectedProduct);
   const price = calcPrice(selectedProduct, selectedPages);
   const tooManyPhotos = photoCount > selectedPages;
+  const coverSrc = coverUrls[0] ?? null;
 
   function handleProductChange(productId: string) {
     const product = PHOTOBOOK_PRODUCTS.find((p) => p.id === productId);
@@ -44,41 +46,70 @@ export function ProductSelector({
   }
 
   return (
-    <main className="app-page">
-      <Link className="app-back-link" href={`/pets/${petId}/album/${albumId}`}>
-        アルバムへ戻る
-      </Link>
+    <main className="app-page-order">
+      <div className="flex items-center gap-3">
+        <Link
+          className="app-back-link shrink-0"
+          href={`/pets/${petId}/album/${albumId}`}
+        >
+          戻る
+        </Link>
+        <h1 className="flex-1 text-center text-base font-semibold tracking-tight">
+          フォトブックを注文
+        </h1>
+        <span className="w-10 shrink-0" aria-hidden="true" />
+      </div>
 
-      {/* Album header with cover preview */}
-      <section>
-        <AlbumCoverCollage urls={coverUrls} petName={petName} />
-        <div className="mt-3 px-1">
+      <OrderFlowSteps current={1} />
+
+      {/* Hero: completed photobook visual */}
+      <section
+        aria-labelledby="product-hero-heading"
+        className="grid gap-5 rounded-xl bg-surface-warm/70 px-4 py-6 sm:grid-cols-[auto_1fr] sm:items-center sm:gap-8 sm:px-8 sm:py-8"
+      >
+        <div className="flex justify-center">
+          <PhotobookCoverMock
+            src={coverSrc}
+            alt={`${albumTitle || petName}のフォトブック`}
+            size="hero"
+            hardCover={selectedProduct.coverType === "hard"}
+            priority
+          />
+        </div>
+        <div className="text-center sm:text-left">
           <p className="ds-editorial">PHOTOBOOK</p>
-          <h1 className="mt-1 text-xl font-semibold">{albumTitle || "（タイトル未設定）"}</h1>
-          <p className="ds-caption mt-0.5">{photoCount}枚の写真</p>
+          <h2 id="product-hero-heading" className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">
+            {albumTitle || "（タイトル未設定）"}
+          </h2>
+          <p className="mt-3 text-sm leading-relaxed text-muted">
+            大切な思い出を、ずっと手元に。高品質なフォトブックで、特別な時間をカタチに。
+          </p>
+          <p className="ds-caption mt-3">
+            {petName}　・　{photoCount}枚の写真
+          </p>
         </div>
       </section>
 
-      {/* Product selection */}
+      {/* Product comparison */}
       <section aria-labelledby="product-heading">
-        <h2 id="product-heading" className="app-section-title mb-4">
-          フォトブックを選ぶ
+        <h2 id="product-heading" className="mb-5 text-base font-semibold tracking-tight">
+          商品を選択
         </h2>
 
         <div
           role="radiogroup"
           aria-labelledby="product-heading"
-          className="grid gap-3 lg:grid-cols-3"
+          className="grid grid-cols-3 gap-2 sm:gap-3"
         >
           {PHOTOBOOK_PRODUCTS.map((product) => {
             const isSelected = product.id === selectedProductId;
             return (
               <label
                 key={product.id}
-                className={`ds-focus relative flex cursor-pointer gap-4 rounded-2xl border-2 p-4 transition-colors lg:flex-col lg:gap-3 lg:p-5 ${
+                className={`ds-focus relative flex cursor-pointer flex-col gap-2 rounded-lg border px-2 py-3 transition-colors sm:gap-3 sm:px-3 sm:py-4 ${
                   isSelected
-                    ? "border-primary bg-primary-soft"
-                    : "border-border bg-surface hover:border-primary/40"
+                    ? "border-brand-terracotta bg-surface"
+                    : "border-border/80 bg-surface hover:border-brand-terracotta/40"
                 }`}
               >
                 <input
@@ -90,66 +121,41 @@ export function ProductSelector({
                   className="sr-only"
                 />
 
-                {/* Book cover mockup — album photo with cover-type styling */}
-                <div
-                  className={`w-20 shrink-0 overflow-hidden rounded-sm lg:w-full ${
-                    product.coverType === "hard"
-                      ? "shadow-[2px_3px_0_0_rgba(0,0,0,0.12),4px_6px_6px_0_rgba(0,0,0,0.08)]"
-                      : ""
-                  }`}
-                  aria-hidden="true"
-                >
-                  <div className="relative aspect-[3/4]">
-                    {coverUrls[0] ? (
-                      // Plain <img> — URL is already signed, no optimization needed
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={coverUrls[0]}
-                        alt=""
-                        className="size-full object-cover"
-                      />
-                    ) : (
-                      <div className="size-full bg-surface-warm" />
-                    )}
-                    {/* Hard cover gloss tint */}
-                    {product.coverType === "hard" && (
-                      <div className="absolute inset-0 bg-black/[0.07]" aria-hidden="true" />
-                    )}
-                    {/* Book spine */}
-                    <div
-                      className={`absolute inset-y-0 left-0 ${
-                        product.coverType === "hard"
-                          ? "w-2.5 bg-black/[0.18]"
-                          : "w-1.5 bg-black/[0.08]"
-                      }`}
-                      aria-hidden="true"
-                    />
-                  </div>
+                {isSelected ? (
+                  <span
+                    className="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full bg-brand-terracotta text-[10px] font-semibold text-white"
+                    aria-label="選択中"
+                  >
+                    ✓
+                  </span>
+                ) : null}
+
+                <div className="mx-auto" aria-hidden="true">
+                  <PhotobookCoverMock
+                    src={coverSrc}
+                    alt=""
+                    size="sm"
+                    hardCover={product.coverType === "hard"}
+                  />
                 </div>
 
-                {/* Product info */}
-                <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 lg:justify-start">
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold leading-snug">{product.name}</p>
-                    {isSelected && (
-                      <span
-                        className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground"
-                        aria-label="選択中"
-                      >
-                        ✓
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs leading-relaxed text-muted">{product.tagline}</p>
-                  <div className="mt-0.5 space-y-0.5 text-xs text-muted">
-                    <p>{product.size}</p>
-                    <p>{product.coverTypeLabel}</p>
-                    <p>{product.basePages}ページ〜</p>
-                  </div>
-                  <p className="mt-1 text-base font-semibold">
-                    {formatPrice(product.basePrice)}
-                    <span className="ml-0.5 text-xs font-normal text-muted">〜</span>
+                <div className="grid gap-1 text-center">
+                  <p className="text-[13px] font-semibold leading-snug sm:text-sm">
+                    {product.name}
                   </p>
+                  <p className="line-clamp-2 text-[10px] leading-snug text-muted sm:text-[11px]">
+                    {product.tagline}
+                  </p>
+                  <p className="app-price-accent mt-1 text-sm sm:text-base">
+                    {formatPrice(product.basePrice)}
+                    <span className="ml-0.5 text-[10px] font-normal text-muted">〜</span>
+                  </p>
+                  <div className="mt-1 space-y-0.5 text-[10px] leading-snug text-muted sm:text-[11px]">
+                    <p>{product.size}</p>
+                    <p>
+                      {product.basePages}ページ〜 / {product.coverTypeLabel}
+                    </p>
+                  </div>
                 </div>
               </label>
             );
@@ -157,20 +163,19 @@ export function ProductSelector({
         </div>
       </section>
 
-      {/* Page count selection */}
+      {/* Page count */}
       <section aria-labelledby="pages-heading">
-        <h2 id="pages-heading" className="app-section-title mb-3">
-          ページ数
+        <h2 id="pages-heading" className="mb-3 text-base font-semibold tracking-tight">
+          ページ数を選択
         </h2>
-        <p className="app-description mb-3">
-          {selectedProduct.basePages}ページから
-          {selectedProduct.maxPages}ページまで選べます。
-          {selectedProduct.extraPagePrice > 0 && (
+        <p className="mb-4 text-sm leading-relaxed text-muted">
+          {selectedProduct.basePages}ページから{selectedProduct.maxPages}ページまで選べます。
+          {selectedProduct.extraPagePrice > 0 ? (
             <span>
               {" "}
               {formatPrice(selectedProduct.extraPagePrice)}/10ページ追加。
             </span>
-          )}
+          ) : null}
         </p>
 
         <div
@@ -187,10 +192,10 @@ export function ProductSelector({
             return (
               <label
                 key={pages}
-                className={`ds-focus min-h-11 cursor-pointer rounded-xl border px-4 py-2 text-sm transition-colors ${
+                className={`ds-focus inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full border px-4 py-2 text-sm transition-colors ${
                   isSelected
-                    ? "border-primary bg-primary-soft font-semibold text-primary"
-                    : "border-border bg-surface hover:border-primary/40"
+                    ? "border-brand-terracotta bg-brand-terracotta-soft font-medium text-brand-terracotta-strong"
+                    : "border-border bg-surface hover:border-brand-terracotta/40"
                 }`}
               >
                 <input
@@ -201,68 +206,59 @@ export function ProductSelector({
                   onChange={() => setSelectedPages(pages)}
                   className="sr-only"
                 />
+                {isSelected ? (
+                  <span aria-hidden="true" className="text-xs">
+                    ✓
+                  </span>
+                ) : null}
                 <span>{pages}ページ</span>
-                {extraCost > 0 && (
-                  <span className="ml-1.5 text-xs text-muted">+{formatPrice(extraCost)}</span>
-                )}
+                {extraCost > 0 ? (
+                  <span className="text-xs text-muted">+{formatPrice(extraCost)}</span>
+                ) : null}
               </label>
             );
           })}
         </div>
 
-        {/* Photo count advisory — informational only, no hard block */}
-        {tooManyPhotos && (
+        {tooManyPhotos ? (
           <p
             role="status"
             aria-live="polite"
-            className="mt-3 rounded-xl bg-warning-soft px-4 py-3 text-sm text-warning"
+            className="mt-4 rounded-lg bg-warning-soft px-4 py-3 text-sm text-warning"
           >
-            アルバムに{photoCount}枚の写真があります。{selectedPages}ページに対して写真が多めです。ページ数を増やすか、アルバムから写真を減らすことをおすすめします。
+            アルバムに{photoCount}枚の写真があります。{selectedPages}
+            ページに対して写真が多めです。ページ数を増やすか、アルバムから写真を減らすことをおすすめします。
           </p>
-        )}
+        ) : null}
       </section>
 
-      {/* Price summary */}
-      <section aria-labelledby="price-heading" className="app-card-flat">
-        <h2 id="price-heading" className="mb-4 text-sm font-medium text-muted">
-          注文内容
-        </h2>
-        <dl className="grid gap-2.5 text-sm">
-          <div className="flex justify-between">
-            <dt className="text-muted">商品</dt>
-            <dd className="font-medium">{selectedProduct.name}</dd>
+      {/* Summary + CTA */}
+      <section aria-labelledby="price-heading" className="grid gap-5 pt-2">
+        <div className="app-order-divider" />
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h2 id="price-heading" className="text-sm text-muted">
+              合計金額
+            </h2>
+            <p className="ds-caption mt-1">
+              {selectedProduct.name}　・　{selectedPages}ページ
+            </p>
           </div>
-          <div className="flex justify-between">
-            <dt className="text-muted">サイズ</dt>
-            <dd>{selectedProduct.size}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted">カバー</dt>
-            <dd>{selectedProduct.coverTypeLabel}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted">ページ数</dt>
-            <dd>{selectedPages}ページ</dd>
-          </div>
-          <div className="mt-1 flex items-center justify-between border-t pt-3">
-            <dt className="font-semibold">小計</dt>
-            <dd aria-live="polite" className="text-xl font-semibold">
+          <div className="text-right">
+            <p aria-live="polite" className="app-price-accent text-2xl">
               {formatPrice(price)}
-            </dd>
+            </p>
+            <p className="ds-caption mt-0.5">税込・送料は次の画面で確認</p>
           </div>
-        </dl>
-        <p className="mt-3 text-xs text-muted">
-          ※ 送料・消費税は次のステップで確認できます
-        </p>
-      </section>
+        </div>
 
-      {/* CTA — pass product + pages as query params for server validation */}
-      <Link
-        href={`/pets/${petId}/album/${albumId}/checkout?product=${selectedProductId}&pages=${selectedPages}`}
-        className="app-button-primary w-full text-center"
-      >
-        注文内容を確認する
-      </Link>
+        <Link
+          href={`/pets/${petId}/album/${albumId}/checkout?product=${selectedProductId}&pages=${selectedPages}`}
+          className="app-button-primary w-full text-center"
+        >
+          注文内容を確認する
+        </Link>
+      </section>
     </main>
   );
 }
