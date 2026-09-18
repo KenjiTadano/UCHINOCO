@@ -14,6 +14,106 @@ export type Database = {
   }
   public: {
     Tables: {
+      albums: {
+        Row: {
+          id: string
+          owner_user_id: string
+          pet_id: string
+          title: string
+          status: string
+          period_from: string | null
+          period_to: string | null
+          cover_photo_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_user_id: string
+          pet_id: string
+          title?: string
+          status?: string
+          period_from?: string | null
+          period_to?: string | null
+          cover_photo_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          owner_user_id?: string
+          pet_id?: string
+          title?: string
+          status?: string
+          period_from?: string | null
+          period_to?: string | null
+          cover_photo_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "albums_owner_user_id_fkey"
+            columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "albums_pet_id_fkey"
+            columns: ["pet_id"]
+            isOneToOne: false
+            referencedRelation: "pets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "albums_cover_photo_id_fkey"
+            columns: ["cover_photo_id"]
+            isOneToOne: false
+            referencedRelation: "photos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      album_photos: {
+        Row: {
+          album_id: string
+          photo_id: string
+          position: number
+          selected_by: string
+          created_at: string
+        }
+        Insert: {
+          album_id: string
+          photo_id: string
+          position?: number
+          selected_by?: string
+          created_at?: string
+        }
+        Update: {
+          album_id?: string
+          photo_id?: string
+          position?: number
+          selected_by?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "album_photos_album_id_fkey"
+            columns: ["album_id"]
+            isOneToOne: false
+            referencedRelation: "albums"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "album_photos_photo_id_fkey"
+            columns: ["photo_id"]
+            isOneToOne: false
+            referencedRelation: "photos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       photo_pets: {
         Row: {
           photo_id: string
@@ -289,6 +389,10 @@ export type Database = {
         Returns: Json
       }
       is_owned_pet: { Args: { pet_id_text: string }; Returns: boolean }
+      reorder_album_photos: {
+        Args: { p_album_id: string; p_positions: Json }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
