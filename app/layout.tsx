@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   description: "うちの子との毎日を残す、家族のための思い出アルバム",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="ja"

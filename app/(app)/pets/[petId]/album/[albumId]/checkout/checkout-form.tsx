@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { formatPrice } from "@/lib/photobook-products";
+import { createCheckoutSession } from "./actions";
 import {
   validateAddress,
   hasAddressErrors,
@@ -58,10 +58,11 @@ export function CheckoutForm({
   subtotal,
   shippingOptions,
 }: Props) {
-  const router = useRouter();
   const [addr, setAddr] = useState<ShippingAddress>(EMPTY_ADDRESS);
   const [errors, setErrors] = useState<AddressErrors>({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
 
   const shipping = shippingOptions[0];
   const total = subtotal + shipping.price;
@@ -85,20 +86,35 @@ export function CheckoutForm({
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitAttempted(true);
+    setActionError(null);
 
     const errs = validateAddress(addr);
     setErrors(errs);
 
     if (hasAddressErrors(errs)) {
-      // Move focus to first invalid field for keyboard / AT users
       const firstField = Object.keys(errs)[0];
       document.getElementById(firstField)?.focus();
       return;
     }
 
-    // Address stays in client state — NOT passed via URL (personal info protection)
-    // Task045-3 will POST address to server action to create Stripe checkout session
-    router.push(`/pets/${petId}/album/${albumId}/checkout/payment`);
+    // Address is sent to the Server Action via FormData — never via URL (PII protection).
+    const formData = new FormData();
+    formData.set("lastName", addr.lastName);
+    formData.set("firstName", addr.firstName);
+    formData.set("postalCode", addr.postalCode);
+    formData.set("prefecture", addr.prefecture);
+    formData.set("city", addr.city);
+    formData.set("address1", addr.address1);
+    formData.set("address2", addr.address2);
+    formData.set("phone", addr.phone);
+
+    startTransition(async () => {
+      const result = await createCheckoutSession(petId, albumId, productId, pages, formData);
+      if (result?.error) {
+        setActionError(result.error);
+      }
+      // On success, createCheckoutSession calls redirect() → navigation handled by Next.js
+    });
   }
 
   /** Convenience: returns aria-invalid + aria-describedby for a validated field */
@@ -408,12 +424,17 @@ export function CheckoutForm({
 
         {/* CTA */}
         <div className="grid gap-2">
+          {actionError && (
+            <p role="alert" className="app-error text-sm">
+              {actionError}
+            </p>
+          )}
           <button
             type="submit"
-            disabled={photosTooMany}
+            disabled={photosTooMany || isPending}
             className="app-button-primary w-full"
           >
-            支払いへ進む
+            {isPending ? "処理中…" : "支払いへ進む"}
           </button>
           {photosTooMany ? (
             <p className="text-center text-sm text-danger">
@@ -421,7 +442,7 @@ export function CheckoutForm({
             </p>
           ) : (
             <p className="text-center text-xs text-muted">
-              次の画面でお支払い方法を選択できます
+              次の画面でStripeの決済画面へ移動します
             </p>
           )}
         </div>

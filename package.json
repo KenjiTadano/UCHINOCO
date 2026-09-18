@@ -12,10 +12,11 @@
     "@supabase/ssr": "0.12.0",
     "@supabase/supabase-js": "2.109.0",
     "heic-to": "^1.5.2",
-    "next": "16.3.1",
+    "next": "^16.3.5",
     "openai": "^7.8.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "stripe": "^22.6.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

@@ -184,7 +184,7 @@ test("H: empty postalCode is invalid", () => {
 // ── I: address2 is optional ────────────────────────────────────────────────────
 
 test("I: valid address with empty address2 passes", () => {
-  const addr: typeof EMPTY_ADDRESS = {
+  const addr = {
     lastName: "山田",
     firstName: "太郎",
     postalCode: "150-0043",
@@ -199,7 +199,7 @@ test("I: valid address with empty address2 passes", () => {
 });
 
 test("I: valid address with filled address2 also passes", () => {
-  const addr: typeof EMPTY_ADDRESS = {
+  const addr = {
     lastName: "山田",
     firstName: "太郎",
     postalCode: "1234567",
