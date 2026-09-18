@@ -256,9 +256,9 @@ export function ProductSelector({
         </p>
       </section>
 
-      {/* CTA — go to checkout */}
+      {/* CTA — pass product + pages as query params for server validation */}
       <Link
-        href={`/pets/${petId}/album/${albumId}/checkout`}
+        href={`/pets/${petId}/album/${albumId}/checkout?product=${selectedProductId}&pages=${selectedPages}`}
         className="app-button-primary w-full text-center"
       >
         注文内容を確認する
