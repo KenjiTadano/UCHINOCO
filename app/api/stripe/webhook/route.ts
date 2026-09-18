@@ -92,10 +92,14 @@ export async function POST(request: Request): Promise<Response> {
 
         console.log(`[webhook] ${event.id} ${event.type}: order_id=${orderId}`);
 
+        // Webhook reads the configured provider — client cannot influence this value.
+        const printProvider = process.env.PRINT_PROVIDER ?? "mock";
+
         const { error } = await adminClient.rpc("mark_order_paid", {
           p_order_id: orderId,
           p_stripe_session_id: session.id,
           p_payment_intent_id: paymentIntentId,
+          p_provider: printProvider,
         });
 
         if (error) {

@@ -208,6 +208,10 @@ export type Database = {
           failed_at: string | null
           error_code: string | null
           tracking_number: string | null
+          cover_file_path: string | null
+          content_file_path: string | null
+          prepared_at: string | null
+          preparation_started_at: string | null
           created_at: string
           updated_at: string
         }
@@ -223,6 +227,10 @@ export type Database = {
           failed_at?: string | null
           error_code?: string | null
           tracking_number?: string | null
+          cover_file_path?: string | null
+          content_file_path?: string | null
+          prepared_at?: string | null
+          preparation_started_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -238,6 +246,10 @@ export type Database = {
           failed_at?: string | null
           error_code?: string | null
           tracking_number?: string | null
+          cover_file_path?: string | null
+          content_file_path?: string | null
+          prepared_at?: string | null
+          preparation_started_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -631,7 +643,12 @@ export type Database = {
         Returns: undefined
       }
       mark_order_paid: {
-        Args: { p_order_id: string; p_stripe_session_id: string; p_payment_intent_id: string | null }
+        Args: {
+          p_order_id: string
+          p_stripe_session_id: string
+          p_payment_intent_id: string | null
+          p_provider?: string
+        }
         Returns: undefined
       }
     }

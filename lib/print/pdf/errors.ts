@@ -43,3 +43,19 @@ export class PdfGenerationError extends PrintGenerationError {
     this.name = "PdfGenerationError";
   }
 }
+
+export class PrintFileUploadError extends PrintGenerationError {
+  constructor(fileType: string, orderId: string) {
+    super("PRINT_FILE_UPLOAD_FAILED", `Failed to upload ${fileType} PDF for order ${orderId}`);
+    this.name = "PrintFileUploadError";
+  }
+}
+
+/** Allowed error codes to persist to print_jobs.error_code — no PII or internal details. */
+export const SAFE_ERROR_CODES = new Set([
+  "IMAGE_LOAD_FAILED",
+  "INVALID_IMAGE",
+  "PHOTO_COUNT_EXCEEDED",
+  "PDF_GENERATION_FAILED",
+  "PRINT_FILE_UPLOAD_FAILED",
+]);
