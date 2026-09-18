@@ -514,6 +514,10 @@ export type Database = {
         Args: { p_album_id: string; p_positions: Json }
         Returns: undefined
       }
+      mark_order_paid: {
+        Args: { p_order_id: string; p_stripe_session_id: string; p_payment_intent_id: string | null }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

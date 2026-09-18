@@ -42,6 +42,16 @@ export default async function AlbumDetailPage({ params }: Props) {
 
   if (!pet) notFound();
 
+  // Latest actionable order for this album (for status banner)
+  const { data: latestOrder } = await supabase
+    .from("orders")
+    .select("id, status")
+    .eq("album_id", albumId)
+    .in("status", ["pending", "paid", "failed"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   // Album photos ordered by position
   const { data: rawAlbumPhotos, error: apError } = await supabase
     .from("album_photos")
@@ -153,41 +163,85 @@ export default async function AlbumDetailPage({ params }: Props) {
         </section>
       ) : null}
 
-      {/* Photobook CTA */}
-      <Link
-        href={`/pets/${petId}/album/${albumId}/product`}
-        className="app-button-primary flex items-center justify-center gap-2"
-        aria-label={`${album.title || "このアルバム"}をフォトブックにする`}
-      >
-        フォトブックにする
-      </Link>
+      {/* Order status banner */}
+      {album.status === "ordered" && latestOrder && (
+        <div className="rounded-xl border border-success/30 bg-success-soft px-4 py-3 text-sm">
+          <p className="font-semibold">注文済み</p>
+          <p className="ds-caption mt-0.5">印刷・製本を進めています。</p>
+          <Link
+            href={`/pets/${petId}/album/${albumId}/order/${latestOrder.id}`}
+            className="mt-2 inline-block text-xs font-medium underline underline-offset-2"
+          >
+            注文詳細を見る
+          </Link>
+        </div>
+      )}
+      {latestOrder?.status === "pending" && album.status !== "ordered" && (
+        <div className="rounded-xl border border-border px-4 py-3 text-sm">
+          <p className="font-semibold">お支払いを確認しています</p>
+          <Link
+            href={`/pets/${petId}/album/${albumId}/order/${latestOrder.id}`}
+            className="mt-1 inline-block text-xs font-medium underline underline-offset-2"
+          >
+            注文状況を確認する
+          </Link>
+        </div>
+      )}
+      {latestOrder?.status === "failed" && (
+        <div className="rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm">
+          <p className="font-semibold text-danger">お支払いを確認できませんでした</p>
+          <Link
+            href={`/pets/${petId}/album/${albumId}/product`}
+            className="mt-1 inline-block text-xs font-medium text-danger underline underline-offset-2"
+          >
+            再注文する
+          </Link>
+        </div>
+      )}
 
-      {/* Title edit */}
-      <section aria-labelledby="album-title-heading" className="app-card-flat grid gap-4">
-        <h2 id="album-title-heading" className="text-sm font-medium text-muted">
-          タイトルを編集
-        </h2>
-        <AlbumTitleForm petId={petId} albumId={albumId} title={album.title} />
-      </section>
+      {album.status !== "ordered" ? (
+        <>
+          {/* Photobook CTA */}
+          <Link
+            href={`/pets/${petId}/album/${albumId}/product`}
+            className="app-button-primary flex items-center justify-center gap-2"
+            aria-label={`${album.title || "このアルバム"}をフォトブックにする`}
+          >
+            フォトブックにする
+          </Link>
 
-      {/* Photo add link */}
-      <Link
-        href={`/pets/${petId}/album/${albumId}/add`}
-        className="app-button-secondary flex items-center justify-center gap-2"
-        aria-label="アルバムに写真を追加する"
-      >
-        ＋ 写真を追加
-      </Link>
+          {/* Title edit */}
+          <section aria-labelledby="album-title-heading" className="app-card-flat grid gap-4">
+            <h2 id="album-title-heading" className="text-sm font-medium text-muted">
+              タイトルを編集
+            </h2>
+            <AlbumTitleForm petId={petId} albumId={albumId} title={album.title} />
+          </section>
 
-      {/* Photo reorder + remove */}
-      <AlbumPhotoControls
-        petId={petId}
-        albumId={albumId}
-        initialPhotos={orderedPhotos}
-      />
+          {/* Photo add link */}
+          <Link
+            href={`/pets/${petId}/album/${albumId}/add`}
+            className="app-button-secondary flex items-center justify-center gap-2"
+            aria-label="アルバムに写真を追加する"
+          >
+            ＋ 写真を追加
+          </Link>
 
-      {/* Delete */}
-      <AlbumDeleteControl petId={petId} albumId={albumId} />
+          {/* Photo reorder + remove */}
+          <AlbumPhotoControls
+            petId={petId}
+            albumId={albumId}
+            initialPhotos={orderedPhotos}
+          />
+
+          {/* Delete */}
+          <AlbumDeleteControl petId={petId} albumId={albumId} />
+        </>
+      ) : (
+        <p className="app-description text-center">
+          注文確定後はアルバムの編集を行えません。
+        </p>
+      )}
     </main>
   );
 }
