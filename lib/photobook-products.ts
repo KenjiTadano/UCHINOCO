@@ -18,6 +18,11 @@ export type PhotobookProduct = {
   basePrice: number;
   /** Price increment per PAGE_STEP extra pages */
   extraPagePrice: number;
+  /** Print dimensions in mm (trimmed size, excluding bleed) */
+  printWidthMm: number;
+  printHeightMm: number;
+  /** Bleed in mm — 0 until confirmed via Provider Sandbox specs */
+  bleedMm: number;
 };
 
 /** Pages increment between selectable options */
@@ -35,6 +40,9 @@ export const PHOTOBOOK_PRODUCTS: PhotobookProduct[] = [
     maxPages: 40,
     basePrice: 2980,
     extraPagePrice: 800,
+    printWidthMm: 180,
+    printHeightMm: 180,
+    bleedMm: 0,
   },
   {
     id: "premium",
@@ -47,6 +55,9 @@ export const PHOTOBOOK_PRODUCTS: PhotobookProduct[] = [
     maxPages: 60,
     basePrice: 4980,
     extraPagePrice: 1000,
+    printWidthMm: 210,
+    printHeightMm: 210,
+    bleedMm: 0,
   },
   {
     id: "premium-plus",
@@ -59,6 +70,9 @@ export const PHOTOBOOK_PRODUCTS: PhotobookProduct[] = [
     maxPages: 80,
     basePrice: 6980,
     extraPagePrice: 1200,
+    printWidthMm: 210,
+    printHeightMm: 210,
+    bleedMm: 0,
   },
 ];
 
