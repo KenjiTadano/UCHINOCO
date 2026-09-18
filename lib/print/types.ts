@@ -2,9 +2,10 @@ import "server-only";
 
 /**
  * Provider-agnostic types for the print fulfillment layer.
- * Actual provider implementations live in lib/print/providers/.
- * No real API is connected in Task046-2.
+ * Implementations live in lib/print/providers/.
  */
+
+export type PrintProviderName = "mock" | "prodigi" | "gelato" | "fujifilm";
 
 export type PrintOrderItem = {
   position: number;
@@ -14,9 +15,20 @@ export type PrintOrderItem = {
   caption: string | null;
 };
 
+/**
+ * Provider-agnostic asset type.
+ * URL is a signed URL or hosted URL for the provider to fetch.
+ * PDF generation and signed URL creation are handled upstream.
+ */
+export type PrintAsset = {
+  type: "cover" | "content" | "book";
+  url: string;
+};
+
 export type PrintOrderParams = {
-  /** Used as idempotency key base */
   orderId: string;
+  /** Explicit idempotency key; falls back to orderId if omitted. */
+  idempotencyKey?: string;
   productId: string;
   productSize: string;
   coverType: "soft" | "hard";
@@ -42,6 +54,17 @@ export type PrintJobResult = {
 export type PrintJobStatus = {
   status: "queued" | "submitted" | "processing" | "shipped" | "failed" | "cancelled";
   trackingNumber?: string;
+};
+
+/**
+ * Future cost quote from the provider (separate from user-facing orders.total).
+ * Do not mix with the user billing amount.
+ */
+export type ProviderQuote = {
+  subtotal: number;
+  shipping: number;
+  total: number;
+  currency: string;
 };
 
 export interface PrintProvider {
