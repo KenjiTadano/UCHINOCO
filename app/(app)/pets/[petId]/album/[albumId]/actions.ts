@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { isAlbumEditable, ALBUM_ORDERED_ERROR } from "@/lib/album-guard";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -23,7 +24,7 @@ async function resolveAlbum(petId: string, albumId: string) {
 
   const { data: album } = await supabase
     .from("albums")
-    .select("id, owner_user_id, pet_id")
+    .select("id, owner_user_id, pet_id, status")
     .eq("id", albumId)
     .eq("owner_user_id", user.id)
     .eq("pet_id", petId)
@@ -31,6 +32,18 @@ async function resolveAlbum(petId: string, albumId: string) {
 
   if (!album || album.owner_user_id !== user.id || album.pet_id !== petId) return null;
   return { supabase, user, album };
+}
+
+/**
+ * Guard: reject mutations on ordered albums.
+ * UI hiding is not enough — Server Actions must also enforce this.
+ * draft albums remain fully editable.
+ */
+function assertAlbumEditable(album: { status: string }): AlbumMutationState | null {
+  if (!isAlbumEditable(album.status)) {
+    return err(ALBUM_ORDERED_ERROR);
+  }
+  return null;
 }
 
 // ── Title ────────────────────────────────────────────────────────────────────
@@ -43,6 +56,8 @@ export async function updateAlbumTitle(
 ): Promise<AlbumMutationState> {
   const ctx = await resolveAlbum(petId, albumId);
   if (!ctx) return err("認証エラーが発生しました。");
+  const guard = assertAlbumEditable(ctx.album);
+  if (guard) return guard;
 
   const title = String(formData.get("title") ?? "").trim().slice(0, 100);
   if (!title) return err("タイトルを入力してください。");
@@ -68,6 +83,8 @@ export async function removeAlbumPhoto(
   if (!UUID_PATTERN.test(photoId)) return err("無効なリクエストです。");
   const ctx = await resolveAlbum(petId, albumId);
   if (!ctx) return err("認証エラーが発生しました。");
+  const guard = assertAlbumEditable(ctx.album);
+  if (guard) return guard;
 
   const { error } = await ctx.supabase
     .from("album_photos")
@@ -92,6 +109,7 @@ export async function addAlbumPhoto(
   if (!UUID_PATTERN.test(photoId)) return;
   const ctx = await resolveAlbum(petId, albumId);
   if (!ctx) return;
+  if (assertAlbumEditable(ctx.album)) return;
 
   // Verify photo belongs to the pet and the user (primary scope, IDOR check)
   const { data: photo } = await ctx.supabase
@@ -135,6 +153,8 @@ export async function reorderAlbumPhotos(
 ): Promise<AlbumMutationState> {
   const ctx = await resolveAlbum(petId, albumId);
   if (!ctx) return err("認証エラーが発生しました。");
+  const guard = assertAlbumEditable(ctx.album);
+  if (guard) return guard;
 
   const photoIds = formData.getAll("photo_order").map(String).filter((id) => UUID_PATTERN.test(id));
   if (photoIds.length === 0) return err("並び替えデータが不正です。");
@@ -159,6 +179,8 @@ export async function deleteAlbum(
 ): Promise<AlbumMutationState> {
   const ctx = await resolveAlbum(petId, albumId);
   if (!ctx) return err("認証エラーが発生しました。");
+  const guard = assertAlbumEditable(ctx.album);
+  if (guard) return guard;
 
   // album_photos are deleted via ON DELETE CASCADE
   const { error } = await ctx.supabase

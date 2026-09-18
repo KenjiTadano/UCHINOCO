@@ -14,6 +14,127 @@ export type Database = {
   }
   public: {
     Tables: {
+      orders: {
+        Row: {
+          id: string
+          owner_user_id: string
+          album_id: string
+          pet_id: string
+          status: "pending" | "paid" | "cancelled" | "failed"
+          product_id: string
+          product_name: string
+          product_size: string
+          product_cover_type: string
+          product_cover_type_label: string
+          pages: number
+          subtotal: number
+          shipping_fee: number
+          total: number
+          shipping_option_id: string
+          shipping_option_name: string
+          shipping_last_name: string
+          shipping_first_name: string
+          shipping_postal_code: string
+          shipping_prefecture: string
+          shipping_city: string
+          shipping_address1: string
+          shipping_address2: string | null
+          shipping_phone: string
+          stripe_checkout_session_id: string | null
+          stripe_payment_intent_id: string | null
+          created_at: string
+          updated_at: string
+          paid_at: string | null
+          cancelled_at: string | null
+        }
+        Insert: {
+          id?: string
+          owner_user_id: string
+          album_id: string
+          pet_id: string
+          status?: "pending" | "paid" | "cancelled" | "failed"
+          product_id: string
+          product_name: string
+          product_size: string
+          product_cover_type: string
+          product_cover_type_label: string
+          pages: number
+          subtotal: number
+          shipping_fee: number
+          total: number
+          shipping_option_id: string
+          shipping_option_name: string
+          shipping_last_name: string
+          shipping_first_name: string
+          shipping_postal_code: string
+          shipping_prefecture: string
+          shipping_city: string
+          shipping_address1: string
+          shipping_address2?: string | null
+          shipping_phone: string
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          created_at?: string
+          updated_at?: string
+          paid_at?: string | null
+          cancelled_at?: string | null
+        }
+        Update: {
+          id?: string
+          owner_user_id?: string
+          album_id?: string
+          pet_id?: string
+          status?: "pending" | "paid" | "cancelled" | "failed"
+          product_id?: string
+          product_name?: string
+          product_size?: string
+          product_cover_type?: string
+          product_cover_type_label?: string
+          pages?: number
+          subtotal?: number
+          shipping_fee?: number
+          total?: number
+          shipping_option_id?: string
+          shipping_option_name?: string
+          shipping_last_name?: string
+          shipping_first_name?: string
+          shipping_postal_code?: string
+          shipping_prefecture?: string
+          shipping_city?: string
+          shipping_address1?: string
+          shipping_address2?: string | null
+          shipping_phone?: string
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          created_at?: string
+          updated_at?: string
+          paid_at?: string | null
+          cancelled_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_owner_user_id_fkey"
+            columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_album_id_fkey"
+            columns: ["album_id"]
+            isOneToOne: false
+            referencedRelation: "albums"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_pet_id_fkey"
+            columns: ["pet_id"]
+            isOneToOne: false
+            referencedRelation: "pets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       albums: {
         Row: {
           id: string
