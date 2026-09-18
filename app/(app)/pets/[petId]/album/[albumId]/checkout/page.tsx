@@ -7,12 +7,12 @@ import { CheckoutForm } from "./checkout-form";
 
 type Props = {
   params: Promise<{ petId: string; albumId: string }>;
-  searchParams: Promise<{ product?: string; pages?: string }>;
+  searchParams: Promise<{ product?: string; pages?: string; cancelled?: string }>;
 };
 
 export default async function AlbumCheckoutPage({ params, searchParams }: Props) {
   const { petId, albumId } = await params;
-  const { product: productParam, pages: pagesParam } = await searchParams;
+  const { product: productParam, pages: pagesParam, cancelled } = await searchParams;
 
   const supabase = await createClient();
 
@@ -109,6 +109,7 @@ export default async function AlbumCheckoutPage({ params, searchParams }: Props)
       pages={pagesNum}
       subtotal={subtotal}
       shippingOptions={SHIPPING_OPTIONS}
+      showCancelMessage={cancelled === "1"}
     />
   );
 }

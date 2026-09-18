@@ -41,6 +41,7 @@ type Props = {
   pages: number;
   subtotal: number;
   shippingOptions: ShippingOption[];
+  showCancelMessage?: boolean;
 };
 
 export function CheckoutForm({
@@ -57,6 +58,7 @@ export function CheckoutForm({
   pages,
   subtotal,
   shippingOptions,
+  showCancelMessage = false,
 }: Props) {
   const [addr, setAddr] = useState<ShippingAddress>(EMPTY_ADDRESS);
   const [errors, setErrors] = useState<AddressErrors>({});
@@ -134,6 +136,13 @@ export function CheckoutForm({
       >
         商品選択へ戻る
       </Link>
+
+      {/* Cancel return message — shown when Stripe cancel_url redirects back with ?cancelled=1 */}
+      {showCancelMessage && (
+        <div role="status" className="rounded-xl border border-border bg-surface px-4 py-3 text-sm">
+          お支払いは完了していません。配送先を確認のうえ、再度「支払いへ進む」からお進みください。
+        </div>
+      )}
 
       {/* Album cover + header */}
       <section>
@@ -424,6 +433,10 @@ export function CheckoutForm({
 
         {/* CTA */}
         <div className="grid gap-2">
+          {/* Screen reader announcement for loading / redirect state */}
+          <p aria-live="polite" className="sr-only">
+            {isPending ? "Stripeの決済画面へ移動しています" : ""}
+          </p>
           {actionError && (
             <p role="alert" className="app-error text-sm">
               {actionError}

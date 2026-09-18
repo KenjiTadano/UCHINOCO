@@ -42,13 +42,21 @@ export default async function OrderCompletePage({ params }: Props) {
 
   if (!order) notFound();
 
-  // Album title
-  const { data: album } = await supabase
-    .from("albums")
-    .select("id, title")
-    .eq("id", albumId)
-    .eq("owner_user_id", user.id)
-    .maybeSingle();
+  // Album title + pet name (parallel)
+  const [{ data: album }, { data: pet }] = await Promise.all([
+    supabase
+      .from("albums")
+      .select("id, title")
+      .eq("id", albumId)
+      .eq("owner_user_id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("pets")
+      .select("id, name")
+      .eq("id", petId)
+      .eq("owner_user_id", user.id)
+      .maybeSingle(),
+  ]);
 
   // Cover photos (up to 3 by position)
   const { data: coverRows } = await supabase
@@ -85,7 +93,7 @@ export default async function OrderCompletePage({ params }: Props) {
 
       {/* Cover */}
       <section>
-        <AlbumCoverCollage urls={coverUrls} petName="" />
+        <AlbumCoverCollage urls={coverUrls} petName={pet?.name ?? ""} />
         <div className="mt-3 px-1">
           <p className="ds-editorial">ORDER</p>
           <h1 className="mt-1 text-xl font-semibold">
@@ -224,6 +232,12 @@ function OrderStatusBanner({ status, message, petId, albumId, orderId }: BannerP
     <div className="rounded-xl border border-border px-4 py-4">
       <p className="ds-editorial mb-1">CANCELLED</p>
       <p className="text-base font-semibold">{message}</p>
+      <Link
+        href={`/pets/${petId}/album/${albumId}/product`}
+        className="mt-3 inline-block text-xs font-medium underline underline-offset-2"
+      >
+        注文内容へ戻る
+      </Link>
     </div>
   );
 }
