@@ -9,6 +9,7 @@ import { PhotoThumbnailBackfill } from "./_components/photo-thumbnail-backfill";
 import { ContentHashBackfill } from "./_components/content-hash-backfill";
 import {
   EditorialPhotoGrid,
+  EmptyState,
   MemoryDateHeader,
   PageHeader,
   SegmentControl,
@@ -90,7 +91,7 @@ export default async function PetDetailPage({
   return (
     <main className="app-page">
       <Link className="app-back-link" href="/home">
-        homeへ戻る
+        ホームへ戻る
       </Link>
 
       {message ? (
@@ -120,26 +121,12 @@ export default async function PetDetailPage({
 
         <div className="min-w-0 flex-1">
           <PageHeader eyebrow="思い出" title={pet.name} />
-          <dl className="mt-2 grid gap-1 text-sm">
-            <div className="flex gap-2">
-              <dt className="text-muted">種類</dt>
-              <dd>{SPECIES_LABELS[pet.species] ?? "不明"}</dd>
-            </div>
-            {pet.breed ? (
-              <div className="flex gap-2">
-                <dt className="text-muted">犬種・猫種</dt>
-                <dd>{pet.breed}</dd>
-              </div>
-            ) : null}
-            {pet.birthday ? (
-              <div className="flex gap-2">
-                <dt className="text-muted">誕生日</dt>
-                <dd>{formatDate(pet.birthday)}</dd>
-              </div>
-            ) : null}
-          </dl>
+          <p className="mt-1 text-xs text-muted">
+            {[SPECIES_LABELS[pet.species] ?? "不明", pet.breed].filter(Boolean).join(" ・ ")}
+            {pet.birthday ? `　${formatDate(pet.birthday)}生まれ` : ""}
+          </p>
           <Link
-            className="app-back-link mt-1"
+            className="ds-focus mt-1 inline-flex rounded-lg px-1 text-xs text-muted underline decoration-border underline-offset-4 hover:text-foreground"
             href={`/pets/${pet.id}/edit`}
           >
             プロフィールを編集
@@ -155,25 +142,19 @@ export default async function PetDetailPage({
             { label: "♡ お気に入り", href: `/pets/${pet.id}/favorites` },
           ]}
         />
-        <div className="flex justify-end gap-2">
-          <Link className="app-button-secondary" href={`/pets/${pet.id}/album`}>アルバムを見る</Link>
-        </div>
 
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-3">
           <h2 id="photos-heading" className="app-section-title">
             思い出写真
           </h2>
           <div className="flex flex-wrap justify-end gap-2">
-            <Link
-              className="app-button-ghost"
-              href={`/pets/${pet.id}/search`}
-            >
-              思い出を検索
+            <Link className="app-button-ghost" href={`/pets/${pet.id}/search`}>
+              探す
             </Link>
-            <Link
-              className="app-button-primary"
-              href={`/pets/${pet.id}/photos/new`}
-            >
+            <Link className="app-button-ghost" href={`/pets/${pet.id}/album`}>
+              アルバム
+            </Link>
+            <Link className="app-button-primary" href={`/pets/${pet.id}/photos/new`}>
               写真を追加
             </Link>
           </div>
@@ -204,15 +185,10 @@ export default async function PetDetailPage({
             ) : null}
           </div>
         ) : (
-          <div className="app-empty">
-            <p>まだ思い出がありません</p>
-            <Link
-              className="app-button-primary mt-4"
-              href={`/pets/${pet.id}/photos/new`}
-            >
-              最初の写真を追加する
-            </Link>
-          </div>
+          <EmptyState
+            title="まだ思い出がありません"
+            action={<Link className="app-button-primary" href={`/pets/${pet.id}/photos/new`}>最初の写真を追加する</Link>}
+          />
         )}
       </section>
 

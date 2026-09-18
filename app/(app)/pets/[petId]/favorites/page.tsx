@@ -5,6 +5,7 @@ import { groupPhotosByTokyoMonth } from "@/lib/photo-timeline";
 import { createClient } from "@/lib/supabase/server";
 import { getMemoryPhotoPage, nextPhotoCursor, paginationHref, parsePhotoCursor } from "@/lib/photo-pagination";
 import { createListImageUrls } from "@/lib/photo-list-images";
+import { EmptyState } from "@/app/_components/ui";
 
 type PetFavoritesPageProps = {
   params: Promise<{ petId: string }>;
@@ -63,17 +64,11 @@ export default async function PetFavoritesPage({
           {hasMore ? <Link className="app-button-secondary self-center" href={paginationHref(`/pets/${pet.id}/favorites`, nextPhotoCursor(photos))}>さらに見る</Link> : null}
         </div>
       ) : (
-        <div className="app-empty">
-          <p className="font-medium text-foreground">
-            お気に入りの思い出はまだありません
-          </p>
-          <p className="mt-1">
-            写真詳細の★から、お気に入りに追加できます。
-          </p>
-          <Link className="app-button-secondary mt-4" href={`/pets/${pet.id}`}>
-            思い出を見る
-          </Link>
-        </div>
+        <EmptyState
+          title="お気に入りの思い出はまだありません"
+          description="写真詳細の★から、お気に入りに追加できます。"
+          action={<Link className="app-button-secondary" href={`/pets/${pet.id}`}>思い出を見る</Link>}
+        />
       )}
     </main>
   );

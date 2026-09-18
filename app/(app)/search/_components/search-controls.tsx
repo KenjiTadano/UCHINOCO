@@ -63,11 +63,7 @@ export function SearchControls({ base, state, facets, contextPetName, selectedPe
     </section>
 
     {facets ? <>
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-        <p>写真から見つけた言葉</p>
-        <p>{facets.completed.toLocaleString()} / {facets.total.toLocaleString()}枚を整理済み</p>
-      </div>
-      <p className="-mt-4 text-xs text-muted">件数は{state.pet ? "この子の" : "すべての"}写真が対象です。</p>
+      <p className="text-xs text-muted">写真から見つけた言葉</p>
       {CATEGORIES.map(category => {
         const words = facets.words.filter(word => word.kind === category.kind);
         return words.length ? <section key={category.kind} aria-labelledby={`facet-${category.kind}`} className="grid gap-2">

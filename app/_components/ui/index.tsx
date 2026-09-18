@@ -191,9 +191,9 @@ export function EditorialPhotoGrid({ photos }: { photos: EditorialPhoto[] }) {
 
 export function MemoryDateHeader({ date, count }: { date: string; count?: number }) {
   return (
-    <header className="flex items-baseline justify-between gap-3 border-b pb-2">
+    <header className="mb-3 flex items-baseline justify-between gap-3">
       <h2 className="ds-editorial">{date}</h2>
-      {typeof count === "number" ? <span className="ds-caption">{count}枚の思い出</span> : null}
+      {typeof count === "number" ? <span className="ds-caption">{count}枚</span> : null}
     </header>
   );
 }
@@ -237,8 +237,8 @@ export function FavoriteButton({ favorite, onClick, disabled = false }: { favori
 
 export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
-    <section className="rounded-[20px] border border-dashed bg-surface/70 px-6 py-10 text-center" aria-live="polite">
-      <h2 className="ds-heading text-lg">{title}</h2>
+    <section className="px-4 py-10 text-center" aria-live="polite">
+      <h2 className="text-base font-medium text-foreground">{title}</h2>
       {description ? <p className="ds-caption mt-2">{description}</p> : null}
       {action ? <div className="mt-5 flex justify-center">{action}</div> : null}
     </section>

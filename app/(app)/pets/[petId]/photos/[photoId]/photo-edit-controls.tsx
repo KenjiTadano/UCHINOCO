@@ -54,8 +54,8 @@ export function PhotoEditControls({
       className="app-card-flat grid gap-5"
       aria-labelledby="photo-edit-heading"
     >
-      <h2 id="photo-edit-heading" className="text-lg font-semibold">
-        思い出を編集
+      <h2 id="photo-edit-heading" className="text-sm font-medium text-muted">
+        編集
       </h2>
 
       <form action={favoriteFormAction} className="grid gap-2">
@@ -63,13 +63,15 @@ export function PhotoEditControls({
           type="submit"
           disabled={favoritePending}
           aria-pressed={favorite}
-          className="app-button-secondary w-full border-favorite/40 bg-favorite-soft text-favorite"
+          aria-label={favorite ? "お気に入りから外す" : "お気に入りに追加"}
+          className={`ds-focus inline-flex min-h-11 w-fit items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors ${
+            favorite
+              ? "border-favorite/40 bg-favorite-soft text-favorite"
+              : "bg-surface text-muted hover:border-favorite/40 hover:text-favorite"
+          }`}
         >
-          {favoritePending
-            ? "更新中..."
-            : favorite
-              ? "★ お気に入り済み"
-              : "☆ お気に入り"}
+          <span aria-hidden="true">{favoritePending ? "…" : favorite ? "★" : "☆"}</span>
+          <span>{favoritePending ? "更新中..." : favorite ? "お気に入り済み" : "お気に入り"}</span>
         </button>
         {favoriteState.message ? (
           <p

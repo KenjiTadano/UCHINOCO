@@ -66,7 +66,7 @@ export async function PetActionSelector({
   return (
     <main className="app-page">
       <Link className="app-back-link" href="/home">
-        homeへ戻る
+        ホームへ戻る
       </Link>
       <header>
         <p className="app-eyebrow">UCHINOCO</p>

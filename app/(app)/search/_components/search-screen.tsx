@@ -8,6 +8,7 @@ import { formatTokyoDateTime, photoTimestamp } from "@/lib/photo-timeline";
 import { paginationHref } from "@/lib/photo-pagination";
 import { parseSearchState, SEARCH_PAGE_SIZE, searchDateBounds, searchValues,
   type SearchFacets, type SearchPageData, type SearchParams, UUID_PATTERN } from "@/lib/search-state";
+import { EmptyState } from "@/app/_components/ui";
 import { SearchControls } from "./search-controls";
 
 export async function SearchScreen({ params, contextPetId }: { params: SearchParams; contextPetId?: string }) {
@@ -54,11 +55,11 @@ export async function SearchScreen({ params, contextPetId }: { params: SearchPar
           <p aria-live="polite" aria-atomic="true" className="text-sm text-muted">{(page?.total ?? 0).toLocaleString()}枚の思い出</p>
         </div>
         {images.error ? <p className="mb-3 text-sm text-muted">一部の写真を表示できませんでした。</p> : null}
-        {!photos.length ? <div className="app-empty">
-          <p className="font-medium text-foreground">この条件の思い出はまだありません</p>
-          <p className="mt-2">言葉を解除するか、別の条件で探してみてください。</p>
-          <Link href={base} className="app-button-ghost mt-3">条件をクリア</Link>
-        </div> : <ul className="grid grid-cols-3 gap-2 sm:gap-3">
+        {!photos.length ? <EmptyState
+          title="この条件の思い出はまだありません"
+          description="言葉を解除するか、別の条件で探してみてください。"
+          action={<Link href={base} className="app-button-ghost">条件をクリア</Link>}
+        /> : <ul className="grid grid-cols-3 gap-2 sm:gap-3">
           {photos.map(photo => {
             const url = images.signedUrlByPath.get(listImagePath(photo));
             const date = formatTokyoDateTime(photoTimestamp(photo));

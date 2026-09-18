@@ -363,7 +363,7 @@ export function PhotoUploadForm({
         </div>
 
         <p className="mt-3 text-xs text-muted">
-          追加した写真は外部AIサービスで自動的に整理され、説明やタグが付きます。
+          追加後に自動的に整理されます。
         </p>
         <input
           ref={fileInputRef}

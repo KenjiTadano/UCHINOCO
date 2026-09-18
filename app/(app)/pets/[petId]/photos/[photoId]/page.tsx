@@ -117,17 +117,12 @@ export default async function PhotoDetailPage({
         {pet.name}の思い出へ戻る
       </Link>
 
-      <header>
-        <p className="app-eyebrow">{pet.name}</p>
-        <h1 className="app-title">思い出写真</h1>
-      </header>
-
       {signedPhotoError || !signedPhoto?.signedUrl ? (
         <p role="alert" className="app-error">
           写真を表示できませんでした。
         </p>
       ) : (
-        <div className="app-photo-frame aspect-square border bg-surface">
+        <div className="app-photo-frame aspect-square">
           <Image
             className="size-full object-contain"
             src={signedPhoto.signedUrl}
@@ -140,29 +135,12 @@ export default async function PhotoDetailPage({
         </div>
       )}
 
-      <dl className="app-card-flat grid gap-4 text-sm">
-        <div>
-          <dt className="text-muted">撮影日時</dt>
-          <dd className="mt-1">{formatTokyoDateTime(displayedTimestamp)}</dd>
-        </div>
-        <div>
-          <dt className="text-muted">お気に入り</dt>
-          <dd className="mt-1">
-            {photo.favorite ? "お気に入りに登録済み" : "お気に入りではありません"}
-          </dd>
-        </div>
+      <div className="grid gap-3 px-1 text-sm">
+        <p className="text-xs text-muted">{formatTokyoDateTime(displayedTimestamp)}</p>
         {photo.caption ? (
-          <div>
-            <dt className="text-muted">キャプション</dt>
-            <dd className="mt-1 whitespace-pre-wrap break-words">{photo.caption}</dd>
-          </div>
-        ) : (
-          <div>
-            <dt className="text-muted">キャプション</dt>
-            <dd className="mt-1 text-muted">未設定</dd>
-          </div>
-        )}
-      </dl>
+          <p className="whitespace-pre-wrap break-words leading-relaxed">{photo.caption}</p>
+        ) : null}
+      </div>
 
       <PhotoPetControls primaryPet={primaryPet} photoId={photo.id} {...photoPetOptions}
         unavailable={Boolean(relationsResult.error || ownedPetsResult.error)} />
@@ -177,12 +155,9 @@ export default async function PhotoDetailPage({
       />
 
       <section className="app-card-flat flex flex-col gap-4" aria-labelledby="ai-analysis-heading">
-        <h2 id="ai-analysis-heading" className="text-lg font-semibold">
-          写真の整理
+        <h2 id="ai-analysis-heading" className="text-sm font-medium text-muted">
+          写真の情報
         </h2>
-        <p className="app-help">
-          写真は外部AIサービスで自動的に整理され、説明やタグが検索に使われます。
-        </p>
 
         {analysisResult.error ? (
           <p role="alert" className="text-sm text-danger">

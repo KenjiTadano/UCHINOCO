@@ -6,7 +6,7 @@ import { logout } from "../../(auth)/actions";
 import { createClient } from "@/lib/supabase/server";
 import { PendingSubmitButton } from "../../_components/pending-submit-button";
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
-import { EditorialPhotoGrid, PageHeader } from "@/app/_components/ui";
+import { EditorialPhotoGrid, EmptyState, PageHeader } from "@/app/_components/ui";
 import { findMemoryCandidate } from "@/lib/home-memory";
 
 type HomePageProps = {
@@ -26,16 +26,6 @@ type DashboardPhoto = {
 const DASHBOARD_PHOTO_LIMIT = 6;
 
 const SPECIES_LABELS: Record<string, string> = { dog: "犬", cat: "猫" };
-const GENDER_LABELS: Record<string, string> = {
-  male: "男の子",
-  female: "女の子",
-  unknown: "不明",
-};
-
-function formatDate(value: string) {
-  const [year, month, day] = value.split("-");
-  return `${Number(year)}年${Number(month)}月${Number(day)}日`;
-}
 
 function toSignedUrlMap(
   items: Array<{
@@ -130,19 +120,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
   return (
     <main className="app-page gap-7">
-      <header>
-        <div className="flex items-baseline justify-between gap-3">
-          <h1 className="text-2xl font-bold tracking-tight text-primary">
-            UCHINOCO
-          </h1>
-          <p className="min-w-0 truncate text-xs text-muted">
-            {profileResult.error || !profileResult.data?.display_name
-              ? (user.email ?? "ログイン中")
-              : `${profileResult.data.display_name}さん`}
-          </p>
-        </div>
-        <p className="mt-0.5 text-sm text-muted">
-          うちの子との毎日を、思い出に。
+      <header className="flex items-center justify-between gap-3">
+        <h1 className="text-sm font-semibold tracking-[0.12em] text-foreground">
+          UCHINOCO
+        </h1>
+        <p className="min-w-0 truncate text-xs text-muted">
+          {profileResult.error || !profileResult.data?.display_name
+            ? (user.email ?? "ログイン中")
+            : `${profileResult.data.display_name}さん`}
         </p>
       </header>
 
@@ -168,11 +153,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       ) : null}
 
       <section className="flex flex-col gap-3" aria-labelledby="pets-heading">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-2">
           <h2 id="pets-heading" className="app-section-title">うちの子</h2>
           {pets.length ? (
-            <Link className="app-button-ghost min-h-11 px-2.5" href="/pets/new">
-              ＋ ペットを追加
+            <Link className="ds-focus rounded-lg px-2 py-1 text-xs text-muted underline decoration-border underline-offset-4 hover:text-foreground" href="/pets/new">
+              ＋ 追加
             </Link>
           ) : null}
         </div>
@@ -182,7 +167,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             ペット情報を取得できませんでした。
           </p>
         ) : pets.length ? (
-          <ul className="grid gap-3">
+          <ul className="grid gap-2">
             {pets.map((pet) => {
               const avatarUrl = pet.avatar_url
                 ? avatarUrlByPath.get(pet.avatar_url)
@@ -192,17 +177,17 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                   <div className="flex min-w-0 items-center gap-3">
                     {avatarUrl ? (
                       <Image
-                        className="size-16 shrink-0 rounded-full object-cover sm:size-18"
+                        className="size-14 shrink-0 rounded-full object-cover"
                         src={avatarUrl}
                         alt={`${pet.name}のプロフィール写真`}
-                        width={72}
-                        height={72}
+                        width={56}
+                        height={56}
                         loading={pet.avatar_url === eagerAvatarPath ? "eager" : "lazy"}
                         unoptimized
                       />
                     ) : (
                       <div
-                        className="flex size-16 shrink-0 items-center justify-center rounded-full bg-primary-soft text-3xl sm:size-18"
+                        className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary-soft text-2xl"
                         aria-label={`${pet.name}の画像は未設定です`}
                       >
                         {pet.species === "dog" ? "🐶" : "🐱"}
@@ -212,34 +197,28 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                       <h3 className="truncate text-base font-semibold">
                         {pet.name}
                       </h3>
-                      <p className="mt-0.5 truncate text-sm">
+                      <p className="mt-0.5 truncate text-xs text-muted">
                         {[
                           SPECIES_LABELS[pet.species] ?? "不明",
                           pet.breed,
-                          pet.gender
-                            ? GENDER_LABELS[pet.gender] ?? "不明"
-                            : null,
                         ]
                           .filter(Boolean)
                           .join(" ・ ")}
                       </p>
-                      <p className="mt-1 truncate text-xs text-muted">
-                        誕生日 {formatDate(pet.birthday)}
-                        {pet.adoption_date
-                          ? ` ・ お迎え ${formatDate(pet.adoption_date)}`
-                          : ""}
-                      </p>
                     </div>
+                    <Link
+                      className="ds-focus shrink-0 rounded-lg px-2 py-1 text-xs text-muted underline decoration-border underline-offset-4 hover:text-foreground"
+                      href={`/pets/${pet.id}/edit`}
+                    >
+                      編集
+                    </Link>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <Link className="app-button-primary col-span-2" href={`/pets/${pet.id}`}>
+                  <div className="mt-3 flex gap-2">
+                    <Link className="app-button-primary flex-1" href={`/pets/${pet.id}`}>
                       思い出を見る
                     </Link>
                     <Link className="app-button-secondary" href={`/pets/${pet.id}/photos/new`}>
                       写真を追加
-                    </Link>
-                    <Link className="app-button-ghost" href={`/pets/${pet.id}/edit`}>
-                      編集
                     </Link>
                   </div>
                 </li>
@@ -247,39 +226,28 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             })}
           </ul>
         ) : (
-          <div className="app-empty">
-            <p>まだペットが登録されていません</p>
-            <Link className="app-button-primary mt-4" href="/pets/new">
-              うちの子を登録する
-            </Link>
-          </div>
+          <EmptyState
+            title="まだペットが登録されていません"
+            action={<Link className="app-button-primary" href="/pets/new">うちの子を登録する</Link>}
+          />
         )}
       </section>
 
       {!petsResult.error && pets.length ? (
         <>
           <section className="flex flex-col gap-4" aria-labelledby="recent-heading">
-            <div className="flex items-baseline justify-between gap-3">
-              <h2 id="recent-heading" className="app-section-title">最近の思い出</h2>
-              {recentPhotos.length ? (
-                <p className="text-sm text-muted">最新{recentPhotos.length}件</p>
-              ) : null}
-            </div>
+            <h2 id="recent-heading" className="app-section-title">最近の思い出</h2>
             {photosFailed ? (
               <p role="alert" className="app-error">思い出写真を取得できませんでした。</p>
             ) : recentPhotos.length ? (
               <MemoryGrid photos={recentPhotos} petNameById={petNameById} signedUrlByPath={photoUrlByPath} />
             ) : (
-              <div className="app-empty">
-                <p>まだ思い出がありません</p>
-                {pets.length === 1 ? (
-                  <Link className="app-button-primary mt-3" href={`/pets/${pets[0].id}/photos/new`}>
-                    写真を追加
-                  </Link>
-                ) : (
-                  <p className="mt-2 text-sm text-muted">上のペットカードから写真を追加できます。</p>
-                )}
-              </div>
+              <EmptyState
+                title="まだ思い出がありません"
+                action={pets.length === 1 ? (
+                  <Link className="app-button-primary" href={`/pets/${pets[0].id}/photos/new`}>写真を追加</Link>
+                ) : undefined}
+              />
             )}
           </section>
 
@@ -289,15 +257,15 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               {favoritePhotos.length ? (
                 <MemoryGrid photos={favoritePhotos} petNameById={petNameById} signedUrlByPath={photoUrlByPath} favorite />
               ) : (
-                <p className="app-empty">お気に入りの思い出はまだありません。</p>
+                <EmptyState title="お気に入りの思い出はまだありません" />
               )}
             </section>
           ) : null}
         </>
       ) : null}
 
-      <form action={logout}>
-        <PendingSubmitButton className="app-button-ghost" pendingText="ログアウト中...">
+      <form action={logout} className="flex justify-center pb-2">
+        <PendingSubmitButton className="ds-focus rounded-lg px-3 py-1 text-xs text-muted underline decoration-border underline-offset-4 hover:text-foreground" pendingText="ログアウト中...">
           ログアウト
         </PendingSubmitButton>
       </form>
