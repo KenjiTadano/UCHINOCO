@@ -44,9 +44,17 @@ export default async function SelectPetForAlbumPage() {
 
   return (
     <main className="app-page">
-      <Link className="app-back-link" href="/home">
-        ホームへ戻る
-      </Link>
+      <div className="flex items-start justify-between">
+        <Link className="app-back-link" href="/home">
+          ホームへ戻る
+        </Link>
+        <Link
+          href="/account/orders"
+          className="ds-focus text-xs text-muted hover:text-foreground"
+        >
+          注文履歴
+        </Link>
+      </div>
       <header>
         <p className="ds-editorial">ALBUM</p>
         <h1 className="app-title">アルバムを作る</h1>
