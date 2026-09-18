@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
+import { AlbumCoverCollage } from "../_components/album-cover-collage";
 import { AlbumTitleForm } from "./album-title-form";
 import { AlbumPhotoControls } from "./album-photo-controls";
 import { AlbumDeleteControl } from "./album-delete-control";
@@ -111,13 +112,7 @@ export default async function AlbumDetailPage({ params }: Props) {
 
       {/* Cover */}
       <section aria-labelledby="album-cover-heading">
-        {coverUrls.length > 0 ? (
-          <AlbumCoverCollage urls={coverUrls} petName={pet.name} />
-        ) : (
-          <div className="flex aspect-[4/3] items-center justify-center rounded-2xl bg-surface-warm text-sm text-muted">
-            写真がありません
-          </div>
-        )}
+        <AlbumCoverCollage urls={coverUrls} petName={pet.name} />
         <div className="mt-3 grid gap-1 px-1">
           <p className="ds-editorial">ALBUM</p>
           <h1 id="album-cover-heading" className="text-xl font-semibold">
@@ -158,6 +153,15 @@ export default async function AlbumDetailPage({ params }: Props) {
         </section>
       ) : null}
 
+      {/* Photobook CTA */}
+      <Link
+        href={`/pets/${petId}/album/${albumId}/product`}
+        className="app-button-primary flex items-center justify-center gap-2"
+        aria-label={`${album.title || "このアルバム"}をフォトブックにする`}
+      >
+        フォトブックにする
+      </Link>
+
       {/* Title edit */}
       <section aria-labelledby="album-title-heading" className="app-card-flat grid gap-4">
         <h2 id="album-title-heading" className="text-sm font-medium text-muted">
@@ -188,36 +192,6 @@ export default async function AlbumDetailPage({ params }: Props) {
   );
 }
 
-function AlbumCoverCollage({ urls, petName }: { urls: string[]; petName: string }) {
-  if (urls.length === 1) {
-    return (
-      <div className="overflow-hidden rounded-2xl bg-surface-warm">
-        <div className="relative aspect-[4/3]">
-          <Image src={urls[0]} alt={`${petName}の思い出`} fill className="object-cover" unoptimized />
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="grid aspect-[4/3] grid-cols-[2fr_1fr] gap-0.5 overflow-hidden rounded-2xl bg-surface-warm">
-      <div className="relative overflow-hidden">
-        <Image src={urls[0]} alt="" fill className="object-cover" unoptimized />
-      </div>
-      <div className="grid grid-rows-2 gap-0.5">
-        <div className="relative overflow-hidden">
-          <Image src={urls[1]} alt="" fill className="object-cover" unoptimized />
-        </div>
-        <div className="relative overflow-hidden">
-          {urls[2] ? (
-            <Image src={urls[2]} alt="" fill className="object-cover" unoptimized />
-          ) : (
-            <div className="size-full bg-surface-warm" />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function formatPeriodLabel(from: string | null, to: string | null): string {
   if (!from || !to) return "";

@@ -1,10 +1,10 @@
-import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPhotoPage } from "@/lib/photo-pagination";
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
 import { EmptyState } from "@/app/_components/ui";
+import { AlbumCoverCollage } from "./_components/album-cover-collage";
 
 type Props = {
   params: Promise<{ petId: string }>;
@@ -148,35 +148,4 @@ function formatPeriodLabel(from: string | null, to: string | null): string {
   const fmt = (d: Date) =>
     d.toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "short" });
   return `${fmt(f)} 〜 ${fmt(t)}`;
-}
-
-function AlbumCoverCollage({ urls, petName }: { urls: string[]; petName: string }) {
-  if (urls.length === 1) {
-    return (
-      <div className="overflow-hidden rounded-2xl bg-surface-warm">
-        <div className="relative aspect-[4/3]">
-          <Image src={urls[0]} alt={`${petName}の思い出`} fill className="object-cover" unoptimized />
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="grid aspect-[4/3] grid-cols-[2fr_1fr] gap-0.5 overflow-hidden rounded-2xl bg-surface-warm">
-      <div className="relative overflow-hidden">
-        <Image src={urls[0]} alt="" fill className="object-cover" unoptimized />
-      </div>
-      <div className="grid grid-rows-2 gap-0.5">
-        <div className="relative overflow-hidden">
-          <Image src={urls[1]} alt="" fill className="object-cover" unoptimized />
-        </div>
-        <div className="relative overflow-hidden">
-          {urls[2] ? (
-            <Image src={urls[2]} alt="" fill className="object-cover" unoptimized />
-          ) : (
-            <div className="size-full bg-surface-warm" />
-          )}
-        </div>
-      </div>
-    </div>
-  );
 }
