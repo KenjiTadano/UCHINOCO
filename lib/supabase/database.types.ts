@@ -46,6 +46,9 @@ export type Database = {
           updated_at: string
           paid_at: string | null
           cancelled_at: string | null
+          album_title_snapshot: string | null
+          cover_photo_id_snapshot: string | null
+          cover_original_path_snapshot: string | null
         }
         Insert: {
           id?: string
@@ -78,6 +81,9 @@ export type Database = {
           updated_at?: string
           paid_at?: string | null
           cancelled_at?: string | null
+          album_title_snapshot?: string | null
+          cover_photo_id_snapshot?: string | null
+          cover_original_path_snapshot?: string | null
         }
         Update: {
           id?: string
@@ -110,6 +116,9 @@ export type Database = {
           updated_at?: string
           paid_at?: string | null
           cancelled_at?: string | null
+          album_title_snapshot?: string | null
+          cover_photo_id_snapshot?: string | null
+          cover_original_path_snapshot?: string | null
         }
         Relationships: [
           {
@@ -131,6 +140,113 @@ export type Database = {
             columns: ["pet_id"]
             isOneToOne: false
             referencedRelation: "pets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_photos: {
+        Row: {
+          id: string
+          order_id: string
+          photo_id: string | null
+          position: number
+          original_path: string
+          thumbnail_path: string | null
+          taken_at: string | null
+          caption: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          order_id: string
+          photo_id?: string | null
+          position: number
+          original_path: string
+          thumbnail_path?: string | null
+          taken_at?: string | null
+          caption?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          order_id?: string
+          photo_id?: string | null
+          position?: number
+          original_path?: string
+          thumbnail_path?: string | null
+          taken_at?: string | null
+          caption?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_photos_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_photos_photo_id_fkey"
+            columns: ["photo_id"]
+            isOneToOne: false
+            referencedRelation: "photos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      print_jobs: {
+        Row: {
+          id: string
+          order_id: string
+          provider: string
+          idempotency_key: string
+          provider_order_id: string | null
+          status: "queued" | "submitted" | "processing" | "shipped" | "failed" | "cancelled"
+          submitted_at: string | null
+          shipped_at: string | null
+          failed_at: string | null
+          error_code: string | null
+          tracking_number: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          order_id: string
+          provider: string
+          idempotency_key: string
+          provider_order_id?: string | null
+          status?: "queued" | "submitted" | "processing" | "shipped" | "failed" | "cancelled"
+          submitted_at?: string | null
+          shipped_at?: string | null
+          failed_at?: string | null
+          error_code?: string | null
+          tracking_number?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          order_id?: string
+          provider?: string
+          idempotency_key?: string
+          provider_order_id?: string | null
+          status?: "queued" | "submitted" | "processing" | "shipped" | "failed" | "cancelled"
+          submitted_at?: string | null
+          shipped_at?: string | null
+          failed_at?: string | null
+          error_code?: string | null
+          tracking_number?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "print_jobs_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
             referencedColumns: ["id"]
           },
         ]

@@ -563,6 +563,21 @@ export async function deletePhoto(
   }
 
   const { supabase, user, photo } = context;
+
+  // Guard: block deletion if photo is referenced by a paid order snapshot.
+  // order_photos rows only exist for paid orders (created inside mark_order_paid).
+  const { count: orderedCount } = await supabase
+    .from("order_photos")
+    .select("id", { count: "exact", head: true })
+    .eq("photo_id", photo.id);
+
+  if ((orderedCount ?? 0) > 0) {
+    return {
+      success: false,
+      message: "この写真はご注文済みのアルバムに含まれているため削除できません。",
+    };
+  }
+
   const pathParts = photo.storage_path.split("/");
   const fileName = pathParts.at(-1);
   const folder = pathParts.slice(0, -1).join("/");
