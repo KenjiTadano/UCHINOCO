@@ -15,7 +15,9 @@ import {
   buildSuccessUrl,
   buildCancelUrl,
   isPendingStale,
+  resolveCheckoutSiteUrl,
 } from "@/lib/checkout-session-helpers";
+import { bindOrderToSnapshot, reusePendingOrder, type OrderPrintBinding } from "@/lib/album-order/finalize";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -130,21 +132,71 @@ export async function createCheckoutSession(
     };
   }
 
-  // ── 9. Server-side price calculation (client values ignored) ──────────────
+  // ── 9. Server-side price calculation (client price fields are ignored) ──
   const shipping = getDefaultShipping();
   const subtotal = calcPrice(product, pages);
+
+  // ── 9b. Final print snapshot binding. Live draft is not re-read. ─────────
+  const requestedSnapshotId = String(formData.get("printSnapshotId") ?? "").trim();
+  const { data: activeDraft } = await userClient
+    .from("album_draft_versions")
+    .select("id")
+    .eq("album_id", albumId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  let binding: OrderPrintBinding | null = null;
+  if (activeDraft || requestedSnapshotId) {
+    if (!UUID_RE.test(requestedSnapshotId)) {
+      return { error: "印刷プレビューで「この内容で注文する」を選んでから注文してください。" };
+    }
+    const { data: printRow } = await userClient
+      .from("album_print_snapshots")
+      .select("id, album_id, draft_version_id, fingerprint, finalized_at, pdf_path")
+      .eq("id", requestedSnapshotId)
+      .maybeSingle();
+    if (!printRow || printRow.album_id !== albumId) {
+      return { error: "この印刷内容は注文できません。" };
+    }
+    const bound = bindOrderToSnapshot({
+      actorId: user.id,
+      albumId,
+      serverPrice: subtotal,
+      clientPrice: null,
+      snapshot: {
+        id: printRow.id,
+        albumId: printRow.album_id,
+        ownerId: user.id,
+        draftVersionId: printRow.draft_version_id,
+        fingerprint: printRow.fingerprint,
+        finalizedAt: printRow.finalized_at,
+        pdfPath: printRow.pdf_path,
+      },
+    });
+    if (!bound.ok) {
+      return { error: "印刷プレビューで内容を確定してから注文してください。" };
+    }
+    binding = bound.binding;
+  }
 
   // ── 10. Pending order idempotency ─────────────────────────────────────────
   const adminClient = createAdminClient();
 
   const { data: existingPending } = await adminClient
     .from("orders")
-    .select("id, stripe_checkout_session_id, created_at, status")
+    .select("id, stripe_checkout_session_id, created_at, status, print_snapshot_id")
     .eq("album_id", albumId)
     .eq("status", "pending")
     .maybeSingle();
 
-  if (existingPending) {
+  const pendingAction = reusePendingOrder(
+    existingPending
+      ? { printSnapshotId: existingPending.print_snapshot_id, status: existingPending.status }
+      : null,
+    binding?.printSnapshotId ?? null,
+  );
+
+  if (existingPending && pendingAction === "reuse") {
     if (existingPending.stripe_checkout_session_id) {
       // A. Try to reuse an existing Stripe session
       try {
@@ -181,12 +233,37 @@ export async function createCheckoutSession(
     }
   }
 
+  if (existingPending && pendingAction === "replace") {
+    if (existingPending.stripe_checkout_session_id) {
+      try {
+        const stripe = createStripeClient();
+        await stripe.checkout.sessions.expire(existingPending.stripe_checkout_session_id);
+      } catch {
+        // The previous session is already closed.
+      }
+    }
+    await adminClient
+      .from("orders")
+      .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+      .eq("id", existingPending.id)
+      .eq("status", "pending");
+  }
+
   // ── 11. Create order (admin client — RLS bypassed intentionally) ──────────
   const snapshot = buildOrderSnapshot(user.id, albumId, petId, product, pages, subtotal, shipping, addr);
 
   const { data: order, error: insertErr } = await adminClient
     .from("orders")
-    .insert(snapshot)
+    .insert({
+      ...snapshot,
+      ...(binding
+        ? {
+            draft_version_id: binding.draftVersionId,
+            print_snapshot_id: binding.printSnapshotId,
+            print_fingerprint: binding.printFingerprint,
+          }
+        : {}),
+    })
     .select("id")
     .single();
 

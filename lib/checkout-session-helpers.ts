@@ -136,6 +136,61 @@ export function buildStripePaymentIntentMetadata(
 
 // ── URLs ──────────────────────────────────────────────────────────────────────
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+export type CheckoutSiteUrlInput = {
+  envSiteUrl: string | undefined;
+  nodeEnv: string | undefined;
+  /** Incoming Host header. Production ignores this. */
+  requestHost?: string | null;
+  /** Incoming x-forwarded-proto. Production ignores this. */
+  requestProto?: string | null;
+};
+
+/**
+ * Production checkout redirects use only NEXT_PUBLIC_SITE_URL.
+ * Development may use the request Host when it is loopback, so a dev server
+ * on :3001 is not sent back to an env value of :3000.
+ * Preview and other non-loopback hosts are never accepted.
+ */
+export function resolveCheckoutSiteUrl(input: CheckoutSiteUrlInput): string {
+  const canonical = canonicalSiteOrigin(input.envSiteUrl);
+  if (input.nodeEnv === "production") {
+    if (!canonical) throw new Error("NEXT_PUBLIC_SITE_URL is not configured");
+    return canonical;
+  }
+  const devOrigin = loopbackDevOrigin(input.requestHost, input.requestProto);
+  if (devOrigin) return devOrigin;
+  return canonical ?? "http://localhost:3000";
+}
+
+function canonicalSiteOrigin(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return null;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  if (url.username || url.password) return null;
+  return url.origin;
+}
+
+function loopbackDevOrigin(host: string | null | undefined, proto: string | null | undefined): string | null {
+  if (!host || /[\s,]/.test(host)) return null;
+  const scheme = proto === "https" ? "https" : "http";
+  let url: URL;
+  try {
+    url = new URL(`${scheme}://${host}`);
+  } catch {
+    return null;
+  }
+  if (!LOOPBACK_HOSTS.has(url.hostname)) return null;
+  return url.origin;
+}
+
 export function buildSuccessUrl(
   siteUrl: string,
   petId: string,

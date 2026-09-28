@@ -72,7 +72,7 @@ export async function POST(request: Request): Promise<Response> {
         // Prevents processing events where session metadata was misrouted or tampered.
         const { data: orderCheck } = await adminClient
           .from("orders")
-          .select("album_id")
+          .select("album_id, print_snapshot_id, print_fingerprint")
           .eq("id", orderId)
           .maybeSingle();
 
@@ -86,6 +86,18 @@ export async function POST(request: Request): Promise<Response> {
             `[webhook] ${event.id} ${event.type}: album_id mismatch for order_id=${orderId}`,
           );
           return new Response("ok", { status: 200 });
+        }
+
+        if (orderCheck.print_snapshot_id) {
+          const { data: bound } = await adminClient
+            .from("album_print_snapshots")
+            .select("album_id, fingerprint")
+            .eq("id", orderCheck.print_snapshot_id)
+            .maybeSingle();
+          if (!bound || bound.album_id !== orderCheck.album_id || bound.fingerprint !== orderCheck.print_fingerprint) {
+            console.error(`[webhook] ${event.id} ${event.type}: print snapshot binding mismatch for order_id=${orderId}`);
+            return new Response("ok", { status: 200 });
+          }
         }
 
         const paymentIntentId = extractPaymentIntentId(session.payment_intent);

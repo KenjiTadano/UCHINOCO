@@ -49,6 +49,9 @@ export type Database = {
           album_title_snapshot: string | null
           cover_photo_id_snapshot: string | null
           cover_original_path_snapshot: string | null
+          draft_version_id: string | null
+          print_snapshot_id: string | null
+          print_fingerprint: string | null
         }
         Insert: {
           id?: string
@@ -84,6 +87,9 @@ export type Database = {
           album_title_snapshot?: string | null
           cover_photo_id_snapshot?: string | null
           cover_original_path_snapshot?: string | null
+          draft_version_id?: string | null
+          print_snapshot_id?: string | null
+          print_fingerprint?: string | null
         }
         Update: {
           id?: string
@@ -119,6 +125,9 @@ export type Database = {
           album_title_snapshot?: string | null
           cover_photo_id_snapshot?: string | null
           cover_original_path_snapshot?: string | null
+          draft_version_id?: string | null
+          print_snapshot_id?: string | null
+          print_fingerprint?: string | null
         }
         Relationships: [
           {

@@ -7,12 +7,12 @@ import { CheckoutForm } from "./checkout-form";
 
 type Props = {
   params: Promise<{ petId: string; albumId: string }>;
-  searchParams: Promise<{ product?: string; pages?: string; cancelled?: string }>;
+  searchParams: Promise<{ product?: string; pages?: string; cancelled?: string; snapshot?: string }>;
 };
 
 export default async function AlbumCheckoutPage({ params, searchParams }: Props) {
   const { petId, albumId } = await params;
-  const { product: productParam, pages: pagesParam, cancelled } = await searchParams;
+  const { product: productParam, pages: pagesParam, cancelled, snapshot } = await searchParams;
 
   const supabase = await createClient();
 
@@ -58,6 +58,22 @@ export default async function AlbumCheckoutPage({ params, searchParams }: Props)
 
   // Server-side price recalculation — never trust client-side price
   const subtotal = calcPrice(product, pagesNum);
+
+  let printSnapshotId: string | null = null;
+  let spreadCount: number | null = null;
+  if (snapshot && /^[0-9a-f-]{36}$/i.test(snapshot)) {
+    const { data: printRow } = await supabase
+      .from("album_print_snapshots")
+      .select("id, snapshot, finalized_at")
+      .eq("id", snapshot)
+      .eq("album_id", albumId)
+      .maybeSingle();
+    if (printRow?.finalized_at) {
+      printSnapshotId = printRow.id;
+      const body = printRow.snapshot as { spreads?: unknown[] } | null;
+      spreadCount = Array.isArray(body?.spreads) ? body.spreads.length : null;
+    }
+  }
 
   // ── Data fetching ────────────────────────────────────────────────────────────
 
@@ -110,6 +126,9 @@ export default async function AlbumCheckoutPage({ params, searchParams }: Props)
       subtotal={subtotal}
       shippingOptions={SHIPPING_OPTIONS}
       showCancelMessage={cancelled === "1"}
+      printSnapshotId={printSnapshotId}
+      spreadCount={spreadCount}
+      previewHref={`/pets/${petId}/album/${albumId}/print`}
     />
   );
 }

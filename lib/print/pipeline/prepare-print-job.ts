@@ -6,6 +6,7 @@ import { buildPrintDocument } from "../document-builder.ts";
 import { generatePrintPdfs } from "../pdf/pdf-generator.ts";
 import { SupabaseImageLoader } from "../pdf/supabase-image-loader.ts";
 import { SupabasePrintFileStore } from "../pdf/print-file-store.ts";
+import { orderedPrintSource } from "@/lib/album-order/finalize.ts";
 import { SAFE_ERROR_CODES } from "../pdf/errors.ts";
 import type { DpiWarning } from "../document-types.ts";
 import type { StoredPrintFile } from "../pdf/print-file-store.ts";
@@ -72,11 +73,50 @@ export async function preparePrintJob(printJobId: string): Promise<PrepareResult
     // Load order snapshot (admin client — ownership established at payment time)
     const { data: order } = await admin
       .from("orders")
-      .select("id, product_id, pages, album_title_snapshot, cover_original_path_snapshot")
+      .select("id, album_id, product_id, pages, album_title_snapshot, cover_original_path_snapshot, print_snapshot_id, print_fingerprint")
       .eq("id", orderId)
       .single();
 
     if (!order) throw new Error(`Order ${orderId} not found`);
+
+    if (orderedPrintSource({ printSnapshotId: order.print_snapshot_id }) === "final-print-snapshot" && order.print_snapshot_id) {
+      const { data: bound } = await admin
+        .from("album_print_snapshots")
+        .select("album_id, fingerprint, pdf_path")
+        .eq("id", order.print_snapshot_id)
+        .single();
+      if (!bound?.pdf_path || bound.album_id !== order.album_id || bound.fingerprint !== order.print_fingerprint) {
+        throw new Error(`Order ${orderId} print snapshot is not the finalized file`);
+      }
+      const downloaded = await admin.storage.from("print-files").download(bound.pdf_path);
+      if (downloaded.error || !downloaded.data) {
+        throw new Error(`Order ${orderId} finalized PDF is missing`);
+      }
+      const bytes = new Uint8Array(await downloaded.data.arrayBuffer());
+      const store = new SupabasePrintFileStore();
+      const file = {
+        mimeType: "application/pdf" as const,
+        bytes,
+        pageCount: 1,
+      };
+      const [cover, content] = await Promise.all([
+        store.save(orderId, { ...file, type: "cover", filename: `orders/${orderId}/cover.pdf` }),
+        store.save(orderId, { ...file, type: "content", filename: `orders/${orderId}/content.pdf` }),
+      ]);
+      const completionTime = new Date().toISOString();
+      await admin
+        .from("print_jobs")
+        .update({
+          cover_file_path: cover.path,
+          content_file_path: content.path,
+          prepared_at: completionTime,
+          preparation_started_at: null,
+          updated_at: completionTime,
+        })
+        .eq("id", printJobId)
+        .eq("preparation_started_at", claimedAt);
+      return { jobId: printJobId, orderId, cover, content, warnings: [] };
+    }
 
     const product = PHOTOBOOK_PRODUCTS.find((p) => p.id === order.product_id);
     if (!product) throw new Error(`Product ${order.product_id} not found in config`);
