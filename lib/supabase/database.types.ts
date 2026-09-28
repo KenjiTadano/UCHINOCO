@@ -458,6 +458,50 @@ export type Database = {
           },
         ]
       }
+      photo_analysis_results: {
+        Row: {
+          analysis_type: string
+          analysis_version: string
+          created_at: string
+          id: string
+          photo_id: string
+          result: Json
+          result_status: string
+          source_fingerprint: string
+          updated_at: string
+        }
+        Insert: {
+          analysis_type: string
+          analysis_version: string
+          created_at?: string
+          id?: string
+          photo_id: string
+          result: Json
+          result_status: string
+          source_fingerprint: string
+          updated_at?: string
+        }
+        Update: {
+          analysis_type?: string
+          analysis_version?: string
+          created_at?: string
+          id?: string
+          photo_id?: string
+          result?: Json
+          result_status?: string
+          source_fingerprint?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "photo_analysis_results_photo_id_fkey"
+            columns: ["photo_id"]
+            isOneToOne: false
+            referencedRelation: "photos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       photo_ai_analyses: {
         Row: {
           attempts: number
@@ -650,6 +694,125 @@ export type Database = {
           p_provider?: string
         }
         Returns: undefined
+      }
+      save_album_draft_version: {
+        Args: { p_album_id: string; p_payload: Json }
+        Returns: string
+      }
+      apply_draft_spread_layout: {
+        Args: {
+          p_spread_id: string
+          p_expected_revision: number
+          p_client_seq: number
+          p_user_layout_id: string | null
+          p_reset: boolean
+        }
+        Returns: Json
+      }
+      apply_draft_cover_override: {
+        Args: {
+          p_cover_id: string
+          p_expected_revision: number
+          p_client_seq: number
+          p_field: string
+          p_reset: boolean
+          p_text: string | null
+          p_photo_id: string | null
+        }
+        Returns: Json
+      }
+      apply_draft_text_override: {
+        Args: {
+          p_spread_id: string
+          p_slot_id: string
+          p_kind: string
+          p_expected_revision: number
+          p_client_seq: number
+          p_mode: string
+          p_user_text: string | null
+          p_user_style_id: string | null
+        }
+        Returns: Json
+      }
+      apply_draft_decoration_override: {
+        Args: {
+          p_spread_id: string
+          p_slot_id: string
+          p_expected_revision: number
+          p_client_seq: number
+          p_mode: string
+          p_user_decoration_id: string | null
+          p_user_scale_preset: string | null
+        }
+        Returns: Json
+      }
+      save_album_text_suggestion: {
+        Args: {
+          p_spread_id: string
+          p_kind: string
+          p_analysis_version: string
+          p_input_fingerprint: string
+          p_suggestions: Json
+        }
+        Returns: Json
+      }
+      seed_draft_text_ai: {
+        Args: {
+          p_spread_id: string
+          p_slot_id: string
+          p_kind: string
+          p_ai_text: string
+        }
+        Returns: Json
+      }
+      save_album_print_snapshot: {
+        Args: {
+          p_album_id: string
+          p_draft_version_id: string
+          p_schema_version: string
+          p_source_revision: number
+          p_fingerprint: string
+          p_revision_digest: string
+          p_snapshot: Json
+        }
+        Returns: Json
+      }
+      finalize_album_print_snapshot: {
+        Args: { p_snapshot_id: string }
+        Returns: Json
+      }
+      attach_album_print_pdf: {
+        Args: {
+          p_snapshot_id: string
+          p_pdf_path: string
+          p_content_hash: string
+        }
+        Returns: Json
+      }
+      apply_draft_frame_override: {
+        Args: {
+          p_frame_id: string
+          p_expected_revision: number
+          p_client_seq: number
+          p_user_photo_id: string | null
+          p_clear_photo: boolean
+          p_crop_x: number | null
+          p_crop_y: number | null
+          p_crop_scale: number | null
+          p_clear_crop: boolean
+        }
+        Returns: Json
+      }
+      save_photo_analysis_result: {
+        Args: {
+          p_photo_id: string
+          p_analysis_type: string
+          p_analysis_version: string
+          p_source_fingerprint: string
+          p_result_status: string
+          p_result: Json
+        }
+        Returns: Json
       }
     }
     Enums: {

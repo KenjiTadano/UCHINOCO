@@ -27,15 +27,15 @@ async function handle(run: boolean) {
         { photo_id: work.photo.id, status: "pending" },
         { onConflict: "photo_id", ignoreDuplicates: true },
       );
-      if (enqueueError) return json({ stopped: true }, 503);
+      if (enqueueError) return json({ ready: false, stopped: true, waitMs: 0 });
       const before = await supabase.from("photo_ai_analyses")
         .select("status, attempts, updated_at").eq("photo_id", work.photo.id).maybeSingle();
-      if (before.error) return json({ stopped: true }, 503);
+      if (before.error) return json({ ready: false, stopped: true, waitMs: 0 });
       await analyzePhoto(work.photo.pet_id, work.photo.id,
         { success: false, message: null }, new FormData());
       const after = await supabase.from("photo_ai_analyses")
         .select("status, attempts, updated_at").eq("photo_id", work.photo.id).maybeSingle();
-      if (after.error) return json({ stopped: true }, 503);
+      if (after.error) return json({ ready: false, stopped: true, waitMs: 0 });
       changed = JSON.stringify(before.data) !== JSON.stringify(after.data);
       if (!changed && after.data && after.data.status !== "completed") {
         // A rejected claim must not create a tight loop on the same queue entry.
@@ -45,8 +45,9 @@ async function handle(run: boolean) {
     const next = run && work.photo ? await findAnalysisWork(supabase, user.id) : work;
     return json({ ready: !!next.photo, waitMs: next.waitMs, changed });
   } catch {
+    // Queue lookup failed. Stop this visit instead of answering 503.
     // No raw SDK errors, keys or private image data leave the server.
-    return json({ stopped: true }, 503);
+    return json({ ready: false, stopped: true, waitMs: 0 });
   }
 }
 
