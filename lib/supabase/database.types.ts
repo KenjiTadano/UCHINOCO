@@ -324,6 +324,498 @@ export type Database = {
           },
         ]
       }
+      album_draft_versions: {
+        Row: {
+          id: string
+          album_id: string
+          generation_version: string
+          status: string
+          is_active: boolean
+          revision: number
+          generation_metadata: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          album_id: string
+          generation_version: string
+          status?: string
+          is_active?: boolean
+          revision?: number
+          generation_metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          album_id?: string
+          generation_version?: string
+          status?: string
+          is_active?: boolean
+          revision?: number
+          generation_metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "album_draft_versions_album_id_fkey"
+            columns: ["album_id"]
+            isOneToOne: false
+            referencedRelation: "albums"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      album_draft_spreads: {
+        Row: {
+          id: string
+          draft_version_id: string
+          story_spread_id: string
+          position: number
+          story_type: string
+          recommended_density: string
+          importance: number
+          coherence: number
+          ai_layout_id: string
+          user_layout_id: string | null
+          warnings: Json
+          revision: number
+          client_seq: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          draft_version_id: string
+          story_spread_id: string
+          position: number
+          story_type: string
+          recommended_density: string
+          importance: number
+          coherence: number
+          ai_layout_id: string
+          user_layout_id?: string | null
+          warnings?: Json
+          revision?: number
+          client_seq?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          draft_version_id?: string
+          story_spread_id?: string
+          position?: number
+          story_type?: string
+          recommended_density?: string
+          importance?: number
+          coherence?: number
+          ai_layout_id?: string
+          user_layout_id?: string | null
+          warnings?: Json
+          revision?: number
+          client_seq?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "album_draft_spreads_draft_version_id_fkey"
+            columns: ["draft_version_id"]
+            isOneToOne: false
+            referencedRelation: "album_draft_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      album_draft_frames: {
+        Row: {
+          id: string
+          draft_spread_id: string
+          frame_id: string
+          role: string
+          position: number
+          ai_photo_id: string
+          ai_crop_x: number
+          ai_crop_y: number
+          ai_crop_scale: number
+          user_photo_id: string | null
+          user_crop_x: number | null
+          user_crop_y: number | null
+          user_crop_scale: number | null
+          match_tier: string | null
+          crop_quality: number | null
+          warnings: Json
+          revision: number
+          client_seq: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          draft_spread_id: string
+          frame_id: string
+          role: string
+          position: number
+          ai_photo_id: string
+          ai_crop_x: number
+          ai_crop_y: number
+          ai_crop_scale: number
+          user_photo_id?: string | null
+          user_crop_x?: number | null
+          user_crop_y?: number | null
+          user_crop_scale?: number | null
+          match_tier?: string | null
+          crop_quality?: number | null
+          warnings?: Json
+          revision?: number
+          client_seq?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          draft_spread_id?: string
+          frame_id?: string
+          role?: string
+          position?: number
+          ai_photo_id?: string
+          ai_crop_x?: number
+          ai_crop_y?: number
+          ai_crop_scale?: number
+          user_photo_id?: string | null
+          user_crop_x?: number | null
+          user_crop_y?: number | null
+          user_crop_scale?: number | null
+          match_tier?: string | null
+          crop_quality?: number | null
+          warnings?: Json
+          revision?: number
+          client_seq?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "album_draft_frames_draft_spread_id_fkey"
+            columns: ["draft_spread_id"]
+            isOneToOne: false
+            referencedRelation: "album_draft_spreads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "album_draft_frames_ai_photo_id_fkey"
+            columns: ["ai_photo_id"]
+            isOneToOne: false
+            referencedRelation: "photos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "album_draft_frames_user_photo_id_fkey"
+            columns: ["user_photo_id"]
+            isOneToOne: false
+            referencedRelation: "photos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      album_draft_covers: {
+        Row: {
+          id: string
+          draft_version_id: string
+          cover_type: string
+          ai_photo_id: string | null
+          user_photo_id: string | null
+          ai_title: string
+          user_title: string | null
+          ai_subtitle: string
+          user_subtitle: string | null
+          ai_template_id: string
+          user_template_id: string | null
+          ai_color_id: string
+          user_color_id: string | null
+          revision: number
+          client_seq: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          draft_version_id: string
+          cover_type?: string
+          ai_photo_id?: string | null
+          user_photo_id?: string | null
+          ai_title?: string
+          user_title?: string | null
+          ai_subtitle?: string
+          user_subtitle?: string | null
+          ai_template_id?: string
+          user_template_id?: string | null
+          ai_color_id?: string
+          user_color_id?: string | null
+          revision?: number
+          client_seq?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          draft_version_id?: string
+          cover_type?: string
+          ai_photo_id?: string | null
+          user_photo_id?: string | null
+          ai_title?: string
+          user_title?: string | null
+          ai_subtitle?: string
+          user_subtitle?: string | null
+          ai_template_id?: string
+          user_template_id?: string | null
+          ai_color_id?: string
+          user_color_id?: string | null
+          revision?: number
+          client_seq?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "album_draft_covers_draft_version_id_fkey"
+            columns: ["draft_version_id"]
+            isOneToOne: true
+            referencedRelation: "album_draft_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "album_draft_covers_ai_photo_id_fkey"
+            columns: ["ai_photo_id"]
+            isOneToOne: false
+            referencedRelation: "photos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "album_draft_covers_user_photo_id_fkey"
+            columns: ["user_photo_id"]
+            isOneToOne: false
+            referencedRelation: "photos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      album_draft_text_elements: {
+        Row: {
+          id: string
+          draft_spread_id: string
+          slot_id: string
+          kind: string
+          ai_text: string | null
+          user_text: string | null
+          ai_style_id: string
+          user_style_id: string | null
+          override_mode: string
+          position: number
+          revision: number
+          client_seq: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          draft_spread_id: string
+          slot_id: string
+          kind: string
+          ai_text?: string | null
+          user_text?: string | null
+          ai_style_id?: string
+          user_style_id?: string | null
+          override_mode?: string
+          position?: number
+          revision?: number
+          client_seq?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          draft_spread_id?: string
+          slot_id?: string
+          kind?: string
+          ai_text?: string | null
+          user_text?: string | null
+          ai_style_id?: string
+          user_style_id?: string | null
+          override_mode?: string
+          position?: number
+          revision?: number
+          client_seq?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "album_draft_text_elements_draft_spread_id_fkey"
+            columns: ["draft_spread_id"]
+            isOneToOne: false
+            referencedRelation: "album_draft_spreads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      album_draft_decorations: {
+        Row: {
+          id: string
+          draft_spread_id: string
+          slot_id: string
+          ai_decoration_id: string | null
+          user_decoration_id: string | null
+          ai_scale_preset: string
+          user_scale_preset: string | null
+          override_mode: string
+          position: number
+          revision: number
+          client_seq: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          draft_spread_id: string
+          slot_id: string
+          ai_decoration_id?: string | null
+          user_decoration_id?: string | null
+          ai_scale_preset?: string
+          user_scale_preset?: string | null
+          override_mode?: string
+          position?: number
+          revision?: number
+          client_seq?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          draft_spread_id?: string
+          slot_id?: string
+          ai_decoration_id?: string | null
+          user_decoration_id?: string | null
+          ai_scale_preset?: string
+          user_scale_preset?: string | null
+          override_mode?: string
+          position?: number
+          revision?: number
+          client_seq?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "album_draft_decorations_draft_spread_id_fkey"
+            columns: ["draft_spread_id"]
+            isOneToOne: false
+            referencedRelation: "album_draft_spreads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      album_text_suggestions: {
+        Row: {
+          id: string
+          draft_spread_id: string
+          kind: string
+          analysis_version: string
+          input_fingerprint: string
+          suggestions: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          draft_spread_id: string
+          kind: string
+          analysis_version: string
+          input_fingerprint: string
+          suggestions: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          draft_spread_id?: string
+          kind?: string
+          analysis_version?: string
+          input_fingerprint?: string
+          suggestions?: Json
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "album_text_suggestions_draft_spread_id_fkey"
+            columns: ["draft_spread_id"]
+            isOneToOne: false
+            referencedRelation: "album_draft_spreads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      album_print_snapshots: {
+        Row: {
+          id: string
+          album_id: string
+          draft_version_id: string
+          schema_version: string
+          source_revision: number
+          fingerprint: string
+          revision_digest: string
+          snapshot: Json
+          pdf_path: string | null
+          content_hash: string | null
+          finalized_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          album_id: string
+          draft_version_id: string
+          schema_version: string
+          source_revision: number
+          fingerprint: string
+          revision_digest: string
+          snapshot: Json
+          pdf_path?: string | null
+          content_hash?: string | null
+          finalized_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          album_id?: string
+          draft_version_id?: string
+          schema_version?: string
+          source_revision?: number
+          fingerprint?: string
+          revision_digest?: string
+          snapshot?: Json
+          pdf_path?: string | null
+          content_hash?: string | null
+          finalized_at?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "album_print_snapshots_album_id_fkey"
+            columns: ["album_id"]
+            isOneToOne: false
+            referencedRelation: "albums"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "album_print_snapshots_draft_version_id_fkey"
+            columns: ["draft_version_id"]
+            isOneToOne: false
+            referencedRelation: "album_draft_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       album_photos: {
         Row: {
           album_id: string
