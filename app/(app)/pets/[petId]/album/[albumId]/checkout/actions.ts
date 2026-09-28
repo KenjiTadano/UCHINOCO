@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -52,6 +53,13 @@ export async function createCheckoutSession(
   // ── 1. Fail-fast: Stripe key ───────────────────────────────────────────────
   if (!hasStripeKey()) {
     return { error: "決済サービスが設定されていません。管理者にお問い合わせください。" };
+  }
+
+  let siteUrl: string;
+  try {
+    siteUrl = await resolveCheckoutRedirectSiteUrl();
+  } catch {
+    return { error: "サイトURLが設定されていません。管理者にお問い合わせください。" };
   }
 
   // ── 2. Auth ────────────────────────────────────────────────────────────────
@@ -272,9 +280,6 @@ export async function createCheckoutSession(
   }
 
   // ── 12. Create Stripe Checkout Session ────────────────────────────────────
-  const siteUrl =
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
-
   let stripeSessionUrl: string;
   try {
     const stripe = createStripeClient();
@@ -310,4 +315,20 @@ export async function createCheckoutSession(
   }
 
   redirect(stripeSessionUrl);
+}
+
+async function resolveCheckoutRedirectSiteUrl(): Promise<string> {
+  if (process.env.NODE_ENV === "production") {
+    return resolveCheckoutSiteUrl({
+      envSiteUrl: process.env.NEXT_PUBLIC_SITE_URL,
+      nodeEnv: "production",
+    });
+  }
+  const requestHeaders = await headers();
+  return resolveCheckoutSiteUrl({
+    envSiteUrl: process.env.NEXT_PUBLIC_SITE_URL,
+    nodeEnv: process.env.NODE_ENV,
+    requestHost: requestHeaders.get("host"),
+    requestProto: requestHeaders.get("x-forwarded-proto"),
+  });
 }
