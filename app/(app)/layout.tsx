@@ -1,8 +1,7 @@
 import { AIAnalysisRunner } from "./_components/ai-analysis-runner";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { BottomNavigation } from "./_components/bottom-navigation";
-import { LegalNavigation } from "../_components/legal-navigation";
+import { AppShell } from "./_components/app-shell";
 
 export const dynamic = "force-dynamic";
 
@@ -17,14 +16,5 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect("/login");
   }
 
-  return (
-    <>
-      <div className="pb-[calc(6rem+env(safe-area-inset-bottom))]">
-        <AIAnalysisRunner key={user.id} />
-        {children}
-        <LegalNavigation />
-      </div>
-      <BottomNavigation />
-    </>
-  );
+  return <AppShell analysis={<AIAnalysisRunner key={user.id} />}>{children}</AppShell>;
 }

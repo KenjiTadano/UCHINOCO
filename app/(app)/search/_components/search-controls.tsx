@@ -1,97 +1,313 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
-import { SearchChip } from "@/app/_components/ui";
-import { searchHref, type SearchFacets, type SearchState, type WordKind } from "@/lib/search-state";
+import {
+  Cake,
+  Flower2,
+  Heart,
+  Mountain,
+  PawPrint,
+  Search,
+  SlidersHorizontal,
+  Sofa,
+  Sun,
+  Tag,
+  Users,
+  Volleyball,
+  Waves,
+  type LucideIcon,
+} from "lucide-react";
+import { useId, useState, useTransition } from "react";
+import {
+  searchHref,
+  type SearchFacets,
+  type SearchState,
+  type WordKind,
+} from "@/lib/search-state";
 
-const CATEGORIES: { kind: WordKind; label: string }[] = [
-  { kind: "tag", label: "よくある言葉" }, { kind: "scene", label: "場所・シーン" },
-  { kind: "activity", label: "していること" }, { kind: "emotion", label: "表情・気持ち" },
+type KeywordItem = {
+  kind: WordKind;
+  value: string;
+  count: number;
+};
+
+type KeywordGlyph = {
+  Icon: LucideIcon;
+  /** Design tints a few chips away from the shared terracotta. */
+  tone?: string;
+  filled?: boolean;
+};
+
+const KEYWORD_GLYPHS: { match: RegExp; glyph: KeywordGlyph }[] = [
+  { match: /寝|sleep|睡眠|リラックス|くつろ|室内|おうち/, glyph: { Icon: Sofa } },
+  {
+    match: /おでかけ|outing|晴|太陽|sun|日向|ひなた|公園/,
+    glyph: { Icon: Sun, tone: "#df8a3c" },
+  },
+  { match: /誕生日|birthday|cake|記念|お祝い/, glyph: { Icon: Cake } },
+  {
+    match: /桜|花|flower|春|sakura/,
+    glyph: { Icon: Flower2, tone: "#e08aa6" },
+  },
+  {
+    match: /海|sea|波|wave|川|プール|水遊/,
+    glyph: { Icon: Waves, tone: "#6fa6c8" },
+  },
+  {
+    match: /山|mountain|森|登山|ハイキング/,
+    glyph: { Icon: Mountain, tone: "#6a5247" },
+  },
+  { match: /おもちゃ|toy|ボール|ball|遊/, glyph: { Icon: Volleyball } },
+  {
+    match: /かわいい|cute|好き|heart|笑顔|癒/,
+    glyph: { Icon: Heart, filled: true },
+  },
+  { match: /家族|family|みんな|親子|一緒/, glyph: { Icon: Users } },
+  {
+    match: /散歩|さんぽ|walk|paw|猫|犬|ペット/,
+    glyph: { Icon: PawPrint, filled: true },
+  },
 ];
 
-export function SearchControls({ base, state, facets, contextPetName, selectedPetName }: {
-  base: string; state: SearchState; facets: SearchFacets | null; contextPetName?: string; selectedPetName?: string;
+function KeywordIcon({ value }: { value: string }) {
+  const v = value.toLowerCase();
+  const { Icon, tone, filled } =
+    KEYWORD_GLYPHS.find((entry) => entry.match.test(v))?.glyph ?? {
+      Icon: Tag,
+    };
+
+  return (
+    <span
+      className="search-kw-icon"
+      style={tone ? { color: tone } : undefined}
+      aria-hidden="true"
+    >
+      <Icon
+        strokeWidth={1.7}
+        fill={filled ? "currentColor" : "none"}
+        stroke={filled ? "none" : "currentColor"}
+      />
+    </span>
+  );
+}
+
+export function SearchControls({
+  base,
+  state,
+  facets,
+  contextPetName,
+  popularKeywords,
+}: {
+  base: string;
+  state: SearchState;
+  facets: SearchFacets | null;
+  contextPetName?: string;
+  popularKeywords: KeywordItem[];
 }) {
   const router = useRouter();
+  const filterId = useId();
   const [pending, startTransition] = useTransition();
-  const change = (patch: Partial<SearchState>) => startTransition(() => {
-    router.push(searchHref(base, state, patch), { scroll: false });
-  });
-  const reset = () => startTransition(() => router.push(base, { scroll: false }));
-  const isFiltered = Boolean(state.q || state.word || state.favorite || state.from || state.to || (!contextPetName && state.pet));
-  const selectedIsShown = facets?.words.some(w => w.kind === state.kind && w.value === state.word);
+  const [filtersOpen, setFiltersOpen] = useState(
+    Boolean(state.from || state.to || state.favorite),
+  );
+  const [showAllKeywords, setShowAllKeywords] = useState(false);
 
-  return <div className="grid gap-6" aria-busy={pending}>
-    <form action={base} method="get" role="search" className="grid gap-3">
-      <label className="sr-only" htmlFor="memory-search">思い出を検索</label>
-      <div className="flex gap-2">
-        <input id="memory-search" name="q" type="search" defaultValue={state.q} maxLength={100}
-          placeholder="思い出を検索" className="app-input min-w-0 flex-1" />
-        <button type="submit" className="app-button-secondary shrink-0" disabled={pending}>検索</button>
-      </div>
-      {state.pet ? <input type="hidden" name="pet" value={state.pet} /> : null}
-      {state.kind ? <input type="hidden" name="kind" value={state.kind} /> : null}
-      {state.word ? <input type="hidden" name="word" value={state.word} /> : null}
-      {state.favorite ? <input type="hidden" name="favorite" value="1" /> : null}
-      <details className="text-sm text-muted" open={state.from || state.to ? true : undefined}>
-        <summary className="ds-focus flex min-h-11 w-fit cursor-pointer items-center rounded-lg">期間で絞り込む</summary>
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          <label className="app-label min-w-0" htmlFor="search-from">開始日
-            <input className="app-input min-w-0" id="search-from" type="date" name="from" defaultValue={state.from} />
-          </label>
-          <label className="app-label min-w-0" htmlFor="search-to">終了日
-            <input className="app-input min-w-0" id="search-to" type="date" name="to" defaultValue={state.to} />
-          </label>
+  const change = (patch: Partial<SearchState>) =>
+    startTransition(() => {
+      router.push(searchHref(base, state, patch), { scroll: false });
+    });
+  const reset = () =>
+    startTransition(() => {
+      router.push(base, { scroll: false });
+    });
+
+  const isFiltered = Boolean(
+    state.q ||
+      state.word ||
+      state.favorite ||
+      state.from ||
+      state.to ||
+      (!contextPetName && state.pet),
+  );
+
+  const allUniqueWords = (() => {
+    const ranked = (facets?.words ?? []).slice().sort((a, b) => b.count - a.count);
+    const seen = new Set<string>();
+    const unique: KeywordItem[] = [];
+    for (const word of ranked) {
+      if (seen.has(word.value)) continue;
+      seen.add(word.value);
+      unique.push(word);
+    }
+    return unique;
+  })();
+
+  const keywords = showAllKeywords ? allUniqueWords : popularKeywords;
+  const selectedIsShown = facets?.words.some(
+    (w) => w.kind === state.kind && w.value === state.word,
+  );
+
+  return (
+    <div className="search-controls" aria-busy={pending}>
+      <form action={base} method="get" role="search" className="search-form">
+        <label className="sr-only" htmlFor="memory-search">
+          写真を検索
+        </label>
+        <div className="search-bar">
+          <span className="search-bar-icon" aria-hidden="true">
+            <Search strokeWidth={1.8} />
+          </span>
+          <input
+            id="memory-search"
+            name="q"
+            type="search"
+            defaultValue={state.q}
+            maxLength={100}
+            placeholder="写真の内容で検索できます"
+            className="search-bar-input"
+            autoComplete="off"
+          />
+          <button
+            type="button"
+            className={`search-bar-filter ds-focus ${filtersOpen ? "is-open" : ""}`}
+            aria-expanded={filtersOpen}
+            aria-controls={filterId}
+            onClick={() => setFiltersOpen((open) => !open)}
+          >
+            <span className="sr-only">詳細条件</span>
+            <SlidersHorizontal strokeWidth={1.7} aria-hidden="true" />
+          </button>
         </div>
-      </details>
-    </form>
+        <p className="search-bar-hint">
+          例）海、散歩、寝顔、おもちゃ、桜、誕生日 など
+        </p>
 
-    <section aria-labelledby="pet-filter-heading" className="grid gap-2">
-      <h2 id="pet-filter-heading" className="text-sm font-semibold">うちの子</h2>
-      <div className="flex flex-wrap gap-2">
-        {contextPetName ? <SearchChip onClick={() => {}} pressed disabled>{contextPetName}</SearchChip> : <>
-          <SearchChip onClick={() => change({ pet: "" })} pressed={!state.pet} disabled={pending}>すべて</SearchChip>
-          {state.pet && selectedPetName && !facets?.pets.some(pet => pet.id === state.pet) ?
-            <SearchChip onClick={() => change({ pet: "" })} pressed disabled={pending}>{selectedPetName}</SearchChip> : null}
-          {facets?.pets.map(pet => <SearchChip key={pet.id} onClick={() => change({ pet: state.pet === pet.id ? "" : pet.id })}
-            pressed={state.pet === pet.id} disabled={pending}>
-            {pet.name}<span className="text-xs tabular-nums">{pet.count}</span>
-          </SearchChip>)}
-        </>}
-      </div>
-    </section>
+        {state.pet ? <input type="hidden" name="pet" value={state.pet} /> : null}
+        {state.kind ? <input type="hidden" name="kind" value={state.kind} /> : null}
+        {state.word ? <input type="hidden" name="word" value={state.word} /> : null}
+        {state.favorite ? <input type="hidden" name="favorite" value="1" /> : null}
 
-    {facets ? <>
-      <p className="text-xs text-muted">写真から見つけた言葉</p>
-      {CATEGORIES.map(category => {
-        const words = facets.words.filter(word => word.kind === category.kind);
-        return words.length ? <section key={category.kind} aria-labelledby={`facet-${category.kind}`} className="grid gap-2">
-          <h2 id={`facet-${category.kind}`} className="text-sm font-semibold">{category.label}</h2>
-          <div className="flex flex-wrap gap-2">
-            {words.map(word => {
-              const selected = state.kind === word.kind && state.word === word.value;
-              return <SearchChip key={word.value} pressed={selected} disabled={pending}
-                onClick={() => change({ kind: selected ? "" : word.kind, word: selected ? "" : word.value })}>
-                {word.value}<span className="text-xs tabular-nums">{word.count}</span>
-              </SearchChip>;
+        <div
+          id={filterId}
+          className="search-filters"
+          hidden={!filtersOpen}
+        >
+          <div className="search-filters-dates">
+            <label className="search-filter-label" htmlFor="search-from">
+              開始日
+              <input
+                className="app-input min-w-0"
+                id="search-from"
+                type="date"
+                name="from"
+                defaultValue={state.from}
+              />
+            </label>
+            <label className="search-filter-label" htmlFor="search-to">
+              終了日
+              <input
+                className="app-input min-w-0"
+                id="search-to"
+                type="date"
+                name="to"
+                defaultValue={state.to}
+              />
+            </label>
+          </div>
+          <div className="search-filters-actions">
+            <button type="submit" className="app-button-secondary" disabled={pending}>
+              この条件で検索
+            </button>
+            <button
+              type="button"
+              className={`search-fav-toggle ds-focus ${state.favorite ? "is-on" : ""}`}
+              aria-pressed={state.favorite}
+              disabled={pending}
+              onClick={() => change({ favorite: !state.favorite })}
+            >
+              <span aria-hidden="true">♡</span> お気に入り
+              {facets ? (
+                <span className="tabular-nums text-[10px]">{facets.favorites}</span>
+              ) : null}
+            </button>
+            {isFiltered ? (
+              <button
+                type="button"
+                onClick={reset}
+                disabled={pending}
+                className="search-clear ds-focus"
+              >
+                条件をクリア
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </form>
+
+      {keywords.length > 0 ? (
+        <section aria-labelledby="search-keywords-heading" className="search-section">
+          <div className="search-section-head">
+            <h2 id="search-keywords-heading" className="search-section-title">
+              人気のキーワード
+            </h2>
+            {allUniqueWords.length > popularKeywords.length ? (
+              <button
+                type="button"
+                className="search-section-more ds-focus"
+                onClick={() => setShowAllKeywords((v) => !v)}
+              >
+                {showAllKeywords ? "閉じる" : "すべて見る →"}
+              </button>
+            ) : null}
+          </div>
+          <div className="search-keywords">
+            {keywords.map((word) => {
+              const selected =
+                state.kind === word.kind && state.word === word.value;
+              return (
+                <button
+                  key={`${word.kind}:${word.value}`}
+                  type="button"
+                  disabled={pending}
+                  aria-pressed={selected}
+                  className={`search-kw ds-focus ${selected ? "is-active" : ""}`}
+                  onClick={() =>
+                    change({
+                      kind: selected ? "" : word.kind,
+                      word: selected ? "" : word.value,
+                    })
+                  }
+                >
+                  <KeywordIcon value={word.value} />
+                  <span>{word.value}</span>
+                </button>
+              );
             })}
           </div>
-        </section> : null;
-      })}
-      {facets.words.length === 0 ? <p className="text-sm text-muted">写真の整理が進むと、ここに言葉が増えていきます。キーワードやお気に入りでも探せます。</p> : null}
-    </> : <p className="text-sm text-muted">言葉の候補を読み込めませんでした。条件を入力して検索できます。</p>}
+          {state.word && !selectedIsShown ? (
+            <button
+              type="button"
+              className="search-clear ds-focus mt-2"
+              disabled={pending}
+              onClick={() => change({ kind: "", word: "" })}
+            >
+              「{state.word}」を解除
+            </button>
+          ) : null}
+        </section>
+      ) : facets ? (
+        <p className="search-empty-hint">
+          写真の整理が進むと、ここにキーワードが増えていきます。
+        </p>
+      ) : (
+        <p className="search-empty-hint">
+          言葉の候補を読み込めませんでした。キーワードで検索できます。
+        </p>
+      )}
 
-    <div className="flex flex-wrap items-center gap-2">
-      <SearchChip pressed={state.favorite} disabled={pending} onClick={() => change({ favorite: !state.favorite })}>
-        <span aria-hidden="true">♡</span> お気に入り
-        {facets ? <span className="text-xs tabular-nums">{facets.favorites}</span> : null}
-      </SearchChip>
-      {state.word && !selectedIsShown ? <SearchChip pressed disabled={pending} onClick={() => change({ kind: "", word: "" })}>
-        {state.word}を解除
-      </SearchChip> : null}
-      {isFiltered ? <button type="button" onClick={reset} disabled={pending} className="ds-focus min-h-11 rounded-full px-3 text-sm text-brand-terracotta-strong underline underline-offset-4">条件をクリア</button> : null}
+      <p className="sr-only" role="status">
+        {pending ? "思い出を探しています" : ""}
+      </p>
     </div>
-    <p className="sr-only" role="status">{pending ? "思い出を探しています" : ""}</p>
-  </div>;
+  );
 }

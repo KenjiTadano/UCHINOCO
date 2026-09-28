@@ -27,38 +27,6 @@ export function PageHeader({
   );
 }
 
-type PetSwitcherProps = {
-  pets: Array<{ id: string; name: string }>;
-  currentPetId?: string;
-  href?: (petId: string) => string;
-};
-
-export function PetSwitcher({ pets, currentPetId, href = (id) => `/pets/${id}` }: PetSwitcherProps) {
-  if (pets.length < 2) return null;
-
-  return (
-    <nav aria-label="ペットを選択" className="flex gap-2 overflow-x-auto pb-1">
-      {pets.map((pet) => {
-        const active = pet.id === currentPetId;
-        return (
-          <Link
-            key={pet.id}
-            href={href(pet.id)}
-            aria-current={active ? "page" : undefined}
-            className={`ds-focus inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 text-sm transition-colors ${
-              active
-                ? "border-brand-terracotta bg-brand-terracotta-soft font-semibold text-brand-terracotta-strong"
-                : "bg-surface text-muted hover:border-brand-terracotta hover:text-foreground"
-            }`}
-          >
-            {pet.name}
-          </Link>
-        );
-      })}
-    </nav>
-  );
-}
-
 type SegmentControlProps = {
   items: Array<{ label: string; href: string }>;
   currentHref: string;

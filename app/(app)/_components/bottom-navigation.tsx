@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTransition } from "react";
+import { BookOpen, House, Images, Plus, Search } from "lucide-react";
 
 type NavigationItem = {
   label: string;
@@ -11,38 +12,17 @@ type NavigationItem = {
   icon: "home" | "memories" | "search" | "album";
 };
 
+const ICON_PROPS = {
+  size: 18,
+  strokeWidth: 1.7,
+  "aria-hidden": true as const,
+};
+
 function NavigationIcon({ icon }: { icon: NavigationItem["icon"] }) {
-  if (icon === "home") {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <path d="m3 11 9-8 9 8" />
-        <path d="M5.5 9.5V21h13V9.5M9.5 21v-6h5v6" />
-      </svg>
-    );
-  }
-  if (icon === "memories") {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <rect x="3" y="4" width="18" height="16" rx="2.5" />
-        <circle cx="9" cy="9" r="1.5" />
-        <path d="m5.5 17 4.5-4 3.5 3 2.5-2 2.5 2.5" />
-      </svg>
-    );
-  }
-  if (icon === "search") {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <circle cx="10.5" cy="10.5" r="6.5" />
-        <path d="m15.5 15.5 5 5" />
-      </svg>
-    );
-  }
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <rect x="4" y="3" width="14" height="16" rx="2" />
-      <path d="M8 7h6M8 11h6M8 15h4M18 7h2v14a1 1 0 0 1-1 1H7" />
-    </svg>
-  );
+  if (icon === "home") return <House {...ICON_PROPS} />;
+  if (icon === "memories") return <Images {...ICON_PROPS} />;
+  if (icon === "search") return <Search {...ICON_PROPS} />;
+  return <BookOpen {...ICON_PROPS} />;
 }
 
 function NavigationLink({
@@ -58,10 +38,10 @@ function NavigationLink({
       <Link
         href={item.href}
         aria-current={isActive ? "page" : undefined}
-        className={`ds-focus m-0.5 flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] leading-tight transition-colors sm:text-xs ${
+        className={`ds-focus flex min-h-[49px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 text-[9px] leading-tight transition-colors ${
           isActive
-            ? "bg-brand-terracotta-soft font-semibold text-brand-terracotta-strong"
-            : "text-muted hover:bg-brand-terracotta-soft/60 hover:text-foreground"
+            ? "font-semibold text-brand-terracotta"
+            : "text-muted hover:text-foreground"
         }`}
       >
         <NavigationIcon icon={item.icon} />
@@ -123,19 +103,16 @@ export function BottomNavigation() {
   };
 
   return (
-    <nav
-      aria-label="メインナビゲーション"
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-background/95 backdrop-blur"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-    >
-      <ul className="mx-auto grid h-16 w-full max-w-xl grid-cols-5 px-1 sm:h-[4.5rem]">
+    <nav aria-label="メインナビゲーション" className="home-bottom-nav">
+      <ul className="home-bottom-nav-inner">
         <NavigationLink item={items[0]} pathname={pathname} />
         <NavigationLink item={items[1]} pathname={pathname} />
-        <li className="relative flex min-w-0 justify-center">
+        <li className="home-fab-slot">
           <button
             type="button"
             onClick={startAddingPhoto}
             disabled={isAddingPhoto || isPhotoFlow}
+            aria-current={isPhotoFlow ? "page" : undefined}
             aria-label={
               isAddingPhoto
                 ? "写真追加画面を開いています"
@@ -143,13 +120,15 @@ export function BottomNavigation() {
                   ? "写真追加画面を表示中"
                   : "写真を追加"
             }
-            className="ds-focus group absolute -top-3 flex min-h-14 w-full min-w-0 flex-col items-center justify-start gap-0.5 rounded-xl pt-0 text-[10px] font-semibold text-brand-terracotta-strong sm:text-xs"
+            className={`home-fab ds-focus disabled:opacity-60 ${isPhotoFlow ? "is-active" : ""}`}
           >
-            <span className="flex size-12 items-center justify-center rounded-full border-4 border-background bg-brand-terracotta text-2xl font-light leading-none text-white transition-colors group-hover:bg-brand-terracotta-strong" aria-hidden="true">
-              +
-            </span>
-            <span className="whitespace-nowrap">写真を追加</span>
+            <Plus size={22} strokeWidth={2.2} aria-hidden="true" />
           </button>
+          {isPhotoFlow ? (
+            <span className="home-fab-label" aria-hidden="true">
+              写真を追加
+            </span>
+          ) : null}
         </li>
         <NavigationLink item={items[2]} pathname={pathname} />
         <NavigationLink item={items[3]} pathname={pathname} />

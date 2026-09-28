@@ -1,0 +1,21 @@
+{
+  "image": "06_3_album_preview_blank_spread_taller.png",
+  "canvas": {
+    "width": 1076,
+    "height": 1264
+  },
+  "left_page": {
+    "x": 115,
+    "y": 210,
+    "width": 414,
+    "height": 816
+  },
+  "right_page": {
+    "x": 548,
+    "y": 210,
+    "width": 414,
+    "height": 816
+  },
+  "fit": "cover",
+  "note": "Scale the whole album uniformly. Fit pet images within each page with aspect ratio preserved; crop instead of stretching."
+}

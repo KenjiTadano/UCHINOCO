@@ -8,6 +8,7 @@ import {
   formatPrice,
   getPageOptions,
 } from "@/lib/photobook-products";
+import { OrderFlowHeader } from "../../_components/order-flow-header";
 import { OrderFlowSteps } from "../../_components/order-flow-steps";
 import { PhotobookCoverMock } from "../../_components/photobook-cover-mock";
 
@@ -18,8 +19,13 @@ type Props = {
   albumTitle: string;
   photoCount: number;
   coverUrls: string[];
+  printSnapshotId?: string | null;
 };
 
+/**
+ * PDF p14 07.4 フォトブック商品選択 — 忠実再現
+ * オプション（ギフト等）は現行ロジックに無いため非表示
+ */
 export function ProductSelector({
   petId,
   albumId,
@@ -27,14 +33,22 @@ export function ProductSelector({
   albumTitle,
   photoCount,
   coverUrls,
+  printSnapshotId = null,
 }: Props) {
   const [selectedProductId, setSelectedProductId] = useState(PHOTOBOOK_PRODUCTS[0].id);
   const [selectedPages, setSelectedPages] = useState(PHOTOBOOK_PRODUCTS[0].basePages);
+  /** PDF p14 options — UI only (not charged by Stripe yet) */
+  const [giftWrap, setGiftWrap] = useState(true);
+  const [messageCard, setMessageCard] = useState(false);
 
   const selectedProduct =
     PHOTOBOOK_PRODUCTS.find((p) => p.id === selectedProductId) ?? PHOTOBOOK_PRODUCTS[0];
   const pageOptions = getPageOptions(selectedProduct);
   const price = calcPrice(selectedProduct, selectedPages);
+  const OPTION_GIFT = 500;
+  const OPTION_MSG = 300;
+  const optionsTotal = (giftWrap ? OPTION_GIFT : 0) + (messageCard ? OPTION_MSG : 0);
+  const displayTotal = price + optionsTotal;
   const tooManyPhotos = photoCount > selectedPages;
   const coverSrc = coverUrls[0] ?? null;
 
@@ -45,220 +59,218 @@ export function ProductSelector({
     setSelectedPages(product.basePages);
   }
 
+  const snapshotQuery = printSnapshotId ? `&snapshot=${encodeURIComponent(printSnapshotId)}` : "";
+  const checkoutHref = `/pets/${petId}/album/${albumId}/checkout?product=${selectedProductId}&pages=${selectedPages}${snapshotQuery}`;
+
   return (
-    <main className="app-page-order">
-      <div className="flex items-center gap-3">
-        <Link
-          className="app-back-link shrink-0"
-          href={`/pets/${petId}/album/${albumId}`}
-        >
-          戻る
-        </Link>
-        <h1 className="flex-1 text-center text-base font-semibold tracking-tight">
-          フォトブックを注文
-        </h1>
-        <span className="w-10 shrink-0" aria-hidden="true" />
+    <main className="of-page">
+      <OrderFlowHeader title="フォトブックを注文" backHref={`/pets/${petId}/album/${albumId}`} />
+      <div className="of-step-wrap">
+        <OrderFlowSteps current={1} />
       </div>
 
-      <OrderFlowSteps current={1} />
+      <div className="of-body of-body-with-sticky">
+        {/* Hero: angled book mock + copy — PDF p14 */}
+        <section className="of-hero">
+          <div className="of-hero-books" aria-hidden={coverSrc ? undefined : true}>
+            <div className="of-hero-book of-hero-book-back">
+              {coverSrc ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={coverSrc} alt="" className="size-full object-cover" />
+              ) : (
+                <div className="size-full bg-[#e5d8d0]" />
+              )}
+            </div>
+            <div className="of-hero-book of-hero-book-mid">
+              {coverSrc ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={coverSrc} alt="" className="size-full object-cover" />
+              ) : (
+                <div className="size-full bg-[#e5d8d0]" />
+              )}
+            </div>
+            <div className="of-hero-book of-hero-book-front">
+              {coverSrc ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={coverSrc}
+                  alt={`${petName}のフォトブック`}
+                  className="size-full object-cover"
+                />
+              ) : (
+                <div className="flex size-full items-center justify-center bg-[#e5d8d0] text-[10px] text-[#8a7a74]">
+                  PHOTO
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="of-hero-copy">
+            <p className="of-hero-lead">
+              大切な思い出を、
+              <br />
+              ずっと手元に。
+            </p>
+            <p className="of-hero-sub">
+              高品質なフォトブックで、
+              <br />
+              特別な時間をカタチに。
+            </p>
+          </div>
+        </section>
 
-      {/* Hero: completed photobook visual */}
-      <section
-        aria-labelledby="product-hero-heading"
-        className="grid gap-5 rounded-xl bg-surface-warm/70 px-4 py-6 sm:grid-cols-[auto_1fr] sm:items-center sm:gap-8 sm:px-8 sm:py-8"
-      >
-        <div className="flex justify-center">
-          <PhotobookCoverMock
-            src={coverSrc}
-            alt={`${albumTitle || petName}のフォトブック`}
-            size="hero"
-            hardCover={selectedProduct.coverType === "hard"}
-            priority
-          />
-        </div>
-        <div className="text-center sm:text-left">
-          <p className="ds-editorial">PHOTOBOOK</p>
-          <h2 id="product-hero-heading" className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">
-            {albumTitle || "（タイトル未設定）"}
+        {/* 3-product comparison */}
+        <section aria-labelledby="product-heading">
+          <h2 id="product-heading" className="of-section-label">
+            商品を選択
           </h2>
-          <p className="mt-3 text-sm leading-relaxed text-muted">
-            大切な思い出を、ずっと手元に。高品質なフォトブックで、特別な時間をカタチに。
-          </p>
-          <p className="ds-caption mt-3">
-            {petName}　・　{photoCount}枚の写真
-          </p>
-        </div>
-      </section>
-
-      {/* Product comparison */}
-      <section aria-labelledby="product-heading">
-        <h2 id="product-heading" className="mb-5 text-base font-semibold tracking-tight">
-          商品を選択
-        </h2>
-
-        <div
-          role="radiogroup"
-          aria-labelledby="product-heading"
-          className="grid grid-cols-3 gap-2 sm:gap-3"
-        >
-          {PHOTOBOOK_PRODUCTS.map((product) => {
-            const isSelected = product.id === selectedProductId;
-            return (
-              <label
-                key={product.id}
-                className={`ds-focus relative flex cursor-pointer flex-col gap-2 rounded-lg border px-2 py-3 transition-colors sm:gap-3 sm:px-3 sm:py-4 ${
-                  isSelected
-                    ? "border-brand-terracotta bg-surface"
-                    : "border-border/80 bg-surface hover:border-brand-terracotta/40"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="product"
-                  value={product.id}
-                  checked={isSelected}
-                  onChange={() => handleProductChange(product.id)}
-                  className="sr-only"
-                />
-
-                {isSelected ? (
-                  <span
-                    className="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full bg-brand-terracotta text-[10px] font-semibold text-white"
-                    aria-label="選択中"
-                  >
-                    ✓
-                  </span>
-                ) : null}
-
-                <div className="mx-auto" aria-hidden="true">
-                  <PhotobookCoverMock
-                    src={coverSrc}
-                    alt=""
-                    size="sm"
-                    hardCover={product.coverType === "hard"}
-                  />
-                </div>
-
-                <div className="grid gap-1 text-center">
-                  <p className="text-[13px] font-semibold leading-snug sm:text-sm">
-                    {product.name}
-                  </p>
-                  <p className="line-clamp-2 text-[10px] leading-snug text-muted sm:text-[11px]">
-                    {product.tagline}
-                  </p>
-                  <p className="app-price-accent mt-1 text-sm sm:text-base">
-                    {formatPrice(product.basePrice)}
-                    <span className="ml-0.5 text-[10px] font-normal text-muted">〜</span>
-                  </p>
-                  <div className="mt-1 space-y-0.5 text-[10px] leading-snug text-muted sm:text-[11px]">
-                    <p>{product.size}</p>
-                    <p>
-                      {product.basePages}ページ〜 / {product.coverTypeLabel}
-                    </p>
-                  </div>
-                </div>
-              </label>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Page count */}
-      <section aria-labelledby="pages-heading">
-        <h2 id="pages-heading" className="mb-3 text-base font-semibold tracking-tight">
-          ページ数を選択
-        </h2>
-        <p className="mb-4 text-sm leading-relaxed text-muted">
-          {selectedProduct.basePages}ページから{selectedProduct.maxPages}ページまで選べます。
-          {selectedProduct.extraPagePrice > 0 ? (
-            <span>
-              {" "}
-              {formatPrice(selectedProduct.extraPagePrice)}/10ページ追加。
-            </span>
-          ) : null}
-        </p>
-
-        <div
-          role="radiogroup"
-          aria-labelledby="pages-heading"
-          className="flex flex-wrap gap-2"
-        >
-          {pageOptions.map((pages) => {
-            const isSelected = pages === selectedPages;
-            const extraCost =
-              pages > selectedProduct.basePages
-                ? calcPrice(selectedProduct, pages) - selectedProduct.basePrice
-                : 0;
-            return (
-              <label
-                key={pages}
-                className={`ds-focus inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full border px-4 py-2 text-sm transition-colors ${
-                  isSelected
-                    ? "border-brand-terracotta bg-brand-terracotta-soft font-medium text-brand-terracotta-strong"
-                    : "border-border bg-surface hover:border-brand-terracotta/40"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="pages"
-                  value={pages}
-                  checked={isSelected}
-                  onChange={() => setSelectedPages(pages)}
-                  className="sr-only"
-                />
-                {isSelected ? (
-                  <span aria-hidden="true" className="text-xs">
-                    ✓
-                  </span>
-                ) : null}
-                <span>{pages}ページ</span>
-                {extraCost > 0 ? (
-                  <span className="text-xs text-muted">+{formatPrice(extraCost)}</span>
-                ) : null}
-              </label>
-            );
-          })}
-        </div>
-
-        {tooManyPhotos ? (
-          <p
-            role="status"
-            aria-live="polite"
-            className="mt-4 rounded-lg bg-warning-soft px-4 py-3 text-sm text-warning"
+          <div
+            role="radiogroup"
+            aria-labelledby="product-heading"
+            className="mt-2.5 grid grid-cols-3 gap-[7px]"
           >
-            アルバムに{photoCount}枚の写真があります。{selectedPages}
-            ページに対して写真が多めです。ページ数を増やすか、アルバムから写真を減らすことをおすすめします。
-          </p>
-        ) : null}
-      </section>
+            {PHOTOBOOK_PRODUCTS.map((product) => {
+              const selected = product.id === selectedProductId;
+              return (
+                <label
+                  key={product.id}
+                  className={`of-product-card ${selected ? "is-selected" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name="product"
+                    value={product.id}
+                    checked={selected}
+                    onChange={() => handleProductChange(product.id)}
+                    className="sr-only"
+                  />
+                  {selected ? (
+                    <span className="of-product-check" aria-label="選択中">
+                      ✓
+                    </span>
+                  ) : null}
+                  <PhotobookCoverMock src={coverSrc} alt="" size="xs" className="mx-auto" />
+                  <p className="of-product-name">{product.name}</p>
+                  <p className="of-product-tag">{product.tagline}</p>
+                  <p className="of-product-price">{formatPrice(product.basePrice)}</p>
+                  <p className="of-product-spec">
+                    {product.size}
+                    <br />
+                    {product.basePages}ページ〜
+                    <br />
+                    {product.coverTypeLabel}
+                  </p>
+                </label>
+              );
+            })}
+          </div>
+        </section>
 
-      {/* Summary + CTA */}
-      <section aria-labelledby="price-heading" className="grid gap-5 pt-2">
-        <div className="app-order-divider" />
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <h2 id="price-heading" className="text-sm text-muted">
-              合計金額
-            </h2>
-            <p className="ds-caption mt-1">
-              {selectedProduct.name}　・　{selectedPages}ページ
-            </p>
+        {/* Page count — thin segment chips */}
+        <section aria-labelledby="pages-heading">
+          <h2 id="pages-heading" className="of-section-label">
+            ページ数を選択
+          </h2>
+          <div
+            role="radiogroup"
+            aria-labelledby="pages-heading"
+            className="mt-2.5 flex flex-wrap gap-2"
+          >
+            {pageOptions.map((pages) => {
+              const selected = pages === selectedPages;
+              const extra =
+                pages > selectedProduct.basePages
+                  ? calcPrice(selectedProduct, pages) - selectedProduct.basePrice
+                  : 0;
+              return (
+                <label
+                  key={pages}
+                  className={`of-page-chip ${selected ? "is-selected" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name="pages"
+                    value={pages}
+                    checked={selected}
+                    onChange={() => setSelectedPages(pages)}
+                    className="sr-only"
+                  />
+                  <span className="of-page-chip-mark" aria-hidden="true">
+                    {selected ? "✓" : ""}
+                  </span>
+                  <span>
+                    {pages}ページ
+                    {extra > 0 ? (
+                      <span className="of-page-chip-extra"> +{formatPrice(extra)}</span>
+                    ) : null}
+                  </span>
+                </label>
+              );
+            })}
           </div>
-          <div className="text-right">
-            <p aria-live="polite" className="app-price-accent text-2xl">
-              {formatPrice(price)}
+          {tooManyPhotos ? (
+            <p role="status" className="mt-2 text-[11px] leading-snug text-[#8a5a16]">
+              アルバムに{photoCount}枚あります。{selectedPages}ページだと多めです。
             </p>
-            <p className="ds-caption mt-0.5">税込・送料は次の画面で確認</p>
-          </div>
+          ) : null}
+        </section>
+
+        {/* Options — PDF p14 structure (display only; Stripe未課金) */}
+        <section aria-labelledby="options-heading">
+          <h2 id="options-heading" className="of-section-label">
+            オプション
+          </h2>
+          <ul className="mt-2.5 grid gap-2">
+            <li>
+              <label className="of-option-row">
+                <input
+                  type="checkbox"
+                  checked={giftWrap}
+                  onChange={(e) => setGiftWrap(e.target.checked)}
+                  className="size-4 accent-[var(--of-accent)]"
+                />
+                <span aria-hidden="true" className="text-[12px] text-[var(--of-muted)]">□</span>
+                <span className="flex-1 text-[13px]">ギフトラッピング</span>
+                <span className="of-price text-[13px]">+{formatPrice(OPTION_GIFT)}</span>
+              </label>
+            </li>
+            <li>
+              <label className="of-option-row">
+                <input
+                  type="checkbox"
+                  checked={messageCard}
+                  onChange={(e) => setMessageCard(e.target.checked)}
+                  className="size-4 accent-[var(--of-accent)]"
+                />
+                <span aria-hidden="true" className="text-[12px] text-[var(--of-muted)]">✉</span>
+                <span className="flex-1 text-[13px]">メッセージカードをつける</span>
+                <span className="of-price text-[13px]">+{formatPrice(OPTION_MSG)}</span>
+              </label>
+            </li>
+          </ul>
+        </section>
+
+        <p className="sr-only">
+          {albumTitle} / {photoCount}枚
+        </p>
+      </div>
+
+      {/* Sticky footer — PDF p14 measured CTA h=51 */}
+      <div className="of-sticky">
+        <div className="of-sticky-total">
+          <span>合計金額</span>
+          <span className="text-right">
+            <span className="of-price text-[20px]" aria-live="polite">
+              {formatPrice(displayTotal)}
+            </span>
+            <span className="mt-0.5 block text-[10px] font-normal" style={{ color: "var(--of-muted)" }}>
+              （税込・送料は次画面）
+            </span>
+          </span>
         </div>
-
-        <Link
-          href={`/pets/${petId}/album/${albumId}/checkout?product=${selectedProductId}&pages=${selectedPages}`}
-          className="app-button-primary w-full text-center"
-        >
-          注文内容を確認する
+        <Link href={checkoutHref} className="of-cta">
+          注文内容を確認する →
         </Link>
-      </section>
+      </div>
     </main>
   );
 }

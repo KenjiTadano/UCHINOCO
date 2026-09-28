@@ -195,5 +195,5 @@ export async function createAlbumDraft(
     return { error: "写真の登録に失敗しました。もう一度お試しください。" };
   }
 
-  redirect(`/pets/${petId}/album/${album.id}`);
+  redirect(`/pets/${petId}/album/${album.id}?view=complete`);
 }

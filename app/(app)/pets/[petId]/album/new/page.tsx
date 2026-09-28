@@ -1,14 +1,16 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AlbumCreateForm } from "./album-create-form";
+import { AlbumGeneratingScreen } from "./album-generating-screen";
 
 type Props = {
   params: Promise<{ petId: string }>;
+  searchParams: Promise<{ preview?: string }>;
 };
 
-export default async function AlbumNewPage({ params }: Props) {
+export default async function AlbumNewPage({ params, searchParams }: Props) {
   const { petId } = await params;
+  const { preview } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -31,21 +33,27 @@ export default async function AlbumNewPage({ params }: Props) {
     .eq("pet_id", pet.id)
     .eq("uploader_user_id", user.id);
 
+  const backHref = `/pets/${pet.id}/album`;
+  const count = photoCount ?? 0;
+
+  // UI preview only — does not run createAlbumDraft
+  if (preview === "generating") {
+    return (
+      <AlbumGeneratingScreen
+        petName={pet.name}
+        photoCount={count}
+        backHref={backHref}
+        activeStep={3}
+      />
+    );
+  }
+
   return (
-    <main className="app-page-narrow">
-      <Link className="app-back-link" href={`/pets/${pet.id}/album`}>
-        アルバムへ戻る
-      </Link>
-      <header>
-        <p className="ds-editorial">ALBUM</p>
-        <h1 className="app-title">{pet.name}のアルバムを作る</h1>
-        {photoCount ? (
-          <p className="app-description mt-2">
-            {photoCount.toLocaleString()}枚の思い出から選びます
-          </p>
-        ) : null}
-      </header>
-      <AlbumCreateForm petId={pet.id} />
-    </main>
+    <AlbumCreateForm
+      petId={pet.id}
+      petName={pet.name}
+      photoCount={count}
+      backHref={backHref}
+    />
   );
 }

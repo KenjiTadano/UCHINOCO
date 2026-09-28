@@ -5,10 +5,12 @@ import { ProductSelector } from "./product-selector";
 
 type Props = {
   params: Promise<{ petId: string; albumId: string }>;
+  searchParams: Promise<{ snapshot?: string }>;
 };
 
-export default async function AlbumProductPage({ params }: Props) {
+export default async function AlbumProductPage({ params, searchParams }: Props) {
   const { petId, albumId } = await params;
+  const { snapshot } = await searchParams;
   const supabase = await createClient();
 
   const {
@@ -76,6 +78,7 @@ export default async function AlbumProductPage({ params }: Props) {
       albumTitle={album.title}
       photoCount={photoCount ?? 0}
       coverUrls={coverUrls}
+      printSnapshotId={snapshot ?? null}
     />
   );
 }

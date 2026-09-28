@@ -10,11 +10,11 @@ import {
   getOrderPhotoDisplayPath,
   hasOrderPhotoPreview,
 } from "@/lib/order-helpers";
+import { OrderFlowHeader } from "../../../_components/order-flow-header";
 import { OrderFlowSteps } from "../../../_components/order-flow-steps";
 import { PhotobookCoverMock } from "../../../_components/photobook-cover-mock";
 import {
   OrderProductionProgress,
-  getProductionPhaseCopy,
   type ProductionPhase,
 } from "../../../_components/order-production-progress";
 import {
@@ -29,30 +29,22 @@ type Props = {
   params: Promise<{ petId: string; albumId: string; orderId: string }>;
 };
 
-/**
- * Optional shipping overlay for future Provider wiring.
- * print_jobs is not readable by authenticated clients (RLS revoked),
- * so this page never invents shipped state from client queries.
- * When a trusted server path later supplies shipped info, pass it here.
- */
 type ShippedOverlay = OrderShippedInfo & { active: boolean };
 
+/** PDF p17 / p18 order complete */
 export default async function OrderCompletePage({ params }: Props) {
   const { petId, albumId, orderId } = await params;
-
   if (!UUID_RE.test(petId) || !UUID_RE.test(albumId) || !UUID_RE.test(orderId)) {
     notFound();
   }
 
   const supabase = await createClient();
-
   const {
     data: { user },
     error: authErr,
   } = await supabase.auth.getUser();
   if (authErr || !user) redirect("/login");
 
-  // IDOR: all four fields must match — session_id query param is never used as auth.
   const { data: order } = await supabase
     .from("orders")
     .select(
@@ -67,28 +59,16 @@ export default async function OrderCompletePage({ params }: Props) {
   if (!order) notFound();
 
   const [{ data: album }, { data: pet }] = await Promise.all([
-    supabase
-      .from("albums")
-      .select("id, title")
-      .eq("id", albumId)
-      .eq("owner_user_id", user.id)
-      .maybeSingle(),
-    supabase
-      .from("pets")
-      .select("id, name")
-      .eq("id", petId)
-      .eq("owner_user_id", user.id)
-      .maybeSingle(),
+    supabase.from("albums").select("id, title").eq("id", albumId).eq("owner_user_id", user.id).maybeSingle(),
+    supabase.from("pets").select("id, name").eq("id", petId).eq("owner_user_id", user.id).maybeSingle(),
   ]);
 
-  // Cover: use snapshot (pet-photos private bucket), never current album_photos
   let coverSignedUrl: string | null = null;
-  const coverPath = order.cover_original_path_snapshot;
-  if (coverPath) {
-    const { data: coverData } = await supabase.storage
+  if (order.cover_original_path_snapshot) {
+    const { data } = await supabase.storage
       .from("pet-photos")
-      .createSignedUrl(coverPath, 3600);
-    coverSignedUrl = coverData?.signedUrl ?? null;
+      .createSignedUrl(order.cover_original_path_snapshot, 3600);
+    coverSignedUrl = data?.signedUrl ?? null;
   }
 
   type OrderPhoto = {
@@ -96,7 +76,6 @@ export default async function OrderCompletePage({ params }: Props) {
     position: number;
     original_path: string;
     thumbnail_path: string | null;
-    taken_at: string | null;
     caption: string | null;
   };
   let orderPhotos: OrderPhoto[] = [];
@@ -105,38 +84,23 @@ export default async function OrderCompletePage({ params }: Props) {
   if (hasOrderPhotoPreview(order.status)) {
     const { data: rawPhotos } = await supabase
       .from("order_photos")
-      .select("id, position, original_path, thumbnail_path, taken_at, caption")
+      .select("id, position, original_path, thumbnail_path, caption")
       .eq("order_id", orderId)
       .order("position", { ascending: true });
-
     orderPhotos = rawPhotos ?? [];
-
     if (orderPhotos.length > 0) {
-      const thumbnailPaths: string[] = [];
-      const originalPaths: string[] = [];
-      for (const p of orderPhotos) {
-        if (p.thumbnail_path) thumbnailPaths.push(p.thumbnail_path);
-        else originalPaths.push(p.original_path);
-      }
-
-      if (thumbnailPaths.length > 0) {
-        const { data } = await supabase.storage
-          .from("pet-photo-thumbnails")
-          .createSignedUrls(thumbnailPaths, 3600);
+      const thumbs = orderPhotos.filter((p) => p.thumbnail_path).map((p) => p.thumbnail_path!);
+      const originals = orderPhotos.filter((p) => !p.thumbnail_path).map((p) => p.original_path);
+      if (thumbs.length > 0) {
+        const { data } = await supabase.storage.from("pet-photo-thumbnails").createSignedUrls(thumbs, 3600);
         for (const item of data ?? []) {
-          const url = item.signedUrl;
-          const p = item.path;
-          if (url && p) photoUrlMap.set(p, url);
+          if (item.signedUrl && item.path) photoUrlMap.set(item.path, item.signedUrl);
         }
       }
-      if (originalPaths.length > 0) {
-        const { data } = await supabase.storage
-          .from("pet-photos")
-          .createSignedUrls(originalPaths, 3600);
+      if (originals.length > 0) {
+        const { data } = await supabase.storage.from("pet-photos").createSignedUrls(originals, 3600);
         for (const item of data ?? []) {
-          const url = item.signedUrl;
-          const p = item.path;
-          if (url && p) photoUrlMap.set(p, url);
+          if (item.signedUrl && item.path) photoUrlMap.set(item.path, item.signedUrl);
         }
       }
     }
@@ -145,38 +109,20 @@ export default async function OrderCompletePage({ params }: Props) {
   const displayTitle = getOrderDisplayTitle(order.album_title_snapshot, album?.title);
   const statusMessage = getOrderStatusMessage(order.status);
   const shortOrderId = getShortOrderId(order.id);
-
-  // Provider未接続: do not claim shipping. paid → preparing only.
-  const productionPhase: ProductionPhase =
-    order.status === "paid" ? "preparing" : "received";
-  const productionCopy = getProductionPhaseCopy(productionPhase);
+  const productionPhase: ProductionPhase = order.status === "paid" ? "preparing" : "received";
   const orderedLabel = new Date(order.created_at).toLocaleDateString("ja-JP", {
     timeZone: "Asia/Tokyo",
     month: "numeric",
     day: "numeric",
   });
 
-  // Shipped UI is ready but inactive until a trusted source supplies status.
   const shippedOverlay: ShippedOverlay = { active: false };
 
   if (order.status === "paid" && shippedOverlay.active) {
     return (
-      <main className="app-page-order">
-        <div className="flex items-center gap-3">
-          <Link className="app-back-link shrink-0" href={`/pets/${petId}/album/${albumId}`}>
-            戻る
-          </Link>
-          <h1 className="flex-1 text-center text-base font-semibold tracking-tight">
-            注文完了（発送完了）
-          </h1>
-          <Link
-            href="/account/orders"
-            className="ds-focus shrink-0 text-xs text-muted hover:text-foreground"
-          >
-            履歴
-          </Link>
-        </div>
-        <OrderFlowSteps current={3} />
+      <main className="of-page">
+        <OrderFlowHeader title="注文完了（発送完了後）" backHref={`/pets/${petId}/album/${albumId}`} />
+        <div className="of-step-wrap"><OrderFlowSteps current={3} /></div>
         <OrderShippedPanel
           albumTitle={displayTitle}
           petName={pet?.name}
@@ -188,389 +134,158 @@ export default async function OrderCompletePage({ params }: Props) {
   }
 
   return (
-    <main className="app-page-order">
-      <div className="flex items-center gap-3">
-        <Link className="app-back-link shrink-0" href={`/pets/${petId}/album/${albumId}`}>
-          戻る
-        </Link>
-        <h1 className="flex-1 text-center text-base font-semibold tracking-tight">
-          {order.status === "paid" ? "注文完了" : "ご注文状況"}
-        </h1>
-        <Link
-          href="/account/orders"
-          className="ds-focus shrink-0 text-xs text-muted hover:text-foreground"
-        >
-          履歴
-        </Link>
-      </div>
-
+    <main className="of-page">
+      <OrderFlowHeader
+        title={order.status === "paid" ? "注文完了（制作中）" : "ご注文状況"}
+        backHref={`/pets/${petId}/album/${albumId}`}
+      />
       {(order.status === "paid" || order.status === "pending") && (
-        <OrderFlowSteps current={3} />
+        <div className="of-step-wrap"><OrderFlowSteps current={3} /></div>
       )}
 
       {order.status === "paid" ? (
-        <PaidCompleteView
-          displayTitle={displayTitle}
-          petName={pet?.name}
-          coverSignedUrl={coverSignedUrl}
-          statusMessage={statusMessage}
-          productionPhase={productionPhase}
-          productionCopy={productionCopy}
-          orderedLabel={orderedLabel}
-          shortOrderId={shortOrderId}
-          order={order}
-          orderPhotos={orderPhotos}
-          photoUrlMap={photoUrlMap}
-          petId={petId}
-        />
-      ) : (
-        <>
-          <section className="flex flex-col items-center gap-4 text-center">
-            <PhotobookCoverMock
-              src={coverSignedUrl}
-              alt={`${displayTitle}の表紙`}
-              size="lg"
-              hardCover
-            />
-            {pet?.name ? <p className="ds-caption">{pet.name}</p> : null}
-            <p className="ds-editorial">ORDER</p>
-            <h2 className="text-xl font-semibold tracking-tight">{displayTitle}</h2>
+        <div className="of-body gap-5">
+          {/* PDF p17 hero thank-you */}
+          <section className="text-center">
+            <h2 className="font-serif text-[21px] font-medium leading-snug tracking-tight text-[#3a2f2b]">
+              {statusMessage}！
+            </h2>
+            <p className="mx-auto mt-2 max-w-[260px] text-[12px] leading-relaxed text-[#8a7a74]">
+              大切な思い出を、心を込めて
+              <br />
+              フォトブックに仕上げています。
+            </p>
           </section>
 
-          <OrderStatusBanner
-            status={order.status}
-            message={statusMessage}
-            petId={petId}
-            albumId={albumId}
-            orderId={orderId}
-          />
+          <div className="flex items-center justify-center gap-3 px-2">
+            <PetIllustration />
+            <p className="max-w-[140px] text-left font-serif text-[11px] leading-relaxed text-[#b95d47]">
+              {pet?.name ? `${pet.name}の` : ""}
+              思い出がカタチになります
+              <br />
+              楽しみにお待ちください！
+            </p>
+          </div>
 
-          <OrderSummaryCard
-            shortOrderId={shortOrderId}
-            createdAt={order.created_at}
-            productName={order.product_name}
-            productSize={order.product_size}
-            coverTypeLabel={order.product_cover_type_label}
-            pages={order.pages}
-            subtotal={order.subtotal}
-            shippingFee={order.shipping_fee}
-            total={order.total}
-            shippingPrefecture={order.shipping_prefecture}
-          />
-        </>
+          <OrderProductionProgress phase={productionPhase} orderedLabel={orderedLabel} />
+
+          <p className="text-center text-[12px] leading-relaxed text-[#5c4d47]">
+            ただいま制作準備中です。発送が完了しましたら、アプリとメールでお知らせします。
+          </p>
+
+          <Link href="/account/orders" className="of-cta-outline">
+            注文履歴を見る
+          </Link>
+
+          <section className="of-block-warm flex items-center gap-3 p-3">
+            <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-[8px] bg-[#e5d8d0]">
+              {coverSignedUrl ? (
+                <Image src={coverSignedUrl} alt="" fill className="object-cover" unoptimized />
+              ) : null}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] leading-snug text-[#3a2f2b]">
+                次はどんな思い出を
+                <br />
+                残しましょう？
+              </p>
+              <Link href={`/pets/${petId}/photos/new`} className="of-link mt-1.5 inline-flex rounded-full border border-[#b95d47] px-3 py-1 text-[11px] no-underline">
+                写真を追加する →
+              </Link>
+            </div>
+          </section>
+
+          <details className="text-[12px]">
+            <summary className="of-section-label cursor-pointer list-none">
+              注文詳細 <span className="font-normal text-[#8a7a74]">{shortOrderId}</span>
+            </summary>
+            <dl className="of-block mt-2 grid gap-2 px-3.5 py-3 text-[13px]">
+              <div className="flex justify-between"><dt className="text-[#8a7a74]">商品</dt><dd>{order.product_name}</dd></div>
+              <div className="flex justify-between"><dt className="text-[#8a7a74]">ページ</dt><dd>{order.pages}ページ</dd></div>
+              <div className="flex justify-between"><dt className="text-[#8a7a74]">合計</dt><dd className="of-price">{formatPrice(order.total)}</dd></div>
+            </dl>
+            {orderPhotos.length > 0 ? (
+              <ul className="mt-2 grid grid-cols-3 gap-1">
+                {orderPhotos.map((photo, i) => {
+                  const { path } = getOrderPhotoDisplayPath(photo);
+                  const src = photoUrlMap.get(path);
+                  return (
+                    <li key={photo.id} className="relative aspect-square overflow-hidden rounded-[6px] bg-[#f4ece6]">
+                      {src ? (
+                        <Image
+                          src={src}
+                          alt={photo.caption ?? `${displayTitle}の写真 ${i + 1}`}
+                          fill
+                          sizes="120px"
+                          className="object-cover"
+                          unoptimized
+                        />
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </details>
+        </div>
+      ) : (
+        <div className="of-body">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <PhotobookCoverMock src={coverSignedUrl} alt={`${displayTitle}の表紙`} size="md" />
+            <h2 className="text-[15px] font-medium">{displayTitle}</h2>
+          </div>
+          <StatusBanner status={order.status} message={statusMessage} petId={petId} albumId={albumId} orderId={orderId} />
+          <dl className="of-block grid gap-2.5 px-3.5 py-3 text-[13px]">
+            <div className="flex justify-between"><dt className="text-[#8a7a74]">注文番号</dt><dd className="font-mono text-[12px]">{shortOrderId}</dd></div>
+            <div className="flex justify-between"><dt className="text-[#8a7a74]">合計</dt><dd className="of-price">{formatPrice(order.total)}</dd></div>
+          </dl>
+        </div>
       )}
     </main>
   );
 }
 
-type OrderRow = {
-  product_name: string;
-  product_size: string;
-  product_cover_type_label: string;
-  pages: number;
-  subtotal: number;
-  shipping_fee: number;
-  total: number;
-  shipping_prefecture: string | null;
-  created_at: string;
-};
-
-type OrderPhoto = {
-  id: string;
-  position: number;
-  original_path: string;
-  thumbnail_path: string | null;
-  taken_at: string | null;
-  caption: string | null;
-};
-
-function PaidCompleteView({
-  displayTitle,
-  petName,
-  coverSignedUrl,
-  statusMessage,
-  productionPhase,
-  productionCopy,
-  orderedLabel,
-  shortOrderId,
-  order,
-  orderPhotos,
-  photoUrlMap,
-  petId,
-}: {
-  displayTitle: string;
-  petName?: string | null;
-  coverSignedUrl: string | null;
-  statusMessage: string;
-  productionPhase: ProductionPhase;
-  productionCopy: { title: string; body: string };
-  orderedLabel: string;
-  shortOrderId: string;
-  order: OrderRow;
-  orderPhotos: OrderPhoto[];
-  photoUrlMap: Map<string, string>;
-  petId: string;
-}) {
+function PetIllustration() {
   return (
-    <>
-      {/* PDF 08.3 — thank you + visual */}
-      <section className="grid gap-6 text-center">
-        <div>
-          <p className="ds-editorial">THANK YOU</p>
-          <h2 className="mt-3 text-2xl font-semibold tracking-tight sm:text-[1.75rem]">
-            {statusMessage}
-          </h2>
-          <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted">
-            大切な思い出を、心を込めてフォトブックに仕上げる準備を進めています。
-          </p>
-        </div>
-
-        <div className="flex flex-col items-center gap-4">
-          <PhotobookCoverMock
-            src={coverSignedUrl}
-            alt={`${displayTitle}の表紙`}
-            size="hero"
-            hardCover
-            priority
-          />
-          <div>
-            {petName ? <p className="ds-caption">{petName}</p> : null}
-            <p className="mt-1 text-base font-medium">{displayTitle}</p>
-            <p className="mt-2 text-sm leading-relaxed text-muted">
-              {petName
-                ? `${petName}の思い出がカタチになります。楽しみにお待ちください。`
-                : "思い出がカタチになります。楽しみにお待ちください。"}
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <OrderProductionProgress phase={productionPhase} orderedLabel={orderedLabel} />
-
-      <div className="text-center">
-        <p className="text-sm font-medium">{productionCopy.title}</p>
-        <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted">
-          {productionCopy.body}
-        </p>
-      </div>
-
-      <Link
-        href="/account/orders"
-        className="app-button-secondary w-full text-center"
-      >
-        注文履歴を見る
-      </Link>
-
-      <OrderSummaryCard
-        shortOrderId={shortOrderId}
-        createdAt={order.created_at}
-        productName={order.product_name}
-        productSize={order.product_size}
-        coverTypeLabel={order.product_cover_type_label}
-        pages={order.pages}
-        subtotal={order.subtotal}
-        shippingFee={order.shipping_fee}
-        total={order.total}
-        shippingPrefecture={order.shipping_prefecture}
-      />
-
-      {orderPhotos.length > 0 ? (
-        <section aria-labelledby="photos-heading">
-          <div className="mb-4 flex items-baseline gap-2">
-            <h2 id="photos-heading" className="text-base font-semibold tracking-tight">
-              この注文に含まれる写真
-            </h2>
-            <p className="ds-caption">{orderPhotos.length}枚</p>
-          </div>
-          <ul className="grid grid-cols-3 gap-1.5 sm:gap-2">
-            {orderPhotos.map((photo, i) => {
-              const { path } = getOrderPhotoDisplayPath(photo);
-              const src = photoUrlMap.get(path);
-              return (
-                <li
-                  key={photo.id}
-                  className="relative aspect-square overflow-hidden rounded-md bg-surface-warm"
-                >
-                  {src ? (
-                    <Image
-                      src={src}
-                      alt={photo.caption ?? `${displayTitle}の写真 ${i + 1}`}
-                      fill
-                      sizes="(max-width: 640px) 33vw, 160px"
-                      className="object-cover"
-                      unoptimized
-                    />
-                  ) : null}
-                  <span
-                    className="absolute left-1 top-1 rounded bg-black/40 px-1 text-[10px] text-white"
-                    aria-hidden="true"
-                  >
-                    {photo.position + 1}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="ds-caption mt-3">
-            注文確定時点の写真順序で表示しています。実際の印刷レイアウトとは異なる場合があります。
-          </p>
-        </section>
-      ) : null}
-
-      <section className="rounded-xl bg-surface-warm/70 px-4 py-5 sm:flex sm:items-center sm:justify-between sm:gap-6">
-        <p className="text-sm leading-relaxed">
-          次はどんな思い出を残しましょう？
-        </p>
-        <Link
-          href={`/pets/${petId}/photos/new`}
-          className="ds-focus mt-3 inline-flex min-h-11 items-center text-sm font-medium text-brand-terracotta-strong sm:mt-0"
-        >
-          写真を追加する →
-        </Link>
-      </section>
-    </>
+    <svg viewBox="0 0 120 80" className="h-[70px] w-[105px] shrink-0 text-[#b95d47]" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <ellipse cx="42" cy="52" rx="24" ry="15" />
+      <circle cx="32" cy="36" r="12" />
+      <circle cx="24" cy="26" r="4" />
+      <circle cx="38" cy="24" r="4" />
+      <path d="M28 38h8" />
+      <ellipse cx="86" cy="54" rx="18" ry="13" />
+      <circle cx="90" cy="38" r="10" />
+      <path d="M84 32c0-5 3-8 6-8M96 32c0-5-2-7-5-7" />
+      <path d="M87 40h6M90 42v2" />
+      <path d="M60 28c1.5-3 4.5-3 6 0-1.5.8-3 .8-6 0Z" fill="currentColor" stroke="none" />
+    </svg>
   );
 }
 
-function OrderSummaryCard({
-  shortOrderId,
-  createdAt,
-  productName,
-  productSize,
-  coverTypeLabel,
-  pages,
-  subtotal,
-  shippingFee,
-  total,
-  shippingPrefecture,
-}: {
-  shortOrderId: string;
-  createdAt: string;
-  productName: string;
-  productSize: string;
-  coverTypeLabel: string;
-  pages: number;
-  subtotal: number;
-  shippingFee: number;
-  total: number;
-  shippingPrefecture: string | null;
-}) {
-  return (
-    <section aria-labelledby="order-summary-heading">
-      <h2 id="order-summary-heading" className="mb-4 text-base font-semibold tracking-tight">
-        注文内容
-      </h2>
-      <dl className="grid gap-3 text-sm">
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted">注文番号</dt>
-          <dd className="font-mono font-medium">{shortOrderId}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted">注文日</dt>
-          <dd>
-            {new Date(createdAt).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}
-          </dd>
-        </div>
-        <div className="app-order-divider" />
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted">商品</dt>
-          <dd className="font-medium">{productName}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted">サイズ</dt>
-          <dd>{productSize}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted">カバー</dt>
-          <dd>{coverTypeLabel}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted">ページ数</dt>
-          <dd>{pages}ページ</dd>
-        </div>
-        <div className="app-order-divider" />
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted">商品小計</dt>
-          <dd className="tabular-nums">{formatPrice(subtotal)}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted">送料</dt>
-          <dd className="tabular-nums">{formatPrice(shippingFee)}</dd>
-        </div>
-        <div className="flex items-center justify-between gap-4 pt-1">
-          <dt className="font-medium">合計</dt>
-          <dd className="app-price-accent text-xl">{formatPrice(total)}</dd>
-        </div>
-        {shippingPrefecture ? (
-          <>
-            <div className="app-order-divider" />
-            <div className="flex justify-between gap-4">
-              <dt className="text-muted">配送先</dt>
-              <dd>{shippingPrefecture}</dd>
-            </div>
-          </>
-        ) : null}
-      </dl>
-    </section>
-  );
-}
-
-type BannerProps = {
-  status: string;
-  message: string;
-  petId: string;
-  albumId: string;
-  orderId: string;
-};
-
-function OrderStatusBanner({ status, message, petId, albumId, orderId }: BannerProps) {
+function StatusBanner({
+  status, message, petId, albumId, orderId,
+}: { status: string; message: string; petId: string; albumId: string; orderId: string }) {
   if (status === "pending") {
     return (
-      <div className="rounded-xl border border-border px-4 py-5 text-center">
-        <p className="ds-editorial mb-2">PROCESSING</p>
-        <p className="text-base font-semibold">{message}</p>
-        <p className="ds-caption mt-2">
-          お支払い完了後、このページが更新されます。
-        </p>
-        <a
-          href={`/pets/${petId}/album/${albumId}/order/${orderId}`}
-          className="mt-4 inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-2"
-        >
-          再読み込み
-        </a>
+      <div className="of-block px-4 py-4 text-center">
+        <p className="text-[15px] font-medium">{message}</p>
+        <p className="of-muted mt-2">お支払い完了後、このページが更新されます。</p>
+        <a href={`/pets/${petId}/album/${albumId}/order/${orderId}`} className="of-link mt-3 justify-center">再読み込み</a>
       </div>
     );
   }
-
   if (status === "failed") {
     return (
-      <div className="rounded-xl border border-danger/30 bg-danger-soft px-4 py-5 text-center">
-        <p className="ds-editorial mb-2 text-danger">FAILED</p>
-        <p className="text-base font-semibold text-danger">{message}</p>
-        <p className="ds-caption mt-2 text-danger/80">
-          再度お試しいただくか、別のお支払い方法をお試しください。
-        </p>
-        <Link
-          href={`/pets/${petId}/album/${albumId}/product`}
-          className="mt-4 inline-flex min-h-11 items-center text-sm font-medium text-danger underline underline-offset-2"
-        >
-          再注文する
-        </Link>
+      <div className="rounded-[12px] border border-danger/30 bg-danger-soft px-4 py-4 text-center">
+        <p className="text-[15px] font-medium text-danger">{message}</p>
+        <Link href={`/pets/${petId}/album/${albumId}/product`} className="mt-3 inline-flex min-h-11 items-center text-[13px] font-medium text-danger underline">再注文する</Link>
       </div>
     );
   }
-
-  // cancelled or unknown
   return (
-    <div className="rounded-xl border border-border px-4 py-5 text-center">
-      <p className="ds-editorial mb-2">CANCELLED</p>
-      <p className="text-base font-semibold">{message}</p>
-      <Link
-        href={`/pets/${petId}/album/${albumId}/product`}
-        className="mt-4 inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-2"
-      >
-        注文内容へ戻る
-      </Link>
+    <div className="of-block px-4 py-4 text-center">
+      <p className="text-[15px] font-medium">{message}</p>
+      <Link href={`/pets/${petId}/album/${albumId}/product`} className="of-link mt-3 justify-center">注文内容へ戻る</Link>
     </div>
   );
 }

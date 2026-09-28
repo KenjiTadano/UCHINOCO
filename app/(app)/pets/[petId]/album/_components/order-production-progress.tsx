@@ -1,91 +1,54 @@
 export type ProductionPhase = "received" | "preparing" | "shipping" | "delivered";
 
+const PHASES: ProductionPhase[] = ["received", "preparing", "shipping", "delivered"];
+
 type Props = {
-  /** Current honest phase — do not advance past known facts. */
   phase: ProductionPhase;
-  /** Optional short date label under ご注文受付 (e.g. 9/15) */
   orderedLabel?: string;
-  className?: string;
 };
 
-const STEPS: Array<{
-  id: ProductionPhase;
-  label: string;
-  icon: string;
-}> = [
-  { id: "received", label: "ご注文受付", icon: "✓" },
-  { id: "preparing", label: "制作準備中", icon: "◇" },
-  { id: "shipping", label: "発送準備", icon: "▷" },
-  { id: "delivered", label: "お届け", icon: "⌂" },
-];
-
-const PHASE_ORDER: ProductionPhase[] = [
-  "received",
-  "preparing",
-  "shipping",
-  "delivered",
-];
-
-/**
- * Production progress for paid orders.
- * Only mark phases that are factually known — never imply shipped/delivered early.
- */
-export function OrderProductionProgress({
-  phase,
-  orderedLabel,
-  className = "",
-}: Props) {
-  const currentIndex = PHASE_ORDER.indexOf(phase);
+/** PDF p17 4-step production timeline — honest phase only */
+export function OrderProductionProgress({ phase, orderedLabel }: Props) {
+  const current = PHASES.indexOf(phase);
+  const labels: Record<ProductionPhase, string> = {
+    received: orderedLabel ? `ご注文\n(${orderedLabel})` : "ご注文",
+    preparing: "制作準備中",
+    shipping: "発送準備",
+    delivered: "お届け予定",
+  };
 
   return (
-    <section
-      aria-labelledby="production-progress-heading"
-      className={`rounded-xl bg-surface-warm/80 px-3 py-5 sm:px-5 ${className}`}
-    >
-      <h2 id="production-progress-heading" className="sr-only">
-        制作の進行状況
-      </h2>
-      <ol className="flex items-start justify-between gap-1">
-        {STEPS.map((step, index) => {
-          const done = index < currentIndex;
-          const active = index === currentIndex;
-          const connectorDone = index < currentIndex;
-
+    <section aria-labelledby="production-progress-heading" className="rounded-[14px] bg-[#f4ece6] px-2.5 py-4">
+      <h2 id="production-progress-heading" className="sr-only">制作の進行状況</h2>
+      <ol className="flex items-start justify-between">
+        {PHASES.map((id, index) => {
+          const active = index === current;
+          const done = index < current;
+          const lit = active || done;
           return (
-            <li key={step.id} className="relative flex flex-1 flex-col items-center">
-              {index < STEPS.length - 1 ? (
+            <li key={id} className="relative flex flex-1 flex-col items-center">
+              {index < PHASES.length - 1 ? (
                 <span
                   aria-hidden="true"
-                  className={`absolute left-[calc(50%+0.95rem)] right-[calc(-50%+0.95rem)] top-[0.85rem] h-px ${
-                    connectorDone ? "bg-brand-terracotta" : "bg-border"
+                  className={`absolute left-[calc(50%+11px)] right-[calc(-50%+11px)] top-[11px] h-px ${
+                    index < current ? "bg-[#b95d47]" : "bg-[#ddd0c8]"
                   }`}
                 />
               ) : null}
-
               <span
-                className={`relative z-10 flex size-7 items-center justify-center rounded-full text-[11px] ${
-                  active || done
-                    ? "bg-brand-terracotta text-white"
-                    : "border border-border bg-surface text-muted"
+                className={`relative z-10 flex size-[22px] items-center justify-center rounded-full text-[10px] ${
+                  lit ? "bg-[#b95d47] text-white" : "bg-[#d5c9c1] text-white"
                 }`}
                 aria-current={active ? "step" : undefined}
               >
-                <span aria-hidden="true">{done || active ? step.icon : index + 1}</span>
-                <span className="sr-only">
-                  {done ? "完了:" : active ? "現在:" : "未着手:"}
-                  {step.label}
-                </span>
+                {done ? "✓" : active ? "◆" : index + 1}
               </span>
-
               <span
-                className={`mt-2 max-w-[4.5rem] text-center text-[10px] leading-snug sm:text-[11px] ${
-                  active ? "font-medium text-brand-terracotta-strong" : "text-muted"
+                className={`mt-1.5 max-w-[4.5rem] whitespace-pre-line text-center text-[9px] leading-snug ${
+                  active ? "font-medium text-[#b95d47]" : "text-[#9a8b84]"
                 }`}
               >
-                <span className="block">{step.label}</span>
-                {step.id === "received" && orderedLabel ? (
-                  <span className="mt-0.5 block opacity-80">{orderedLabel}</span>
-                ) : null}
+                {labels[id]}
               </span>
             </li>
           );
@@ -93,33 +56,4 @@ export function OrderProductionProgress({
       </ol>
     </section>
   );
-}
-
-/** Honest copy for the current production phase (Provider未接続前提). */
-export function getProductionPhaseCopy(phase: ProductionPhase): {
-  title: string;
-  body: string;
-} {
-  switch (phase) {
-    case "received":
-      return {
-        title: "ご注文を受け付けました",
-        body: "お支払いが確認できました。まもなく制作準備に入ります。",
-      };
-    case "preparing":
-      return {
-        title: "ただいま制作準備中です",
-        body: "ご注文を受け付けました。印刷・製本の準備を進めています。発送が完了しましたらお知らせします。",
-      };
-    case "shipping":
-      return {
-        title: "発送準備を進めています",
-        body: "フォトブックの発送準備中です。まもなくお届けの案内をお送りします。",
-      };
-    case "delivered":
-      return {
-        title: "お届けが完了しました",
-        body: "フォトブックはお手元に届いているはずです。素敵な時間をお楽しみください。",
-      };
-  }
 }

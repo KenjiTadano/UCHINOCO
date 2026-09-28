@@ -1,7 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState } from "react";
+import { ChevronLeft } from "lucide-react";
 import { createAlbumDraft, type CreateAlbumState } from "./actions";
+import {
+  AlbumGeneratingScreen,
+  useGeneratingStep,
+} from "./album-generating-screen";
 
 const PERIOD_OPTIONS = [
   { value: "3months", label: "最近3か月" },
@@ -12,59 +18,101 @@ const PERIOD_OPTIONS = [
 
 const initialState: CreateAlbumState = { error: null };
 
-export function AlbumCreateForm({ petId }: { petId: string }) {
+export function AlbumCreateForm({
+  petId,
+  petName,
+  photoCount,
+  backHref,
+}: {
+  petId: string;
+  petName: string;
+  photoCount: number;
+  backHref: string;
+}) {
   const boundAction = createAlbumDraft.bind(null, petId);
   const [state, formAction, pending] = useActionState(boundAction, initialState);
   const [selected, setSelected] = useState<string>("3months");
+  const generatingStep = useGeneratingStep(pending);
+
+  if (pending) {
+    return (
+      <AlbumGeneratingScreen
+        petName={petName}
+        photoCount={photoCount}
+        backHref={backHref}
+        activeStep={generatingStep}
+      />
+    );
+  }
 
   return (
-    <form action={formAction} className="grid gap-7">
-      <fieldset className="grid gap-3">
-        <legend className="text-sm font-semibold">対象期間</legend>
-        <div className="grid grid-cols-2 gap-2">
-          {PERIOD_OPTIONS.map((opt) => (
-            <label
-              key={opt.value}
-              className={`ds-focus flex min-h-14 cursor-pointer items-center justify-center rounded-xl border px-4 text-sm font-medium transition-colors ${
-                selected === opt.value
-                  ? "border-brand-terracotta bg-brand-terracotta-soft text-brand-terracotta-strong"
-                  : "bg-surface text-foreground hover:border-brand-terracotta/60"
-              }`}
-            >
-              <input
-                type="radio"
-                name="period"
-                value={opt.value}
-                checked={selected === opt.value}
-                onChange={() => setSelected(opt.value)}
-                className="sr-only"
-              />
-              {opt.label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+    <main className="ai-gen-page ai-gen-page--form">
+      <header className="ai-gen-header">
+        <Link
+          href={backHref}
+          className="ai-gen-header-side ai-gen-back ds-focus"
+          aria-label="戻る"
+        >
+          <ChevronLeft size={22} strokeWidth={1.8} aria-hidden="true" />
+        </Link>
+        <h1 className="ai-gen-header-title">AIアルバムを作る</h1>
+        <Link href={backHref} className="ai-gen-header-side ai-gen-cancel ds-focus">
+          キャンセル
+        </Link>
+      </header>
 
-      {state.error ? (
-        <p role="alert" className="app-error">
-          {state.error}
+      <form action={formAction} className="ai-gen-form">
+        <h2 className="ai-gen-form-title">{petName}のアルバムを作る</h2>
+        {photoCount > 0 ? (
+          <p className="ai-gen-form-desc">
+            {photoCount.toLocaleString()}枚の思い出から選びます
+          </p>
+        ) : (
+          <p className="ai-gen-form-desc">写真を追加してからアルバムを作れます</p>
+        )}
+
+        <fieldset className="ai-gen-period">
+          <legend>対象期間</legend>
+          <div className="ai-gen-period-grid">
+            {PERIOD_OPTIONS.map((opt) => (
+              <label
+                key={opt.value}
+                className={`ai-gen-period-option ds-focus${
+                  selected === opt.value ? " is-selected" : ""
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="period"
+                  value={opt.value}
+                  checked={selected === opt.value}
+                  onChange={() => setSelected(opt.value)}
+                  className="sr-only"
+                />
+                {opt.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        {state.error ? (
+          <p role="alert" className="app-error">
+            {state.error}
+          </p>
+        ) : null}
+
+        <button
+          type="submit"
+          disabled={photoCount === 0}
+          className="app-button-primary"
+        >
+          アルバム案を作る
+        </button>
+
+        <p className="app-help text-center">
+          AIが写真を選び、タイトルを提案します。内容は後から自由に変更できます。
         </p>
-      ) : null}
-
-      <button
-        type="submit"
-        disabled={pending}
-        className="app-button-primary"
-        aria-busy={pending}
-      >
-        {pending ? "アルバム案を作成中..." : "アルバム案を作る"}
-      </button>
-
-      <p className="app-help text-center" aria-live="polite">
-        {pending
-          ? "写真を選んでいます。少々お待ちください。"
-          : "AIが写真を選び、タイトルを提案します。内容は後から自由に変更できます。"}
-      </p>
-    </form>
+      </form>
+    </main>
   );
 }
