@@ -1,12 +1,19 @@
-import { parsePhotoCursor, type PhotoCursor } from "@/lib/photo-pagination";
-import { parseTokyoLocalDateTime } from "@/lib/photo-timeline";
+import { parsePhotoCursor, type PhotoCursor } from "./photo-pagination.ts";
+import { parseTokyoLocalDateTime } from "./photo-timeline.ts";
 
 export const SEARCH_PAGE_SIZE = 36;
 export const WORD_KINDS = ["tag", "scene", "activity", "emotion"] as const;
+export const SEARCH_SEASONS = ["spring", "summer", "autumn", "winter"] as const;
+export const SEARCH_ANNIVERSARIES = ["birthday", "adoption", "on_this_day"] as const;
+export const SEARCH_STORY_TYPES = ["single", "sequence", "contrast", "event", "same_day", "everyday"] as const;
 export type WordKind = typeof WORD_KINDS[number];
+export type SearchSeason = typeof SEARCH_SEASONS[number];
+export type SearchAnniversary = typeof SEARCH_ANNIVERSARIES[number];
+export type SearchStoryType = typeof SEARCH_STORY_TYPES[number];
 export type SearchParams = Record<string, string | string[] | undefined>;
 export type SearchState = {
   q: string; pet: string; kind: string; word: string; favorite: boolean; from: string; to: string;
+  year: string; month: string; season: string; best: boolean; anniversary: string; story: string;
 };
 export type SearchFacet = { kind: WordKind; value: string; count: number };
 export type SearchFacets = {
@@ -32,6 +39,8 @@ export function parseSearchState(params: SearchParams, contextPetId?: string) {
     q: first(params.q).trim(), pet: contextPetId ?? first(params.pet), kind: first(params.kind),
     word: first(params.word).replace(/[\s　]+/g, " ").trim().toLowerCase(),
     favorite: first(params.favorite) === "1", from: first(params.from), to: first(params.to),
+    year: first(params.year), month: first(params.month), season: first(params.season),
+    best: first(params.best) === "1", anniversary: first(params.anniversary), story: first(params.story),
   };
   const before = first(params.before), beforeId = first(params.beforeId);
   const cursor: PhotoCursor = parsePhotoCursor(before, beforeId);
@@ -42,6 +51,12 @@ export function parseSearchState(params: SearchParams, contextPetId?: string) {
   else if ((state.from && !validDate(state.from)) || (state.to && !validDate(state.to))) error = "正しい日付を入力してください。";
   else if (state.from && state.to && state.from > state.to) error = "開始日は終了日以前の日付を指定してください。";
   else if (first(params.favorite) && first(params.favorite) !== "1") error = "お気に入りの条件を確認してください。";
+  else if (state.year && (!/^\d{4}$/.test(state.year) || Number(state.year) < 2000 || Number(state.year) > 2200)) error = "年の条件を確認してください。";
+  else if (state.month && (!/^\d{1,2}$/.test(state.month) || Number(state.month) < 1 || Number(state.month) > 12)) error = "月の条件を確認してください。";
+  else if (state.season && !SEARCH_SEASONS.includes(state.season as SearchSeason)) error = "季節の条件を確認してください。";
+  else if (first(params.best) && first(params.best) !== "1") error = "Best Shotの条件を確認してください。";
+  else if (state.anniversary && !SEARCH_ANNIVERSARIES.includes(state.anniversary as SearchAnniversary)) error = "記念日の条件を確認してください。";
+  else if (state.story && !SEARCH_STORY_TYPES.includes(state.story as SearchStoryType)) error = "Storyの条件を確認してください。";
   else if ((before || beforeId) && (!cursor || !UUID_PATTERN.test(beforeId))) error = "ページの位置を確認してください。条件をクリアして再度お試しください。";
   return { state, cursor, error };
 }
@@ -50,6 +65,8 @@ export function searchValues(state: SearchState): Record<string, string> {
   return Object.fromEntries(Object.entries({
     q: state.q, pet: state.pet, kind: state.kind, word: state.word,
     favorite: state.favorite ? "1" : "", from: state.from, to: state.to,
+    year: state.year, month: state.month, season: state.season, best: state.best ? "1" : "",
+    anniversary: state.anniversary, story: state.story,
   }).filter(([, value]) => value !== ""));
 }
 

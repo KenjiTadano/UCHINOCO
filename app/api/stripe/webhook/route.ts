@@ -1,12 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createStripeClient } from "@/lib/stripe/server";
-import {
-  getOrderIdFromMetadata,
-  getAlbumIdFromMetadata,
-  extractPaymentIntentId,
-  isUUID,
-} from "@/lib/webhook-helpers";
+import { getOrderIdFromMetadata, getAlbumIdFromMetadata, extractPaymentIntentId, isUUID } from "@/lib/webhook-helpers";
+import { subscriptionIdFromCheckout, subscriptionSyncPayload } from "@/lib/subscription-webhook";
 import type Stripe from "stripe";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
@@ -41,10 +38,39 @@ export async function POST(request: Request): Promise<Response> {
   // ── 5. Process event ──────────────────────────────────────────────────────
   const adminClient = createAdminClient();
 
+  async function syncSubscription(subscription: Stripe.Subscription) {
+    const payload = subscriptionSyncPayload(subscription, event);
+    if (!payload) {
+      console.error(`[webhook] ${event.id} ${event.type}: invalid subscription metadata`);
+      return false;
+    }
+    // The RPC is introduced by the pending Task071 migration; generated types are
+    // refreshed only after that migration is applied remotely.
+    const { error } = await (adminClient as unknown as SupabaseClient).rpc(
+      "sync_user_subscription_from_stripe",
+      payload,
+    );
+    if (error) {
+      console.error(`[webhook] ${event.id} subscription sync failed: ${error.message}`);
+      return false;
+    }
+    return true;
+  }
+
   try {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+
+        const subscriptionId = subscriptionIdFromCheckout(session);
+        if (subscriptionId) {
+          const stripe = createStripeClient();
+          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+          if (!(await syncSubscription(subscription))) {
+            return new Response("DB error", { status: 500 });
+          }
+          break;
+        }
 
         // Only process sessions where payment was actually collected.
         if (session.payment_status !== "paid") {
@@ -52,12 +78,8 @@ export async function POST(request: Request): Promise<Response> {
           return new Response("ok", { status: 200 });
         }
 
-        const orderId = getOrderIdFromMetadata(
-          session.metadata as Record<string, string> | null,
-        );
-        const albumId = getAlbumIdFromMetadata(
-          session.metadata as Record<string, string> | null,
-        );
+        const orderId = getOrderIdFromMetadata(session.metadata as Record<string, string> | null);
+        const albumId = getAlbumIdFromMetadata(session.metadata as Record<string, string> | null);
 
         if (!orderId) {
           console.error(`[webhook] ${event.id} ${event.type}: missing or invalid order_id in metadata`);
@@ -70,11 +92,7 @@ export async function POST(request: Request): Promise<Response> {
 
         // album_id binding: metadata.album_id must match the stored order.album_id.
         // Prevents processing events where session metadata was misrouted or tampered.
-        const { data: orderCheck } = await adminClient
-          .from("orders")
-          .select("album_id, print_snapshot_id, print_fingerprint")
-          .eq("id", orderId)
-          .maybeSingle();
+        const { data: orderCheck } = await adminClient.from("orders").select("album_id, print_snapshot_id, print_fingerprint").eq("id", orderId).maybeSingle();
 
         if (!orderCheck) {
           console.log(`[webhook] ${event.id} ${event.type}: order not found in DB, order_id=${orderId}`);
@@ -82,18 +100,12 @@ export async function POST(request: Request): Promise<Response> {
         }
 
         if (orderCheck.album_id !== albumId) {
-          console.error(
-            `[webhook] ${event.id} ${event.type}: album_id mismatch for order_id=${orderId}`,
-          );
+          console.error(`[webhook] ${event.id} ${event.type}: album_id mismatch for order_id=${orderId}`);
           return new Response("ok", { status: 200 });
         }
 
         if (orderCheck.print_snapshot_id) {
-          const { data: bound } = await adminClient
-            .from("album_print_snapshots")
-            .select("album_id, fingerprint")
-            .eq("id", orderCheck.print_snapshot_id)
-            .maybeSingle();
+          const { data: bound } = await adminClient.from("album_print_snapshots").select("album_id, fingerprint").eq("id", orderCheck.print_snapshot_id).maybeSingle();
           if (!bound || bound.album_id !== orderCheck.album_id || bound.fingerprint !== orderCheck.print_fingerprint) {
             console.error(`[webhook] ${event.id} ${event.type}: print snapshot binding mismatch for order_id=${orderId}`);
             return new Response("ok", { status: 200 });
@@ -112,7 +124,7 @@ export async function POST(request: Request): Promise<Response> {
           p_stripe_session_id: session.id,
           p_payment_intent_id: paymentIntentId,
           p_provider: printProvider,
-        });
+        } as never);
 
         if (error) {
           console.error(`[webhook] ${event.id} mark_order_paid failed: ${error.message}`);
@@ -121,11 +133,19 @@ export async function POST(request: Request): Promise<Response> {
         break;
       }
 
+      case "customer.subscription.created":
+      case "customer.subscription.updated":
+      case "customer.subscription.deleted": {
+        const subscription = event.data.object as Stripe.Subscription;
+        if (!(await syncSubscription(subscription))) {
+          return new Response("DB error", { status: 500 });
+        }
+        break;
+      }
+
       case "checkout.session.expired": {
         const session = event.data.object as Stripe.Checkout.Session;
-        const orderId = getOrderIdFromMetadata(
-          session.metadata as Record<string, string> | null,
-        );
+        const orderId = getOrderIdFromMetadata(session.metadata as Record<string, string> | null);
 
         if (!isUUID(orderId)) {
           console.log(`[webhook] ${event.id} ${event.type}: no valid order_id, ignoring`);
@@ -154,9 +174,7 @@ export async function POST(request: Request): Promise<Response> {
 
       case "payment_intent.payment_failed": {
         const pi = event.data.object as Stripe.PaymentIntent;
-        const orderId = getOrderIdFromMetadata(
-          pi.metadata as Record<string, string> | null,
-        );
+        const orderId = getOrderIdFromMetadata(pi.metadata as Record<string, string> | null);
 
         if (!isUUID(orderId)) {
           console.log(`[webhook] ${event.id} ${event.type}: no valid order_id, ignoring`);

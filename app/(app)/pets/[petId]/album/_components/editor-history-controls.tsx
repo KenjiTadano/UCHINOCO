@@ -19,9 +19,12 @@ export function EditorHistoryControls({ canUndo, canRedo, disabled, onUndo, onRe
   const undoRef = useRef(onUndo);
   const redoRef = useRef(onRedo);
   const disabledRef = useRef(disabled);
-  undoRef.current = onUndo;
-  redoRef.current = onRedo;
-  disabledRef.current = disabled;
+
+  useEffect(() => {
+    undoRef.current = onUndo;
+    redoRef.current = onRedo;
+    disabledRef.current = disabled;
+  }, [onUndo, onRedo, disabled]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -31,7 +34,8 @@ export function EditorHistoryControls({ canUndo, canRedo, disabled, onUndo, onRe
       const target = event.target;
       if (target instanceof HTMLElement) {
         const tag = target.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
+        const rangeInput = target instanceof HTMLInputElement && target.type === "range";
+        if ((tag === "INPUT" && !rangeInput) || tag === "TEXTAREA" || target.isContentEditable) return;
       }
       event.preventDefault();
       if (event.shiftKey) redoRef.current();
@@ -43,24 +47,10 @@ export function EditorHistoryControls({ canUndo, canRedo, disabled, onUndo, onRe
 
   return (
     <div className="editor-history" data-testid="editor-history">
-      <button
-        type="button"
-        className="editor-history-button ds-focus"
-        aria-label="元に戻す"
-        data-testid="editor-undo"
-        disabled={disabled || !canUndo}
-        onClick={onUndo}
-      >
+      <button type="button" className="editor-history-button ds-focus" aria-label="元に戻す" data-testid="editor-undo" disabled={disabled || !canUndo} onClick={onUndo}>
         <Undo2 size={16} strokeWidth={1.8} aria-hidden="true" />
       </button>
-      <button
-        type="button"
-        className="editor-history-button ds-focus"
-        aria-label="やり直す"
-        data-testid="editor-redo"
-        disabled={disabled || !canRedo}
-        onClick={onRedo}
-      >
+      <button type="button" className="editor-history-button ds-focus" aria-label="やり直す" data-testid="editor-redo" disabled={disabled || !canRedo} onClick={onRedo}>
         <Redo2 size={16} strokeWidth={1.8} aria-hidden="true" />
       </button>
     </div>

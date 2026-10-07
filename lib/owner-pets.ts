@@ -9,17 +9,19 @@ type PetRow = {
 };
 
 /**
- * Owned pets in stable create order, with signed avatar URLs when available.
+ * Pets visible to the authenticated user in stable create order. RLS includes
+ * owned pets and explicitly shared family pets.
  * Shared by 02 / 03 / 04 pet switcher rows.
  */
 export async function loadOwnerPetsForSwitcher(
   supabase: SupabaseClient,
   ownerUserId: string,
 ): Promise<{ pets: PetSwitcherPet[]; error: Error | null }> {
+  // Keep the established call signature while RLS derives the visible set.
+  void ownerUserId;
   const { data, error } = await supabase
     .from("pets")
     .select("id, name, avatar_url")
-    .eq("owner_user_id", ownerUserId)
     .order("created_at", { ascending: true })
     .order("id", { ascending: true });
 

@@ -2,26 +2,16 @@
 
 import { selectPetBestShots } from "../best-shot/actions";
 import { albumCandidateFingerprint } from "@/lib/album-candidates/config";
-import {
-  albumCandidateCacheKey,
-  getAlbumCandidateCache,
-  setAlbumCandidateCache,
-} from "@/lib/album-candidates/cache";
+import { albumCandidateCacheKey, getAlbumCandidateCache, setAlbumCandidateCache } from "@/lib/album-candidates/cache";
 import { AlbumPeriodError, resolveAlbumPeriod } from "@/lib/album-candidates/period";
 import { selectAlbumCandidates } from "@/lib/album-candidates/select";
 import { describePrimaryStyle } from "@/lib/album-candidates/style";
-import type {
-  AlbumCandidateResult,
-  AlbumCandidateScene,
-  AlbumPeriodInput,
-  AlbumSceneInput,
-} from "@/lib/album-candidates/types";
+import type { AlbumCandidateResult, AlbumCandidateScene, AlbumPeriodInput, AlbumSceneInput } from "@/lib/album-candidates/types";
 import { geometryMemoryKey } from "@/lib/photo-analysis/keys";
 import { getSmartCropCache } from "@/lib/smart-crop/cache";
 import { createClient } from "@/lib/supabase/server";
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type AlbumCandidateCard = AlbumCandidateScene & {
   primaryThumbUrl: string | null;
@@ -57,22 +47,13 @@ function emptyRun(message: string): AlbumCandidateRun {
   };
 }
 
-function pairVisual(
-  pairs: { photoA: string; photoB: string; visualScore: number }[],
-  a: string,
-  b: string,
-) {
-  const pair = pairs.find(
-    (item) => (item.photoA === a && item.photoB === b) || (item.photoA === b && item.photoB === a),
-  );
+function pairVisual(pairs: { photoA: string; photoB: string; visualScore: number }[], a: string, b: string) {
+  const pair = pairs.find((item) => (item.photoA === a && item.photoB === b) || (item.photoA === b && item.photoB === a));
   return pair?.visualScore ?? 50;
 }
 
 /** Choose album scenes from Task053 best shots. Does not write a database row. */
-export async function selectPetAlbumCandidates(
-  petId: string,
-  periodInput: AlbumPeriodInput,
-): Promise<AlbumCandidateRun> {
+export async function selectPetAlbumCandidates(petId: string, periodInput: AlbumPeriodInput, options?: { storedOnly?: boolean; allowLargeImageDegrade?: boolean; dateRange?: { start: string; end: string }; allowedPhotoIds?: string[] }): Promise<AlbumCandidateRun> {
   if (!UUID_PATTERN.test(petId)) return emptyRun("不正なIDです。");
   let period;
   try {
@@ -81,7 +62,7 @@ export async function selectPetAlbumCandidates(
     if (error instanceof AlbumPeriodError) return emptyRun(error.message);
     throw error;
   }
-  const shots = await selectPetBestShots(petId);
+  const shots = await selectPetBestShots(petId, options);
   if (!shots.ok) return emptyRun(shots.message ?? "選定の準備に失敗しました。");
 
   const supabase = await createClient();
@@ -90,19 +71,25 @@ export async function selectPetAlbumCandidates(
   } = await supabase.auth.getUser();
   if (!user) return emptyRun("ログインが必要です。");
 
-  const { data: rows } = await supabase
-    .from("photos")
-    .select("id, storage_path, updated_at, content_hash")
-    .eq("pet_id", petId)
-    .eq("uploader_user_id", user.id)
-    .limit(40);
+  const photoQuery = supabase.from("photos").select("id, storage_path, updated_at, content_hash").eq("pet_id", petId).eq("uploader_user_id", user.id);
+  const rangedPhotoQuery = options?.dateRange ? photoQuery.gte("timeline_at", options.dateRange.start).lte("timeline_at", options.dateRange.end) : photoQuery;
+  let rows = [] as NonNullable<Awaited<typeof rangedPhotoQuery>["data"]>;
+  if (options?.dateRange) {
+    for (let offset = 0; ; offset += 200) {
+      const page = await rangedPhotoQuery.order("id", { ascending: true }).range(offset, offset + 199);
+      if (page.error || !page.data) return emptyRun("写真を読み込めませんでした。");
+      rows.push(...page.data);
+      if (page.data.length < 200) break;
+    }
+  } else {
+    const result = await rangedPhotoQuery.limit(40);
+    rows = result.data ?? [];
+  }
   const storageById = new Map((rows ?? []).map((row) => [row.id, row]));
 
   const scenes: AlbumSceneInput[] = shots.groups.map(({ group, selection }) => {
     const primary = selection.ranking.find((candidate) => candidate.photoId === selection.primaryPhotoId);
-    const secondary = selection.secondaryPhotoId
-      ? selection.ranking.find((candidate) => candidate.photoId === selection.secondaryPhotoId)
-      : undefined;
+    const secondary = selection.secondaryPhotoId ? selection.ranking.find((candidate) => candidate.photoId === selection.secondaryPhotoId) : undefined;
     const source = storageById.get(selection.primaryPhotoId);
     const analysis = source ? getSmartCropCache(geometryMemoryKey(source)) : null;
     const style = describePrimaryStyle(analysis, group.tags);
@@ -152,9 +139,7 @@ export async function selectPetAlbumCandidates(
     fingerprint,
   );
   const cached = getAlbumCandidateCache(key);
-  const result =
-    cached ??
-    selectAlbumCandidates({ scenes, availablePhotoCount, period });
+  const result = cached ?? selectAlbumCandidates({ scenes, availablePhotoCount, period });
   if (!cached) setAlbumCandidateCache(key, result);
 
   const thumbs = new Map<string, string | null>();

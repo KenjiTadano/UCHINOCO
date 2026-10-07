@@ -2,17 +2,7 @@ import { EDITOR_HISTORY_LIMIT } from "./config.ts";
 
 export type EditorHistoryScope = "page" | "cover";
 
-export type EditorHistoryField =
-  | "layout"
-  | "crop"
-  | "photo"
-  | "title"
-  | "subtitle"
-  | "template"
-  | "color"
-  | "text"
-  | "textStyle"
-  | "decoration";
+export type EditorHistoryField = "layout" | "crop" | "photo" | "title" | "subtitle" | "template" | "color" | "text" | "textStyle" | "decoration" | "element" | "background" | "recommendation";
 
 /** User Override before/after. AI values are never copied into these fields. */
 export type EditorHistoryEntry = {
@@ -161,13 +151,7 @@ export function updateGesture(session: HistorySession, after: unknown): HistoryS
   };
 }
 
-export function pushEdit(
-  session: HistorySession,
-  scope: EditorHistoryScope,
-  edit: HistoryEdit,
-  now = Date.now(),
-  limit = EDITOR_HISTORY_LIMIT,
-): HistorySession {
+export function pushEdit(session: HistorySession, scope: EditorHistoryScope, edit: HistoryEdit, now = Date.now(), limit = EDITOR_HISTORY_LIMIT): HistorySession {
   const base = session.open ? commitOpen(session, scope, now) : session;
   return pushEntry(
     base,

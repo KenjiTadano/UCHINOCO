@@ -2,7 +2,11 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
+import { loadUserEntitlements } from "@/lib/entitlements-server";
 import { parseTokyoLocalDateTime } from "@/lib/photo-timeline";
+import { PHOTO_IMAGE_DELIVERY, photoPreviewPath, rememberPhotoPreviewPresent } from "@/lib/photo-image-delivery";
+import { albumCandidateTransition } from "@/lib/photo-intake";
+import { tokyoDateParts, tokyoRange } from "@/lib/uchinoco-now";
 import { createClient } from "@/lib/supabase/server";
 
 type PhotoMetadata = {
@@ -18,6 +22,8 @@ export type SignedPhotoUpload = {
   token: string;
   thumbnailPath: string;
   thumbnailToken: string;
+  previewPath: string | null;
+  previewToken: string | null;
   contentHash: string;
 };
 
@@ -33,11 +39,18 @@ export type FinalizePhotoUploadsResult = {
   savedCount: number;
   failedCount: number;
   duplicateCount: number;
+  batchId?: string;
+  mediaReadyCount?: number;
+  analysisQueuedCount?: number;
+  candidateBefore?: number;
+  candidateAfter?: number;
+  candidateBecameReady?: boolean;
 };
 
 type FinalizePhotoUpload = {
   storagePath: string;
   thumbnailPath: string | null;
+  previewPath?: string | null;
   takenAt: string | null;
   favorite?: boolean;
   contentHash: string;
@@ -46,10 +59,10 @@ type FinalizePhotoUpload = {
 const BUCKET = "pet-photos";
 const MAX_FILES = 10;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const MAX_THUMBNAIL_SIZE = 1024 * 1024;
+const MAX_THUMBNAIL_SIZE = PHOTO_IMAGE_DELIVERY.thumbnail.maxSizeBytes;
+const MAX_PREVIEW_SIZE = PHOTO_IMAGE_DELIVERY.preview.maxSizeBytes;
 const FUTURE_TOLERANCE_MILLISECONDS = 5 * 60 * 1000;
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const IMAGE_EXTENSIONS: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -78,52 +91,44 @@ function uploadYearMonth() {
 }
 
 function validMetadata(metadata: PhotoMetadata) {
-  return (
-    UUID_PATTERN.test(metadata.clientId) &&
-    Boolean(IMAGE_EXTENSIONS[metadata.mimeType]) &&
-    Number.isSafeInteger(metadata.size) &&
-    metadata.size > 0 &&
-    metadata.size <= MAX_FILE_SIZE
-    && SHA256_PATTERN.test(metadata.contentHash)
-  );
+  return UUID_PATTERN.test(metadata.clientId) && Boolean(IMAGE_EXTENSIONS[metadata.mimeType]) && Number.isSafeInteger(metadata.size) && metadata.size > 0 && metadata.size <= MAX_FILE_SIZE && SHA256_PATTERN.test(metadata.contentHash);
 }
 
-async function ownedPet(client: SupabaseClient, petId: string, userId: string) {
-  const { data, error } = await client
-    .from("pets")
-    .select("id, owner_user_id")
-    .eq("id", petId)
-    .eq("owner_user_id", userId)
-    .maybeSingle();
-
-  return !error && data?.owner_user_id === userId ? data : null;
+async function accessiblePet(client: SupabaseClient, petId: string) {
+  const { data, error } = await client.from("pets").select("id, owner_user_id").eq("id", petId).maybeSingle();
+  return !error && data ? data : null;
 }
 
-async function cleanupUploadedPhoto(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  storagePath: string,
-  thumbnailPath: string | null,
-) {
+async function canUploadToPet(client: SupabaseClient, userId: string, petId: string) {
+  const pet = await accessiblePet(client, petId);
+  if (!pet) return false;
+  if (pet.owner_user_id === userId) return true;
+  const ownerEntitlements = await loadUserEntitlements(client, pet.owner_user_id);
+  return ownerEntitlements.canUseFamilySharing;
+}
+
+async function cleanupUploadedPhoto(supabase: Awaited<ReturnType<typeof createClient>>, storagePath: string, thumbnailPath: string | null, previewPath: string | null = null) {
   await supabase.storage.from(BUCKET).remove([storagePath]);
   if (thumbnailPath) {
-    await supabase.storage
-      .from("pet-photo-thumbnails")
-      .remove([thumbnailPath]);
+    await supabase.storage.from("pet-photo-thumbnails").remove([thumbnailPath]);
   }
+  if (previewPath) await supabase.storage.from("pet-photo-thumbnails").remove([previewPath]);
 }
 
-export async function preparePhotoUploads(
-  petId: string,
-  metadata: PhotoMetadata[],
-): Promise<PreparePhotoUploadsResult> {
-  if (
-    !UUID_PATTERN.test(petId) ||
-    !Array.isArray(metadata) ||
-    metadata.length === 0 ||
-    metadata.length > MAX_FILES ||
-    !metadata.every(validMetadata) ||
-    new Set(metadata.map((item) => item.clientId)).size !== metadata.length
-  ) {
+async function countCurrentMonthPhotos(client: SupabaseClient, petId: string) {
+  const parts = tokyoDateParts(new Date());
+  const range = tokyoRange(parts.year, parts.month, 1, true);
+  const { count, error } = await client
+    .from("photos")
+    .select("id", { count: "exact", head: true })
+    .eq("pet_id", petId)
+    .gte("timeline_at", range.start)
+    .lt("timeline_at", range.end);
+  return error ? null : (count ?? 0);
+}
+
+export async function preparePhotoUploads(petId: string, metadata: PhotoMetadata[]): Promise<PreparePhotoUploadsResult> {
+  if (!UUID_PATTERN.test(petId) || !Array.isArray(metadata) || metadata.length === 0 || metadata.length > MAX_FILES || !metadata.every(validMetadata) || new Set(metadata.map((item) => item.clientId)).size !== metadata.length) {
     return {
       success: false,
       message: "選択した写真を確認してください。",
@@ -149,19 +154,26 @@ export async function preparePhotoUploads(
   }
 
   const client = albumClient(supabase);
-  if (!(await ownedPet(client, petId, user.id))) {
+  if (!(await canUploadToPet(client, user.id, petId))) {
     return {
       success: false,
-      message: "ペット情報を確認できませんでした。",
+      message: "このペットへの写真追加は現在利用できません。オーナーの共有設定を確認してください。",
       uploads: [],
       failedCount: 0,
       duplicateCount: 0,
     };
   }
 
-  const { data: existing, error: duplicateError } = await client.from("photos").select("content_hash").eq("pet_id", petId).eq("uploader_user_id", user.id).in("content_hash", metadata.map((item) => item.contentHash));
+  const { data: existing, error: duplicateError } = await client
+    .from("photos")
+    .select("content_hash")
+    .eq("pet_id", petId)
+    .in(
+      "content_hash",
+      metadata.map((item) => item.contentHash),
+    );
   if (duplicateError) return { success: false, message: "写真の重複を確認できませんでした。", uploads: [], failedCount: 0, duplicateCount: 0 };
-  const existingHashes = new Set((existing ?? []).flatMap((item) => item.content_hash ? [item.content_hash as string] : []));
+  const existingHashes = new Set((existing ?? []).flatMap((item) => (item.content_hash ? [item.content_hash as string] : [])));
   const newMetadata = metadata.filter((item) => !existingHashes.has(item.contentHash));
   const duplicateCount = metadata.length - newMetadata.length;
   const { year, month } = uploadYearMonth();
@@ -171,12 +183,8 @@ export async function preparePhotoUploads(
       const photoId = crypto.randomUUID();
       const path = `${user.id}/${petId}/${year}/${month}/${photoId}.${extension}`;
       const thumbnailPath = `${user.id}/${petId}/${year}/${month}/${photoId}.webp`;
-      const [original, thumbnail] = await Promise.all([
-        supabase.storage.from(BUCKET).createSignedUploadUrl(path),
-        supabase.storage
-          .from("pet-photo-thumbnails")
-          .createSignedUploadUrl(thumbnailPath),
-      ]);
+      const previewPath = photoPreviewPath(path);
+      const [original, thumbnail, preview] = await Promise.all([supabase.storage.from(BUCKET).createSignedUploadUrl(path), supabase.storage.from("pet-photo-thumbnails").createSignedUploadUrl(thumbnailPath), previewPath ? supabase.storage.from("pet-photo-thumbnails").createSignedUploadUrl(previewPath) : Promise.resolve({ data: null, error: null })]);
 
       return original.error || !original.data || thumbnail.error || !thumbnail.data
         ? null
@@ -186,28 +194,24 @@ export async function preparePhotoUploads(
             token: original.data.token,
             thumbnailPath,
             thumbnailToken: thumbnail.data.token,
+            previewPath: preview?.data ? previewPath : null,
+            previewToken: preview.data?.token ?? null,
             contentHash: item.contentHash,
           };
     }),
   );
-  const uploads = results.filter(
-    (result): result is SignedPhotoUpload => result !== null,
-  );
+  const uploads = results.filter((result): result is SignedPhotoUpload => result !== null);
 
   return {
     success: uploads.length > 0 || newMetadata.length === 0,
-    message:
-      uploads.length > 0 ? null : "選んだ写真はすべて保存済みです。",
+    message: uploads.length > 0 ? null : "選んだ写真はすべて保存済みです。",
     uploads,
     failedCount: newMetadata.length - uploads.length,
     duplicateCount,
   };
 }
 
-export async function finalizePhotoUploads(
-  petId: string,
-  uploads: FinalizePhotoUpload[],
-): Promise<FinalizePhotoUploadsResult> {
+export async function finalizePhotoUploads(petId: string, uploads: FinalizePhotoUpload[]): Promise<FinalizePhotoUploadsResult> {
   const uploadCount = Array.isArray(uploads) ? uploads.length : 0;
   if (
     !UUID_PATTERN.test(petId) ||
@@ -219,12 +223,14 @@ export async function finalizePhotoUploads(
         !upload ||
         typeof upload.storagePath !== "string" ||
         (upload.thumbnailPath !== null && typeof upload.thumbnailPath !== "string") ||
+        (upload.previewPath != null && typeof upload.previewPath !== "string") ||
         (upload.takenAt !== null && typeof upload.takenAt !== "string") ||
         (upload.favorite !== undefined && typeof upload.favorite !== "boolean") ||
         !SHA256_PATTERN.test(upload.contentHash),
     ) ||
-    new Set(uploads.map((upload) => upload.storagePath)).size !== uploads.length
-    || new Set(uploads.flatMap((upload) => upload.thumbnailPath ? [upload.thumbnailPath] : [])).size !== uploads.filter((upload) => upload.thumbnailPath).length
+    new Set(uploads.map((upload) => upload.storagePath)).size !== uploads.length ||
+    new Set(uploads.flatMap((upload) => (upload.thumbnailPath ? [upload.thumbnailPath] : []))).size !== uploads.filter((upload) => upload.thumbnailPath).length ||
+    new Set(uploads.flatMap((upload) => (upload.previewPath ? [upload.previewPath] : []))).size !== uploads.filter((upload) => upload.previewPath).length
   ) {
     return { savedCount: 0, failedCount: uploadCount || 1, duplicateCount: 0 };
   }
@@ -239,27 +245,23 @@ export async function finalizePhotoUploads(
   }
 
   const client = albumClient(supabase);
-  if (!(await ownedPet(client, petId, user.id))) {
+  if (!(await canUploadToPet(client, user.id, petId))) {
     return { savedCount: 0, failedCount: uploads.length, duplicateCount: 0 };
   }
 
   let savedCount = 0;
   let failedCount = 0;
   let duplicateCount = 0;
+  let mediaReadyCount = 0;
+  let analysisQueuedCount = 0;
+  const batchId = crypto.randomUUID();
+  const candidateBefore = await countCurrentMonthPhotos(client, petId);
 
-  for (const { storagePath, thumbnailPath, takenAt: takenAtInput, favorite = false, contentHash } of uploads) {
+  for (const { storagePath, thumbnailPath, previewPath = null, takenAt: takenAtInput, favorite = false, contentHash } of uploads) {
     const pathParts = storagePath.split("/");
     const [pathUserId, pathPetId, year, month, fileName] = pathParts;
-    const fileMatch = fileName?.match(
-      /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(jpg|png|webp)$/i,
-    );
-    const validPath =
-      pathParts.length === 5 &&
-      pathUserId === user.id &&
-      pathPetId === petId &&
-      /^\d{4}$/.test(year ?? "") &&
-      /^(0[1-9]|1[0-2])$/.test(month ?? "") &&
-      Boolean(fileMatch);
+    const fileMatch = fileName?.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(jpg|png|webp)$/i);
+    const validPath = pathParts.length === 5 && pathUserId === user.id && pathPetId === petId && /^\d{4}$/.test(year ?? "") && /^(0[1-9]|1[0-2])$/.test(month ?? "") && Boolean(fileMatch);
 
     if (!validPath || !fileMatch) {
       failedCount += 1;
@@ -268,43 +270,30 @@ export async function finalizePhotoUploads(
 
     const expectedThumbnailPath = `${pathUserId}/${pathPetId}/${year}/${month}/${fileMatch[1]}.webp`;
     const validThumbnailPath = thumbnailPath === null || thumbnailPath === expectedThumbnailPath;
-    if (!validThumbnailPath) {
-      await supabase.storage.from(BUCKET).remove([storagePath]);
+    const expectedPreviewPath = photoPreviewPath(storagePath);
+    const validPreviewPath = previewPath === null || previewPath === expectedPreviewPath;
+    if (!validThumbnailPath || !validPreviewPath) {
+      await cleanupUploadedPhoto(supabase, storagePath, thumbnailPath, previewPath);
       failedCount += 1;
       continue;
     }
 
-    const takenAt = takenAtInput
-      ? parseTokyoLocalDateTime(takenAtInput)
-      : null;
-    if (
-      (takenAtInput && !takenAt) ||
-      (takenAt &&
-        takenAt.getTime() > Date.now() + FUTURE_TOLERANCE_MILLISECONDS)
-    ) {
-      await cleanupUploadedPhoto(supabase, storagePath, thumbnailPath);
+    const takenAt = takenAtInput ? parseTokyoLocalDateTime(takenAtInput) : null;
+    if ((takenAtInput && !takenAt) || (takenAt && takenAt.getTime() > Date.now() + FUTURE_TOLERANCE_MILLISECONDS)) {
+      await cleanupUploadedPhoto(supabase, storagePath, thumbnailPath, previewPath);
       failedCount += 1;
       continue;
     }
 
     const folder = `${user.id}/${petId}/${year}/${month}`;
-    const { data: objects, error: listError } = await supabase.storage
-      .from(BUCKET)
-      .list(folder, { limit: 2, search: fileName });
+    const { data: objects, error: listError } = await supabase.storage.from(BUCKET).list(folder, { limit: 2, search: fileName });
     const photoObject = objects?.find((object) => object.name === fileName);
     const expectedMimeType = EXTENSION_MIME_TYPES[fileMatch[2].toLowerCase()];
     const storedSize = Number(photoObject?.metadata?.size);
     const storedMimeType = photoObject?.metadata?.mimetype;
 
-    if (
-      listError ||
-      !photoObject ||
-      !Number.isSafeInteger(storedSize) ||
-      storedSize <= 0 ||
-      storedSize > MAX_FILE_SIZE ||
-      storedMimeType !== expectedMimeType
-    ) {
-      await cleanupUploadedPhoto(supabase, storagePath, thumbnailPath);
+    if (listError || !photoObject || !Number.isSafeInteger(storedSize) || storedSize <= 0 || storedSize > MAX_FILE_SIZE || storedMimeType !== expectedMimeType) {
+      await cleanupUploadedPhoto(supabase, storagePath, thumbnailPath, previewPath);
       failedCount += 1;
       continue;
     }
@@ -313,51 +302,60 @@ export async function finalizePhotoUploads(
     if (thumbnailPath) {
       const thumbnailFolder = `${user.id}/${petId}/${year}/${month}`;
       const thumbnailName = `${fileMatch[1]}.webp`;
-      const { data: thumbnailObjects, error: thumbnailListError } = await supabase.storage
-        .from("pet-photo-thumbnails")
-        .list(thumbnailFolder, { limit: 2, search: thumbnailName });
+      const { data: thumbnailObjects, error: thumbnailListError } = await supabase.storage.from("pet-photo-thumbnails").list(thumbnailFolder, { limit: 2, search: thumbnailName });
       const thumbnailObject = thumbnailObjects?.find((object) => object.name === thumbnailName);
       const thumbnailSize = Number(thumbnailObject?.metadata?.size);
-      if (
-        !thumbnailListError &&
-        thumbnailObject &&
-        Number.isSafeInteger(thumbnailSize) &&
-        thumbnailSize > 0 &&
-        thumbnailSize <= MAX_THUMBNAIL_SIZE &&
-        thumbnailObject.metadata?.mimetype === "image/webp"
-      ) {
+      if (!thumbnailListError && thumbnailObject && Number.isSafeInteger(thumbnailSize) && thumbnailSize > 0 && thumbnailSize <= MAX_THUMBNAIL_SIZE && thumbnailObject.metadata?.mimetype === "image/webp") {
         confirmedThumbnailPath = thumbnailPath;
       } else {
         await supabase.storage.from("pet-photo-thumbnails").remove([thumbnailPath]);
       }
     }
 
-    const { data: insertedPhoto, error: insertError } = await client.from("photos").insert({
-      pet_id: petId,
-      uploader_user_id: user.id,
-      storage_path: storagePath,
-      thumbnail_path: confirmedThumbnailPath,
-      taken_at: takenAt?.toISOString() ?? null,
-      favorite: favorite === true,
-      content_hash: contentHash,
-    }).select("id").single();
+    let confirmedPreviewPath: string | null = null;
+    if (previewPath) {
+      const previewParts = previewPath.split("/");
+      const previewName = previewParts.at(-1)!;
+      const { data: previewObjects, error: previewListError } = await supabase.storage.from("pet-photo-thumbnails").list(previewParts.slice(0, -1).join("/"), { limit: 2, search: previewName });
+      const previewObject = previewObjects?.find((object) => object.name === previewName);
+      const previewSize = Number(previewObject?.metadata?.size);
+      if (!previewListError && previewObject && Number.isSafeInteger(previewSize) && previewSize > 0 && previewSize <= MAX_PREVIEW_SIZE && previewObject.metadata?.mimetype === "image/webp") {
+        confirmedPreviewPath = previewPath;
+      } else {
+        await supabase.storage.from("pet-photo-thumbnails").remove([previewPath]);
+      }
+    }
+
+    const { data: insertedPhoto, error: insertError } = await client
+      .from("photos")
+      .insert({
+        pet_id: petId,
+        uploader_user_id: user.id,
+        storage_path: storagePath,
+        thumbnail_path: confirmedThumbnailPath,
+        taken_at: takenAt?.toISOString() ?? null,
+        favorite: favorite === true,
+        content_hash: contentHash,
+      })
+      .select("id")
+      .single();
 
     if (insertError) {
-      await cleanupUploadedPhoto(supabase, storagePath, confirmedThumbnailPath);
+      await cleanupUploadedPhoto(supabase, storagePath, confirmedThumbnailPath, confirmedPreviewPath);
       if (insertError.code === "23505") duplicateCount += 1;
       else failedCount += 1;
       continue;
     }
 
     savedCount += 1;
+    if (confirmedThumbnailPath && confirmedPreviewPath) mediaReadyCount += 1;
+    if (confirmedPreviewPath) rememberPhotoPreviewPresent(user.id, confirmedPreviewPath);
     // Photo registration has succeeded. Queue failure must never undo that success.
     // A persisted photo without an analysis is also discovered by the runner.
     try {
       if (insertedPhoto) {
-        await supabase.from("photo_ai_analyses").upsert(
-          { photo_id: insertedPhoto.id, status: "pending" },
-          { onConflict: "photo_id", ignoreDuplicates: true },
-        );
+        const queued = await supabase.from("photo_ai_analyses").upsert({ photo_id: insertedPhoto.id, status: "pending" }, { onConflict: "photo_id", ignoreDuplicates: true });
+        if (!queued.error) analysisQueuedCount += 1;
       }
     } catch {
       // Retry discovery on the next authenticated visit; never delete the photo.
@@ -366,8 +364,38 @@ export async function finalizePhotoUploads(
 
   if (savedCount > 0) {
     revalidatePath(`/pets/${petId}`);
+    revalidatePath(`/pets/${petId}/album`);
+    revalidatePath("/memories");
     revalidatePath("/home");
   }
 
-  return { savedCount, failedCount, duplicateCount };
+  const candidateAfter = candidateBefore == null
+    ? null
+    : await countCurrentMonthPhotos(client, petId);
+  const transition = candidateBefore != null && candidateAfter != null
+    ? albumCandidateTransition(candidateBefore, candidateAfter)
+    : null;
+  if (process.env.NODE_ENV !== "production") {
+    console.info("Photo intake batch", {
+      batchId,
+      photoCount: uploads.length,
+      mediaReadyCount,
+      analysisQueuedCount,
+      analysisCalled: 0,
+      analysisFailed: 0,
+      candidateBefore,
+      candidateAfter,
+    });
+  }
+  return {
+    savedCount,
+    failedCount,
+    duplicateCount,
+    batchId,
+    mediaReadyCount,
+    analysisQueuedCount,
+    candidateBefore: candidateBefore ?? undefined,
+    candidateAfter: candidateAfter ?? undefined,
+    candidateBecameReady: transition?.becameReady ?? false,
+  };
 }

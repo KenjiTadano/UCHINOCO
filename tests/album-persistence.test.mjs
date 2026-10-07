@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { DRAFT_GENERATION_METADATA } from "../lib/album-persistence/config.ts";
-import { buildDraftSavePayload, draftSignature } from "../lib/album-persistence/payload.ts";
+import { buildDraftSavePayload, draftSignature, parseLayoutRankings, toPersistableSpread } from "../lib/album-persistence/payload.ts";
 import { decideWrite, resolveEffectiveFrame, resolveEffectiveSpread } from "../lib/album-persistence/resolve.ts";
+import { parseAlbumCompositionPlan } from "../lib/album-draft/composition.ts";
 
 const migration = await readFile("./supabase/migrations/20260927120000_album_draft_persistence.sql", "utf8");
 const paidSnapshot = await readFile("./supabase/migrations/20260918140000_order_snapshot_print_jobs.sql", "utf8");
+const readDraftSource = await readFile("./lib/album-persistence/read-draft.ts", "utf8");
 
 const july = [
   {
@@ -34,9 +36,7 @@ const july = [
     layoutId: "L01b",
     warnings: ["EMPTY_OPPOSITE_PAGE"],
     story: { storyType: "single", recommendedDensity: "light", importance: 72, coherenceScore: 100 },
-    assignments: [
-      { frameId: "L01b-hero", role: "hero", photoId: "518333d3-a2f5-450a-a2db-aaa771d2b112", crop: { x: 0.48, y: 0.46, scale: 1 }, cropQuality: 100, matchTier: "STRICT", warnings: [] },
-    ],
+    assignments: [{ frameId: "L01b-hero", role: "hero", photoId: "518333d3-a2f5-450a-a2db-aaa771d2b112", crop: { x: 0.48, y: 0.46, scale: 1 }, cropQuality: 100, matchTier: "STRICT", warnings: [] }],
   },
 ];
 
@@ -54,7 +54,10 @@ const frame = {
 test("1. initial AI save keeps user overrides empty and stores five frames", () => {
   const payload = buildDraftSavePayload(july, ["EMPTY_OPPOSITE_PAGE"]);
   assert.equal(payload.spreads.length, 3);
-  assert.equal(payload.spreads.reduce((sum, spread) => sum + spread.frames.length, 0), 5);
+  assert.equal(
+    payload.spreads.reduce((sum, spread) => sum + spread.frames.length, 0),
+    5,
+  );
   assert.equal(payload.spreads[0].aiLayoutId, "L02");
   assert.equal(payload.spreads[1].aiLayoutId, "L12");
   assert.equal(payload.spreads[2].aiLayoutId, "L01b");
@@ -62,6 +65,38 @@ test("1. initial AI save keeps user overrides empty and stores five frames", () 
   assert.equal(JSON.stringify(payload).includes("userPhotoId"), false);
   assert.equal(migration.includes("user_layout_id text"), true);
   assert.equal(migration.includes("null, null, null, null"), true);
+});
+
+test("generated spreads preserve Task055 layout rankings, assignments, and crop in the save payload", () => {
+  const selectedLayout = {
+    layoutId: "L12",
+    score: 84,
+    layoutScore: 84,
+    finalScore: 82,
+    tier: "STRICT",
+    matchTier: "STRICT",
+    composition: "hero",
+    orientationFit: 3,
+    heroFit: 3,
+    captionFit: 0,
+    storyFit: 2,
+    debugReasons: ["HERO_MATCH"],
+  };
+  const generated = {
+    ...july[1],
+    spreadId: "generated-spread",
+    selectedLayout,
+    alternatives: [{ ...selectedLayout, layoutId: "L11", score: 80 }],
+  };
+  const payload = buildDraftSavePayload([toPersistableSpread(generated)]);
+  const savedSpread = payload.spreads[0];
+
+  assert.equal(savedSpread.aiLayoutId, "L12");
+  assert.equal(savedSpread.frames[0].aiPhotoId, "4c8d611f-8026-4c36-b91f-2a632bf1c213");
+  assert.equal(savedSpread.frames[0].aiCropScale, 1.05);
+  assert.equal(savedSpread.frames[0].role, "hero");
+  assert.equal(parseLayoutRankings(payload.metadata.layoutRankings).s2.selectedLayout.layoutId, "L12");
+  assert.equal(parseLayoutRankings(payload.metadata.layoutRankings).s2.alternatives[0].layoutId, "L11");
 });
 
 test("2. saving the same draft twice is the same signature", () => {
@@ -173,6 +208,58 @@ test("16. generation metadata records every analysis version", () => {
   assert.match(migration, /generation_metadata jsonb not null/);
 });
 
+test("ranked layout alternatives round-trip through generation metadata without changing legacy payloads", () => {
+  const selectedLayout = {
+    layoutId: "L02",
+    score: 84,
+    layoutScore: 84,
+    finalScore: 79,
+    tier: "STRICT",
+    matchTier: "STRICT",
+    composition: "equal",
+    orientationFit: 3,
+    heroFit: 0,
+    captionFit: 2,
+    storyFit: 3,
+    debugReasons: ["STORY_MATCH"],
+  };
+  const alternatives = [
+    {
+      ...selectedLayout,
+      layoutId: "L03",
+      score: 72,
+      layoutScore: 72,
+      finalScore: 70,
+      composition: "story",
+      orientationFit: 1,
+    },
+  ];
+  const payload = buildDraftSavePayload([{ ...july[0], selectedLayout, alternatives }]);
+  const restored = parseLayoutRankings(payload.metadata.layoutRankings);
+  assert.deepEqual(restored.s1, { selectedLayout, alternatives });
+  assert.deepEqual(parseLayoutRankings(buildDraftSavePayload(july).metadata.layoutRankings), {});
+  assert.equal(draftSignature([{ ...july[0], selectedLayout, alternatives }]), draftSignature([july[0]]));
+});
+
+test("album composition metadata round-trips without changing legacy payloads", () => {
+  const composition = {
+    version: "album-rhythm-v2",
+    coverRole: "COVER",
+    items: [
+      { kind: "title", role: "TITLE", title: "わかとの毎日", petName: "わか", period: "2026.07" },
+      { kind: "spread", role: "INTRO", storySpreadId: "s1", density: "LOW" },
+      { kind: "event", role: "EVENT", eventKind: "birthday", title: "誕生日", date: "2026-07-02", dateLabel: "2026年7月2日", afterStorySpreadId: "s1" },
+    ],
+  };
+  const payload = buildDraftSavePayload(july, [], composition);
+  assert.deepEqual(parseAlbumCompositionPlan(payload.metadata.composition), composition);
+  assert.notEqual(draftSignature(july, composition), draftSignature(july));
+  assert.notEqual(draftSignature(july, composition), draftSignature(july, { ...composition, items: composition.items.slice(0, 1) }));
+  assert.equal(Object.hasOwn(buildDraftSavePayload(july).metadata, "composition"), false);
+  assert.equal(parseAlbumCompositionPlan(undefined), null);
+  assert.match(readDraftSource, /parseAlbumCompositionPlan\(metadata\.composition\)/);
+});
+
 test("AI columns are rejected when a user update tries to change them", () => {
   assert.match(migration, /AI Stateは変更できません/);
   assert.match(migration, /new\.ai_layout_id is distinct from old\.ai_layout_id/);
@@ -183,4 +270,11 @@ test("AI columns are rejected when a user update tries to change them", () => {
 test("only one active draft version exists per album", () => {
   assert.match(migration, /album_draft_versions_one_active_idx/);
   assert.match(migration, /where is_active/);
+});
+
+test("readDraft batches independent spread detail reads", () => {
+  const batchedReads = readDraftSource.match(/Promise\.all\(\s*\[([\s\S]*?)\]\s*\)/)?.[1] ?? "";
+  for (const table of ["album_draft_frames", "album_draft_text_elements", "album_draft_decorations", "album_draft_page_elements", "album_draft_spread_backgrounds"]) {
+    assert.match(batchedReads, new RegExp(`from\\("${table}"\\)`));
+  }
 });

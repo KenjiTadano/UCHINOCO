@@ -3,15 +3,15 @@ import Link from "next/link";
 import {
   ArrowRight,
   Calendar,
-  Check,
   ChevronLeft,
   Heart,
   ImageIcon,
-  RotateCcw,
-  Sparkles,
+  Printer,
+  SquarePen,
 } from "lucide-react";
 import { AlbumCoverBook } from "../_components/album-cover-book";
 import { buildCoverTitleLines } from "@/lib/album-cover-title";
+import { NewPhotoSuggestionNotice } from "./new-photo-suggestion";
 
 export type AlbumCompleteScreenProps = {
   petId: string;
@@ -23,11 +23,13 @@ export type AlbumCompleteScreenProps = {
   memoryCount: number;
   periodMonthLabel: string;
   coverDateLabel: string;
-  highlights: string[];
   backHref: string;
   editHref: string;
-  previewHref: string;
-  recreateHref: string;
+  printHref: string | null;
+  acceptAction: () => Promise<void>;
+  regenerateAction: () => Promise<void>;
+  canRegenerate: boolean;
+  newPhotoSuggestion?: { href: string; count: number } | null;
 };
 
 export { buildCoverTitleLines };
@@ -40,11 +42,13 @@ export function AlbumCompleteScreen({
   memoryCount,
   periodMonthLabel,
   coverDateLabel,
-  highlights,
   backHref,
   editHref,
-  previewHref,
-  recreateHref,
+  printHref,
+  acceptAction,
+  regenerateAction,
+  canRegenerate,
+  newPhotoSuggestion,
 }: AlbumCompleteScreenProps) {
   const coverLines = buildCoverTitleLines(petName, albumTitle, periodMonthLabel);
 
@@ -65,6 +69,7 @@ export function AlbumCompleteScreen({
       </header>
 
       <div className="ai-complete-body">
+        {newPhotoSuggestion ? <NewPhotoSuggestionNotice {...newPhotoSuggestion} /> : null}
         <div className="ai-complete-hero">
           <div className="ai-complete-title-row">
             <Image
@@ -76,7 +81,7 @@ export function AlbumCompleteScreen({
               unoptimized
             />
             <h2 className="ai-complete-title">
-              今月のアルバムが
+              アルバムが
               <br />
               できました！
             </h2>
@@ -90,7 +95,7 @@ export function AlbumCompleteScreen({
             />
           </div>
           <p className="ai-complete-desc">
-            {petName}の素敵な思い出を
+            {petName}との思い出を
             <br />
             1冊にまとめました。
           </p>
@@ -124,66 +129,40 @@ export function AlbumCompleteScreen({
           <li>
             <Heart size={18} strokeWidth={1.8} aria-hidden="true" />
             <span className="ai-complete-stat-value">{petName}</span>
-            <span className="ai-complete-stat-label">のベストショット</span>
+            <span className="ai-complete-stat-label">の表紙写真</span>
           </li>
         </ul>
 
         <div className="ai-complete-actions">
-          <Link href={previewHref} className="ai-complete-primary ds-focus">
-            中をプレビューする
-            <ArrowRight size={18} strokeWidth={2} aria-hidden="true" />
+          <form action={acceptAction}>
+            <button type="submit" className="ai-complete-primary ds-focus w-full">
+              このままでOK
+              <ArrowRight size={18} strokeWidth={2} aria-hidden="true" />
+            </button>
+          </form>
+          <Link href={editHref} className="ai-complete-secondary ds-focus">
+            <SquarePen size={16} strokeWidth={1.9} aria-hidden="true" />
+            少し編集する
           </Link>
-          <Link href={recreateHref} className="ai-complete-secondary ds-focus">
-            <RotateCcw size={16} strokeWidth={2} aria-hidden="true" />
-            別のテーマで作り直す
-          </Link>
+          {printHref ? (
+            <Link href={printHref} className="ai-complete-secondary ds-focus">
+              <Printer size={16} strokeWidth={1.9} aria-hidden="true" />
+              印刷を見る
+            </Link>
+          ) : null}
+          {canRegenerate ? (
+            <form action={regenerateAction}>
+              <button type="submit" className="ai-complete-recreate ds-focus w-full">
+                ペットや期間を変えて作る
+              </button>
+            </form>
+          ) : (
+            <Link href={`/plus?next=${encodeURIComponent(backHref)}`} className="ai-complete-recreate ds-focus w-full text-center">
+              PLUSで別案を作る
+            </Link>
+          )}
         </div>
-
-        <section
-          className="ai-complete-highlights"
-          aria-labelledby="ai-complete-highlights-heading"
-        >
-          <h3 id="ai-complete-highlights-heading" className="ai-complete-highlights-head">
-            <Sparkles size={18} strokeWidth={1.8} aria-hidden="true" />
-            こんな思い出を選びました
-          </h3>
-          <ul className="ai-complete-highlights-list">
-            {highlights.map((text) => (
-              <li key={text}>
-                <Check size={14} strokeWidth={2.2} aria-hidden="true" />
-                <span>{text}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
       </div>
     </main>
   );
-}
-
-/** Display highlights for the complete screen — cosmetic copy from pet/period data. */
-export function buildAlbumCompleteHighlights(
-  petName: string,
-  opts?: { multiPetLabel?: string | null },
-): string[] {
-  const pair = opts?.multiPetLabel?.trim();
-  if (pair) {
-    const [a, b] = pair.split(/[・･]/).map((s) => s.trim()).filter(Boolean);
-    if (a && b) {
-      return [
-        `${a}のお散歩やおでかけの笑顔`,
-        `${b}のリラックスした寝顔`,
-        "季節の移ろい（夏〜秋）",
-        "日常の何気ないかわいい瞬間",
-        `${a}と${b}の一緒の時間`,
-      ];
-    }
-  }
-  return [
-    `${petName}のお散歩やおでかけの笑顔`,
-    `${petName}のリラックスした寝顔`,
-    "季節の移ろい（夏〜秋）",
-    "日常の何気ないかわいい瞬間",
-    `${petName}との一緒の時間`,
-  ];
 }

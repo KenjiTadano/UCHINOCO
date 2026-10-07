@@ -1,10 +1,15 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
+import { createPhotoPreviewUrls } from "../photo-image-delivery.ts";
+import { traceAlbumLoad } from "../album-load-trace.ts";
+import { parseLayoutRankings } from "./payload.ts";
+import { mapPageBackgroundRow, mapPageElementRow, type PageBackgroundState, type PageElement, type PageSide } from "../album-elements/model.ts";
 import { mapDecorationRow, mapTextRow } from "../album-polish/rows.ts";
 import { assembleEditorSpread } from "./editor.ts";
 import type { DraftFrameRow, DraftSpreadRow } from "./types.ts";
 import type { PersistedDraftView, PersistenceResult } from "./view.ts";
+import { parseAlbumCompositionPlan } from "../album-draft/composition.ts";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -83,81 +88,64 @@ export function mapFrame(row: Record<string, unknown>): DraftFrameRow {
   };
 }
 
-const ORIGINAL_URL_CACHE_MS = 10 * 60 * 1000;
-
-type OriginalUrlCacheEntry = {
-  storagePath: string;
-  url: string;
-  expiresAt: number;
-};
-
-const originalUrlCache = new Map<string, OriginalUrlCacheEntry>();
-
-/** Original pet-photos URLs, reused per photo while the signature is still fresh. */
-export async function signedUrls(supabase: Supabase, photoIds: string[], refresh = false) {
+export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], refresh = false) {
   const ids = [...new Set(photoIds)];
-  const map = new Map<string, string>();
-  if (ids.length === 0) return map;
-  const { data: photos } = await supabase.from("photos").select("id, storage_path").in("id", ids);
-  const now = Date.now();
-  await Promise.all(
-    (photos ?? []).map(async (photo) => {
-      const cached = originalUrlCache.get(photo.id);
-      if (!refresh && cached && cached.storagePath === photo.storage_path && cached.expiresAt > now) {
-        map.set(photo.id, cached.url);
-        return;
-      }
-      const signed = await supabase.storage.from("pet-photos").createSignedUrl(photo.storage_path, 3600);
-      if (!signed.data?.signedUrl) return;
-      originalUrlCache.set(photo.id, {
-        storagePath: photo.storage_path,
-        url: signed.data.signedUrl,
-        expiresAt: now + ORIGINAL_URL_CACHE_MS,
-      });
-      map.set(photo.id, signed.data.signedUrl);
-    }),
-  );
-  return map;
+  if (ids.length === 0) return new Map<string, string>();
+  const { data: photos } = await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", ids);
+  return createPhotoPreviewUrls(supabase, photos ?? [], true, refresh);
 }
 
 /** Active draft only. Does not create a version and does not run album generation. */
-export async function readDraft(
-  supabase: Supabase,
-  albumId: string,
-  options?: { refreshUrls?: boolean },
-): Promise<PersistedDraftView | null> {
-  const { data: version } = await supabase
-    .from("album_draft_versions")
-    .select("id, album_id, status, revision, generation_metadata")
-    .eq("album_id", albumId)
-    .eq("is_active", true)
-    .maybeSingle();
+export async function readDraft(supabase: Supabase, albumId: string, options?: { refreshUrls?: boolean }): Promise<PersistedDraftView | null> {
+  const { data: version } = await traceAlbumLoad("draft.version", () => supabase.from("album_draft_versions").select("id, album_id, status, revision, generation_metadata").eq("album_id", albumId).eq("is_active", true).maybeSingle());
   if (!version) return null;
-  const { data: spreadRows } = await supabase
-    .from("album_draft_spreads")
-    .select("*")
-    .eq("draft_version_id", version.id)
-    .order("position", { ascending: true });
+  const { data: spreadRows } = await traceAlbumLoad("draft.spreads", () => supabase.from("album_draft_spreads").select("*").eq("draft_version_id", version.id).order("position", { ascending: true }));
   const spreads = (spreadRows ?? []).map((row) => mapSpread(row as Record<string, unknown>));
   const spreadIds = spreads.map((spread) => spread.id);
-  const { data: frameRows } = spreadIds.length
-    ? await supabase.from("album_draft_frames").select("*").in("draft_spread_id", spreadIds)
-    : { data: [] };
+  const emptyRows = Promise.resolve({ data: [] });
+  const [frameResult, textResult, decorationResult, elementResult, backgroundResult] = await traceAlbumLoad("draft.elements", () =>
+    Promise.all([
+      spreadIds.length ? supabase.from("album_draft_frames").select("*").in("draft_spread_id", spreadIds) : emptyRows,
+      spreadIds.length ? supabase.from("album_draft_text_elements").select("*").in("draft_spread_id", spreadIds) : emptyRows,
+      spreadIds.length ? supabase.from("album_draft_decorations").select("*").in("draft_spread_id", spreadIds) : emptyRows,
+      spreadIds.length ? supabase.from("album_draft_page_elements").select("*").in("draft_spread_id", spreadIds).eq("is_deleted", false) : emptyRows,
+      spreadIds.length ? supabase.from("album_draft_spread_backgrounds").select("*").in("draft_spread_id", spreadIds) : emptyRows,
+    ]),
+  );
+  const frameRows = frameResult.data;
   const frames = (frameRows ?? []).map((row) => mapFrame(row as Record<string, unknown>));
-  const { data: textRows } = spreadIds.length
-    ? await supabase.from("album_draft_text_elements").select("*").in("draft_spread_id", spreadIds)
-    : { data: [] };
-  const { data: decorationRows } = spreadIds.length
-    ? await supabase.from("album_draft_decorations").select("*").in("draft_spread_id", spreadIds)
-    : { data: [] };
+  const textRows = textResult.data;
+  const decorationRows = decorationResult.data;
+  const elementRows = elementResult.data;
+  const backgroundRows = backgroundResult.data;
   const texts = (textRows ?? []).map((row) => mapTextRow(row as Record<string, unknown>));
   const decorations = (decorationRows ?? []).map((row) => mapDecorationRow(row as Record<string, unknown>));
-  const urls = await signedUrls(
-    supabase,
-    frames.flatMap((frame) => [frame.aiPhotoId, frame.userPhotoId].filter((id): id is string => Boolean(id))),
-    options?.refreshUrls === true,
+  const elementsBySpread = new Map<string, PageElement[]>();
+  for (const row of elementRows ?? []) {
+    const element = mapPageElementRow(row);
+    if (!element) continue;
+    const spreadId = String(row.draft_spread_id);
+    const elements = elementsBySpread.get(spreadId) ?? [];
+    elements.push(element);
+    elementsBySpread.set(spreadId, elements);
+  }
+  const backgroundsBySpread = new Map<string, Partial<Record<PageSide, PageBackgroundState>>>();
+  for (const row of backgroundRows ?? []) {
+    const mapped = mapPageBackgroundRow(row);
+    if (!mapped) continue;
+    const backgrounds = backgroundsBySpread.get(mapped.spreadId) ?? {};
+    backgrounds[mapped.side] = mapped.state;
+    backgroundsBySpread.set(mapped.spreadId, backgrounds);
+  }
+  const urls = await traceAlbumLoad("draft.preview-urls", () =>
+    signedPreviewUrls(
+      supabase,
+      frames.flatMap((frame) => [frame.aiPhotoId, frame.userPhotoId].filter((id): id is string => Boolean(id))),
+      options?.refreshUrls === true,
+    ),
   );
-  const metadata = (version.generation_metadata ?? {}) as { signature?: string };
+  const metadata = (version.generation_metadata ?? {}) as { signature?: string; composition?: unknown };
+  const layoutRankings = parseLayoutRankings((version.generation_metadata ?? {}) as Record<string, unknown>);
   return {
     albumId,
     versionId: version.id,
@@ -165,14 +153,18 @@ export async function readDraft(
     revision: num(version.revision),
     signature: metadata.signature ?? "",
     previewUrls: Object.fromEntries(urls),
-    spreads: spreads.map((spread) =>
-      assembleEditorSpread(
+    compositionPlan: parseAlbumCompositionPlan(metadata.composition),
+    spreads: spreads.map((spread) => ({
+      ...assembleEditorSpread(
         spread,
         frames.filter((frame) => frame.draftSpreadId === spread.id),
         urls,
         texts.filter((item) => item.draftSpreadId === spread.id),
         decorations.filter((item) => item.draftSpreadId === spread.id),
+        elementsBySpread.get(spread.id) ?? [],
+        backgroundsBySpread.get(spread.id),
       ),
-    ),
+      layoutRanking: layoutRankings[spread.storySpreadId] ?? null,
+    })),
   };
 }

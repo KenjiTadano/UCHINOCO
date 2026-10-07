@@ -2,13 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { hasMatchingImageSignature } from "@/lib/image-signature";
-import { createPhotoThumbnail } from "@/lib/photo-thumbnail";
+import { createPhotoPreview, createPhotoThumbnail } from "@/lib/photo-thumbnail";
+import { PHOTO_IMAGE_DELIVERY } from "@/lib/photo-image-delivery";
 import { createClient } from "@/lib/supabase/client";
-import {
-  finalizeThumbnailBackfill,
-  prepareThumbnailBackfillBatch,
-  refreshThumbnailBackfillViews,
-} from "../thumbnail-backfill-actions";
+import { finalizeThumbnailBackfill, prepareThumbnailBackfillBatch, refreshThumbnailBackfillViews } from "../thumbnail-backfill-actions";
 
 type Progress = {
   processed: number;
@@ -17,13 +14,7 @@ type Progress = {
   failed: number;
 };
 
-export function PhotoThumbnailBackfill({
-  petId,
-  initialPendingCount,
-}: {
-  petId: string;
-  initialPendingCount: number | null;
-}) {
+export function PhotoThumbnailBackfill({ petId, initialPendingCount }: { petId: string; initialPendingCount: number | null }) {
   const mounted = useRef(true);
   const abortController = useRef<AbortController | null>(null);
   const [pending, setPending] = useState(false);
@@ -72,43 +63,44 @@ export function PhotoThumbnailBackfill({
 
         for (const item of batch.items) {
           if (!mounted.current) break;
+          if (item.previewReady && !item.needsThumbnail) {
+            succeeded += 1;
+            processed += 1;
+            setProgress({ processed, total, succeeded, failed });
+            continue;
+          }
+          if (!item.originalSignedUrl) {
+            failed += 1;
+            processed += 1;
+            setProgress({ processed, total, succeeded, failed });
+            continue;
+          }
           const controller = new AbortController();
           abortController.current = controller;
           try {
+            if (!item.originalSignedUrl) throw new Error("元画像を取得できませんでした。");
             const response = await fetch(item.originalSignedUrl, {
               signal: controller.signal,
               cache: "no-store",
             });
             if (!response.ok) throw new Error("元画像を取得できませんでした。");
             const original = await response.blob();
-            const thumbnail = await createPhotoThumbnail(original);
-            if (!(await hasMatchingImageSignature(thumbnail, "image/webp"))) {
-              throw new Error("サムネイルを作成できませんでした。");
-            }
+            const thumbnail = item.needsThumbnail ? await createPhotoThumbnail(original) : null;
+            const preview = item.previewReady ? null : await createPhotoPreview(original);
+            if (thumbnail && !(await hasMatchingImageSignature(thumbnail, "image/webp"))) throw new Error("サムネイルを作成できませんでした。");
+            if (preview && !(await hasMatchingImageSignature(preview, "image/webp"))) throw new Error("PREVIEWを作成できませんでした。");
 
-            const upload = await createClient()
-              .storage.from("pet-photo-thumbnails")
-              .uploadToSignedUrl(
-                item.thumbnailPath,
-                item.thumbnailToken,
-                thumbnail,
-                { contentType: "image/webp", upsert: false },
-              );
-            if (upload.error) {
-              // A previous interrupted run or another tab may already have
-              // uploaded this deterministic path. Let the server validate it
-              // before treating the item as failed.
-              const recovered = await finalizeThumbnailBackfill(petId, item.photoId);
-              if (!recovered.success) {
-                throw new Error("サムネイルを保存できませんでした。");
-              }
-              succeeded += 1;
-              continue;
-            }
+            const storage = createClient().storage.from("pet-photo-thumbnails");
+            const [thumbnailUpload, previewUpload] = await Promise.all([
+              thumbnail && item.thumbnailPath && item.thumbnailToken ? storage.uploadToSignedUrl(item.thumbnailPath, item.thumbnailToken, thumbnail, { contentType: "image/webp", cacheControl: PHOTO_IMAGE_DELIVERY.thumbnail.cacheControl, upsert: false }) : Promise.resolve({ error: null }),
+              preview && item.previewToken ? storage.uploadToSignedUrl(item.previewPath, item.previewToken, preview, { contentType: "image/webp", cacheControl: PHOTO_IMAGE_DELIVERY.preview.cacheControl, upsert: false }) : Promise.resolve({ error: null }),
+            ]);
+            void thumbnailUpload;
+            void previewUpload;
 
             const finalized = await finalizeThumbnailBackfill(petId, item.photoId);
             if (!finalized.success) {
-              throw new Error(finalized.message ?? "写真の軽量化に失敗しました。");
+              throw new Error(finalized.message ?? "PREVIEWの保存に失敗しました。");
             }
             succeeded += 1;
           } catch (cause) {
@@ -132,19 +124,11 @@ export function PhotoThumbnailBackfill({
           await refreshThumbnailBackfillViews(petId);
         }
         setPendingCount(failed);
-        setMessage(
-          failed === 0
-            ? "すべての写真を軽量化しました。"
-            : `${succeeded}枚成功 / ${failed}枚失敗しました。失敗した写真は再実行できます。`,
-        );
+        setMessage(failed === 0 ? "すべての写真を軽量化しました。" : `${succeeded}枚成功 / ${failed}枚失敗しました。失敗した写真は再実行できます。`);
       }
     } catch (cause) {
       if (mounted.current) {
-        setError(
-          cause instanceof Error
-            ? cause.message
-            : "写真の軽量化に失敗しました。もう一度お試しください。",
-        );
+        setError(cause instanceof Error ? cause.message : "写真の軽量化に失敗しました。もう一度お試しください。");
       }
     } finally {
       if (mounted.current) setPending(false);
@@ -154,33 +138,28 @@ export function PhotoThumbnailBackfill({
   return (
     <section className="app-card-flat" aria-labelledby="thumbnail-backfill-heading">
       <h2 id="thumbnail-backfill-heading" className="font-semibold">
-        既存の写真を軽量化
+        写真表示用の画像を準備
       </h2>
-      <p className="app-help mt-1">
-        過去に登録した写真の一覧表示を高速化します。写真本体は変更されません。
-      </p>
+      <p className="app-help mt-1">一覧用thumbnailとアルバム編集用previewを用意します。元写真は変更されません。</p>
 
       {progress && pending ? (
         <p className="mt-3 text-sm" role="status" aria-live="polite">
           {progress.processed} / {progress.total}枚を処理中...
         </p>
       ) : null}
-      {message ? <p className="app-success mt-3" role="status">{message}</p> : null}
-      {error ? <p className="app-error mt-3" role="alert">{error}</p> : null}
+      {message ? (
+        <p className="app-success mt-3" role="status">
+          {message}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="app-error mt-3" role="alert">
+          {error}
+        </p>
+      ) : null}
 
-      <button
-        className="app-button-secondary mt-4 w-full sm:w-auto"
-        type="button"
-        onClick={startBackfill}
-        disabled={pending || pendingCount === 0}
-      >
-        {pending
-          ? "写真を軽量化中..."
-          : pendingCount === 0
-            ? "軽量化は完了しています"
-            : pendingCount === null
-              ? "写真を軽量化する"
-              : `写真を軽量化する（${pendingCount}枚）`}
+      <button className="app-button-secondary mt-4 w-full sm:w-auto" type="button" onClick={startBackfill} disabled={pending || pendingCount === 0}>
+        {pending ? "表示用画像を準備中..." : pendingCount === 0 ? "表示用画像は準備済みです" : pendingCount === null ? "既存写真を確認する" : `既存写真を確認する（${pendingCount}枚）`}
       </button>
     </section>
   );

@@ -29,10 +29,9 @@ export default async function PetFavoritesPage({
     .from("pets")
     .select("id, name, owner_user_id")
     .eq("id", petId)
-    .eq("owner_user_id", user.id)
     .maybeSingle();
 
-  if (petError || !pet || pet.owner_user_id !== user.id) notFound();
+  if (petError || !pet) notFound();
 
   const { photos, hasMore, error: photosError } = await getMemoryPhotoPage(
     supabase, pet.id, 60, parsePhotoCursor(before, beforeId), true,

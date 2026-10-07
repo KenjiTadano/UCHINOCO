@@ -1,29 +1,19 @@
 import type { StorySpread, StoryType } from "../album-story/types.ts";
 import { ALBUM_LAYOUTS } from "../smart-layout/layouts.ts";
 import { evaluateLayout } from "../smart-layout/assign.ts";
-import type {
-  AlbumLayoutDefinition,
-  LayoutMatchResult,
-  LayoutPhotoInput,
-  LayoutPurpose,
-} from "../smart-layout/types.ts";
+import { filterTemplateCandidates, templateMetadata } from "../smart-layout/template-system.ts";
+import { withSmartLayoutV2Score } from "../smart-layout/v2.ts";
+import type { AlbumLayoutDefinition, LayoutMatchResult, LayoutPhotoInput, LayoutPurpose } from "../smart-layout/types.ts";
 import { ALBUM_DRAFT_CONFIG, ALBUM_DRAFT_VERSION } from "./config.ts";
 import { DRAFT_HIERARCHY_LAYOUTS } from "./layouts.ts";
 import { bookPrintMetrics, pageArea, placeFrames } from "./pages.ts";
-import type {
-  AlbumDraftRequest,
-  AlbumDraftResult,
-  AlbumSpreadDraft,
-  DraftMatchTier,
-  DraftStatus,
-  LayoutAlternative,
-  SpreadFrameAssignment,
-  SpreadQuality,
-} from "./types.ts";
+import type { AlbumDraftRequest, AlbumDraftResult, AlbumSpreadDraft, DraftMatchTier, DraftStatus, LayoutAlternative, SpreadFrameAssignment, SpreadQuality } from "./types.ts";
+import { rhythmAdjustment, rhythmEntry, type LayoutRhythmContext, type LayoutRhythmDebug, type RhythmCandidateContext } from "./rhythm.ts";
 
 type Ranked = {
   result: LayoutMatchResult;
   score: number;
+  rhythm: LayoutRhythmDebug;
 };
 
 function clamp(n: number) {
@@ -42,13 +32,31 @@ function toTier(tier: LayoutMatchResult["tier"]): DraftMatchTier {
   return "UNUSABLE";
 }
 
+function rankedLayout(item: Ranked): LayoutAlternative {
+  const { result, score } = item;
+  const matchTier = toTier(result.tier);
+  const debugReasons = [...new Set([...result.warnings, ...result.assignments.flatMap((assignment) => [...assignment.frameMatch.warnings, ...assignment.frameMatch.rejectReasons])])];
+  return {
+    layoutId: result.layoutId,
+    score,
+    layoutScore: score,
+    finalScore: result.v2?.finalScore ?? result.scores.overall,
+    tier: matchTier,
+    matchTier,
+    composition: result.v2?.family ?? templateMetadata(result.layout).composition,
+    orientationFit: result.v2?.orientationFit ?? null,
+    heroFit: result.v2?.heroFit ?? null,
+    captionFit: result.v2?.captionFit ?? null,
+    storyFit: result.v2?.storyFit ?? null,
+    debugReasons,
+  };
+}
+
 function layoutsForSpread(spread: StorySpread): AlbumLayoutDefinition[] {
   const count = spread.photoIds.length;
   const base = ALBUM_LAYOUTS.filter((layout) => layout.photoCount === count);
   const hasSecondary = spread.secondaryPhotoIds.length > 0;
-  const extras = hasSecondary
-    ? DRAFT_HIERARCHY_LAYOUTS.filter((layout) => layout.photoCount === count)
-    : [];
+  const extras = hasSecondary ? DRAFT_HIERARCHY_LAYOUTS.filter((layout) => layout.photoCount === count) : [];
   return [...base, ...extras];
 }
 
@@ -102,49 +110,46 @@ function heroUnsafe(result: LayoutMatchResult): boolean {
   return result.assignments.some((assignment) => {
     if (assignment.slotRole !== "hero") return false;
     const quality = assignment.quality;
-    return (
-      assignment.frameMatch.matchTier === "unusable" ||
-      quality.faceSafety < limits.face ||
-      quality.headSafety < limits.head ||
-      quality.earSafety < limits.ear ||
-      quality.subjectScale < limits.subjectScale
-    );
+    return assignment.frameMatch.matchTier === "unusable" || quality.faceSafety < limits.face || quality.headSafety < limits.head || quality.earSafety < limits.ear || quality.subjectScale < limits.subjectScale;
   });
 }
 
 function supportLeadBonus(result: LayoutMatchResult, spread: StorySpread): number {
   if (spread.secondaryPhotoIds.length === 0 || result.tier !== "strict" || heroUnsafe(result)) return 0;
-  const primaryImportance = Math.max(
-    ...result.assignments
-      .filter((assignment) => spread.primaryPhotoIds.includes(assignment.photoId))
-      .map((assignment) => assignment.importance),
-    0,
-  );
-  const secondaryImportance = Math.max(
-    ...result.assignments
-      .filter((assignment) => spread.secondaryPhotoIds.includes(assignment.photoId))
-      .map((assignment) => assignment.importance),
-    0,
-  );
+  const primaryImportance = Math.max(...result.assignments.filter((assignment) => spread.primaryPhotoIds.includes(assignment.photoId)).map((assignment) => assignment.importance), 0);
+  const secondaryImportance = Math.max(...result.assignments.filter((assignment) => spread.secondaryPhotoIds.includes(assignment.photoId)).map((assignment) => assignment.importance), 0);
   if (primaryImportance > secondaryImportance + 0.15) return ALBUM_DRAFT_CONFIG.bonus.supportLead;
   return 0;
 }
 
 export function integratedScore(result: LayoutMatchResult, spread: StorySpread): number {
   const heroPenalty = heroUnsafe(result) ? ALBUM_DRAFT_CONFIG.bonus.heroUnsafe : 0;
-  return clamp(
-    result.scores.overall +
-      densityBonus(result, spread) +
-      storyBonus(result, spread.storyType) +
-      supportLeadBonus(result, spread) -
-      heroPenalty,
-  );
+  return clamp(result.scores.overall + (result.v2?.templateAffinity ?? 0) + densityBonus(result, spread) + storyBonus(result, spread.storyType) + supportLeadBonus(result, spread) - heroPenalty);
 }
 
-export function rankSpreadLayouts(results: LayoutMatchResult[], spread: StorySpread): Ranked[] {
+export function rankSpreadLayouts(results: LayoutMatchResult[], spread: StorySpread, context?: LayoutRhythmContext): Ranked[] {
+  const baseScores = results.map((result) => ({ result, score: integratedScore(result, spread) }));
+  const bestTier = Math.min(...results.map((result) => tierRank(result.tier)));
+  const bestBaseScore = Math.max(...baseScores.filter((item) => tierRank(item.result.tier) === bestTier).map((item) => item.score), 0);
   return results
-    .map((result) => ({ result, score: integratedScore(result, spread) }))
-    .sort((a, b) => tierRank(a.result.tier) - tierRank(b.result.tier) || b.score - a.score);
+    .map((result) => {
+      const baseScore = integratedScore(result, spread);
+      const sameTierAlternatives = baseScores.filter((item) => tierRank(item.result.tier) === tierRank(result.tier) && item.result.layoutId !== result.layoutId).map((item) => item.score);
+      const alternativeScore = Math.max(...sameTierAlternatives, 0);
+      const repeatStreak = [...(context?.recent ?? [])].reverse().findIndex((entry) => entry.layoutId !== result.layoutId);
+      const candidate: RhythmCandidateContext = {
+        repeatStreak: repeatStreak < 0 ? (context?.recent.length ?? 0) : repeatStreak,
+        candidateGap: sameTierAlternatives.length > 0 ? baseScore - alternativeScore : null,
+        candidateIsBest: tierRank(result.tier) === bestTier && baseScore === bestBaseScore,
+      };
+      const rhythm = rhythmAdjustment(result, spread.recommendedDensity, context, candidate);
+      return {
+        result,
+        score: baseScore + rhythm.adjustment,
+        rhythm,
+      };
+    })
+    .sort((a, b) => tierRank(a.result.tier) - tierRank(b.result.tier) || b.score - a.score || a.result.layoutId.localeCompare(b.result.layoutId));
 }
 
 function areaOf(rect: { w: number; h: number }) {
@@ -161,18 +166,12 @@ function storyFit(purpose: LayoutPurpose, storyType: StoryType): number {
   return 70;
 }
 
-function buildAssignments(
-  result: LayoutMatchResult,
-  photos: LayoutPhotoInput[],
-): SpreadFrameAssignment[] {
+function buildAssignments(result: LayoutMatchResult, photos: LayoutPhotoInput[]): SpreadFrameAssignment[] {
   const focal = new Map(result.assignments.map((assignment) => [assignment.frameId, assignment.crop.x]));
   const placements = placeFrames(result.layout.frames, focal);
   return result.assignments.map((assignment, index) => {
     const photo = photos.find((item) => item.photoId === assignment.photoId);
-    const warnings = [
-      ...assignment.frameMatch.warnings,
-      ...assignment.frameMatch.rejectReasons,
-    ];
+    const warnings = [...assignment.frameMatch.warnings, ...assignment.frameMatch.rejectReasons];
     return {
       frameId: assignment.frameId,
       role: assignment.slotRole,
@@ -208,18 +207,8 @@ function hierarchyScore(spread: StorySpread, assignments: SpreadFrameAssignment[
     const ratio = Math.min(...areas) / Math.max(...areas, 1);
     return clamp(ratio * 100);
   }
-  const primaryArea = Math.max(
-    ...assignments
-      .filter((assignment) => spread.primaryPhotoIds.includes(assignment.photoId))
-      .map((assignment) => areaOf(assignment.placement.rect)),
-    0,
-  );
-  const secondaryArea = Math.max(
-    ...assignments
-      .filter((assignment) => spread.secondaryPhotoIds.includes(assignment.photoId))
-      .map((assignment) => areaOf(assignment.placement.rect)),
-    0,
-  );
+  const primaryArea = Math.max(...assignments.filter((assignment) => spread.primaryPhotoIds.includes(assignment.photoId)).map((assignment) => areaOf(assignment.placement.rect)), 0);
+  const secondaryArea = Math.max(...assignments.filter((assignment) => spread.secondaryPhotoIds.includes(assignment.photoId)).map((assignment) => areaOf(assignment.placement.rect)), 0);
   if (secondaryArea > primaryArea * 1.05) return 35;
   if (primaryArea > secondaryArea) return 92;
   return 78;
@@ -227,24 +216,13 @@ function hierarchyScore(spread: StorySpread, assignments: SpreadFrameAssignment[
 
 function cropSafety(assignments: SpreadFrameAssignment[], result: LayoutMatchResult): number {
   if (result.assignments.length === 0) return 0;
-  const scores = result.assignments.map((assignment) =>
-    Math.min(
-      assignment.quality.faceSafety,
-      assignment.quality.headSafety,
-      assignment.quality.earSafety,
-      assignment.quality.maskSafety,
-    ),
-  );
+  const scores = result.assignments.map((assignment) => Math.min(assignment.quality.faceSafety, assignment.quality.headSafety, assignment.quality.earSafety, assignment.quality.maskSafety));
   return clamp(Math.min(...scores));
 }
 
 type Gate = { hard: string[]; soft: string[] };
 
-function assess(
-  spread: StorySpread,
-  result: LayoutMatchResult,
-  assignments: SpreadFrameAssignment[],
-): Gate {
+function assess(spread: StorySpread, result: LayoutMatchResult, assignments: SpreadFrameAssignment[]): Gate {
   const hard: string[] = [];
   const soft: string[] = [];
   const limits = ALBUM_DRAFT_CONFIG.gate;
@@ -263,13 +241,7 @@ function assess(
     if (assignment.crop.scale > limits.maxScale) hard.push("EXTREME_CROP");
   }
   if (assignments.some((assignment) => assignment.placement.crossesGutter)) hard.push("GUTTER_CROSS");
-  if (
-    assignments.some(
-      (assignment) =>
-        (assignment.placement.side === "left" && assignment.crop.x > 0.78) ||
-        (assignment.placement.side === "right" && assignment.crop.x < 0.22),
-    )
-  ) {
+  if (assignments.some((assignment) => (assignment.placement.side === "left" && assignment.crop.x > 0.78) || (assignment.placement.side === "right" && assignment.crop.x < 0.22))) {
     soft.push("GUTTER_FACE");
   }
   if (heroUnsafe(result)) soft.push("HERO_UNSAFE");
@@ -279,36 +251,22 @@ function assess(
     if (ratio < limits.minSinglePageRatio) hard.push("SINGLE_TOO_SMALL");
   }
 
-  if (spread.secondaryPhotoIds.length === 0 && spread.primaryPhotoIds.length >= 2 && assignments.length >= 2) {
+  if (spread.photoIds.length <= 4 && spread.secondaryPhotoIds.length === 0 && spread.primaryPhotoIds.length >= 2 && assignments.length >= 2) {
     const areas = assignments.map((assignment) => areaOf(assignment.placement.rect));
     const ratio = Math.min(...areas) / Math.max(...areas, 1);
     if (ratio < limits.evenPrimaryRatio) hard.push("UNEVEN_PRIMARIES");
   }
 
   if (spread.secondaryPhotoIds.length > 0) {
-    const primaryArea = Math.max(
-      ...assignments
-        .filter((assignment) => spread.primaryPhotoIds.includes(assignment.photoId))
-        .map((assignment) => areaOf(assignment.placement.rect)),
-      0,
-    );
-    const secondaryArea = Math.max(
-      ...assignments
-        .filter((assignment) => spread.secondaryPhotoIds.includes(assignment.photoId))
-        .map((assignment) => areaOf(assignment.placement.rect)),
-      0,
-    );
+    const primaryArea = Math.max(...assignments.filter((assignment) => spread.primaryPhotoIds.includes(assignment.photoId)).map((assignment) => areaOf(assignment.placement.rect)), 0);
+    const secondaryArea = Math.max(...assignments.filter((assignment) => spread.secondaryPhotoIds.includes(assignment.photoId)).map((assignment) => areaOf(assignment.placement.rect)), 0);
     if (secondaryArea > primaryArea * 1.05) hard.push("SECONDARY_DOMINATES");
   }
 
   return { hard: [...new Set(hard)], soft: [...new Set(soft)] };
 }
 
-function qualityOf(
-  spread: StorySpread,
-  result: LayoutMatchResult,
-  assignments: SpreadFrameAssignment[],
-): SpreadQuality {
+function qualityOf(spread: StorySpread, result: LayoutMatchResult, assignments: SpreadFrameAssignment[]): SpreadQuality {
   const crop = cropSafety(assignments, result);
   const hierarchy = hierarchyScore(spread, assignments);
   const balance = result.scores.balance;
@@ -335,6 +293,7 @@ function emptyDraft(spread: StorySpread, warnings: string[]): AlbumSpreadDraft {
     layoutId: "",
     layoutScore: 0,
     engineScore: 0,
+    selectedLayout: null,
     assignments: [],
     quality: { cropSafety: 0, hierarchy: 0, balance: 0, storyFit: 0, overall: 0 },
     alternatives: [],
@@ -354,7 +313,7 @@ function emptyDraft(spread: StorySpread, warnings: string[]): AlbumSpreadDraft {
   };
 }
 
-export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[]): AlbumSpreadDraft {
+export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[], context?: LayoutRhythmContext): AlbumSpreadDraft {
   let scoped: LayoutPhotoInput[];
   try {
     scoped = photosForSpread(spread, photos);
@@ -368,9 +327,17 @@ export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[]
     return emptyDraft(spread, ["NO_LAYOUT_FOR_COUNT"]);
   }
 
+  const captionAvailable = scoped.some((photo) => photo.captionAvailable);
+  const shortlist = filterTemplateCandidates(layouts, scoped, { captionAvailable, storyType: spread.storyType, maxCandidates: 6, preserveLegacy: true });
+  let evaluated = shortlist.map((layout) => withSmartLayoutV2Score(evaluateLayout(layout, scoped), scoped, { captionAvailable, storyType: spread.storyType }));
+  if (!evaluated.some((result) => result.tier === "strict" && !result.invalid)) {
+    const selected = new Set(shortlist.map((layout) => layout.id));
+    evaluated = evaluated.concat(layouts.filter((layout) => !selected.has(layout.id)).map((layout) => withSmartLayoutV2Score(evaluateLayout(layout, scoped), scoped, { captionAvailable, storyType: spread.storyType })));
+  }
   const ranked = rankSpreadLayouts(
-    layouts.map((layout) => evaluateLayout(layout, scoped)),
+    evaluated,
     spread,
+    context,
   );
   const considered = ranked.map((item) => ({
     item,
@@ -386,19 +353,16 @@ export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[]
   if (!chosen) return emptyDraft(spread, ["NO_LAYOUT"]);
 
   const alternatives: LayoutAlternative[] = considered
-    .filter((entry) => entry.item.result.layoutId !== chosen.item.result.layoutId)
+    .filter((entry) =>
+      entry.item.result.layoutId !== chosen.item.result.layoutId &&
+      entry.item.result.tier !== "unusable" &&
+      !entry.item.result.invalid &&
+      entry.gate.hard.length === 0,
+    )
     .slice(0, 3)
-    .map((entry) => ({
-      layoutId: entry.item.result.layoutId,
-      layoutScore: entry.item.score,
-      matchTier: toTier(entry.item.result.tier),
-    }));
+    .map((entry) => rankedLayout(entry.item));
 
-  const warnings = [
-    ...chosen.item.result.warnings,
-    ...chosen.gate.hard,
-    ...chosen.gate.soft,
-  ];
+  const warnings = [...chosen.item.result.warnings, ...chosen.gate.hard, ...chosen.gate.soft];
 
   return {
     spreadId: `d-${spread.id}`,
@@ -406,6 +370,7 @@ export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[]
     layoutId: chosen.item.result.layoutId,
     layoutScore: chosen.item.score,
     engineScore: chosen.item.result.scores.overall,
+    selectedLayout: rankedLayout(chosen.item),
     assignments: chosen.assignments,
     quality: qualityOf(spread, chosen.item.result, chosen.assignments),
     alternatives,
@@ -422,11 +387,25 @@ export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[]
       secondaryPhotoIds: spread.secondaryPhotoIds,
       startedAt: spread.startedAt,
     },
+    rhythm: chosen.item.rhythm,
+    heroConfidence: chosen.item.result.heroConfidence,
   };
 }
 
 export function buildAlbumDraft(request: AlbumDraftRequest): AlbumDraftResult {
-  const spreads = request.spreads.map((spread) => buildSpreadDraft(spread, request.photos));
+  const history = [...(request.rhythmContext?.recent ?? [])];
+  const spreads = request.spreads.map((spread) => {
+    const draft = buildSpreadDraft(spread, request.photos, { recent: history.slice(-3) });
+    if (draft.layoutId) {
+      const layout = layoutsForSpread(spread).find((item) => item.id === draft.layoutId);
+      if (layout) {
+        const scoped = photosForSpread(spread, request.photos);
+        const matched = withSmartLayoutV2Score(evaluateLayout(layout, scoped), scoped, { captionAvailable: scoped.some((photo) => photo.captionAvailable), storyType: spread.storyType });
+        history.push(rhythmEntry(matched, spread.recommendedDensity));
+      }
+    }
+    return draft;
+  });
   return {
     period: request.period,
     spreads,

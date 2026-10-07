@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
-import { buildCoverTitleLines } from "@/lib/album-cover-title";
+import { buildCoverTitleLines, formatAlbumPeriodLabels } from "@/lib/album-cover-title";
 import { buildAlbumPreviewSpreads } from "@/lib/album-preview-spreads";
 import {
   AlbumEditScreen,
@@ -99,8 +99,7 @@ export default async function AlbumEditPage({ params }: Props) {
     (analysesResult.data ?? []).map((a) => [a.photo_id, a]),
   );
 
-  const periodMonthLabel = formatMonthLabel(album.period_to ?? album.period_from);
-  const coverDateLabel = formatCoverDate(album.period_to ?? album.period_from);
+  const { monthLabel: periodMonthLabel, coverDateLabel } = formatAlbumPeriodLabels(album.period_from, album.period_to);
   const lines = buildCoverTitleLines(pet.name, album.title ?? "", periodMonthLabel);
 
   const coverSrc =
@@ -180,29 +179,4 @@ function buildEditPageEntries(spreads: ReturnType<typeof buildAlbumPreviewSpread
   });
 
   return pages;
-}
-
-function formatCoverDate(iso: string | null): string {
-  if (!iso) {
-    const now = new Date();
-    return `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}`;
-  }
-  const d = new Date(iso);
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Tokyo",
-    year: "numeric",
-    month: "2-digit",
-  }).formatToParts(d);
-  const y = parts.find((p) => p.type === "year")?.value ?? "2026";
-  const m = parts.find((p) => p.type === "month")?.value ?? "01";
-  return `${y}.${m}`;
-}
-
-function formatMonthLabel(iso: string | null): string {
-  if (!iso) return "今月";
-  const d = new Date(iso);
-  return d.toLocaleDateString("ja-JP", {
-    timeZone: "Asia/Tokyo",
-    month: "long",
-  });
 }

@@ -111,13 +111,13 @@ export async function addAlbumPhoto(
   if (!ctx) return;
   if (assertAlbumEditable(ctx.album)) return;
 
-  // Verify photo belongs to the pet and the user (primary scope, IDOR check)
+  // Album ownership is verified by resolveAlbum; photo RLS and pet scope allow
+  // the owner to include photos contributed by accepted family members.
   const { data: photo } = await ctx.supabase
     .from("photos")
     .select("id, pet_id, uploader_user_id")
     .eq("id", photoId)
     .eq("pet_id", petId)
-    .eq("uploader_user_id", ctx.user.id)
     .maybeSingle();
 
   if (!photo) return;

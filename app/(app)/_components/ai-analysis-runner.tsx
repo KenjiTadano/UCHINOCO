@@ -1,16 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { PHOTO_INTAKE_CONFIG, shouldContinueIntake } from "@/lib/photo-intake";
 
-type QueueState = { ready?: boolean; waitMs?: number; changed?: boolean; stopped?: boolean };
+type QueueState = {
+  ready?: boolean;
+  waitMs?: number;
+  changed?: boolean;
+  stopped?: boolean;
+  stage?: "semantic" | "intelligence" | null;
+};
 // Shared across StrictMode/remounts. Route changes never start overlapping batches.
 let activeRequest: Promise<QueueState> | null = null;
-async function requestQueue(method: "GET" | "POST"): Promise<QueueState> {
+async function requestQueue(method: "GET" | "POST", preferred?: "semantic" | "intelligence"): Promise<QueueState> {
   const response = await fetch("/api/photo-analysis", {
     method, credentials: "same-origin", cache: "no-store",
     signal: AbortSignal.timeout(75_000),
-    headers: { "x-uchinoco-runner": "1" },
+    headers: {
+      "x-uchinoco-runner": "1",
+      ...(preferred ? { "x-uchinoco-intake-stage": preferred } : {}),
+    },
   });
   if (!response.ok) throw new Error("queue_unavailable");
   return response.json();
@@ -20,9 +30,12 @@ export function AIAnalysisRunner() {
   const pathname = usePathname();
   const router = useRouter();
   const [organizing, setOrganizing] = useState(false);
+  const processed = useRef(0);
+  const lastStage = useRef<"semantic" | "intelligence" | null>(null);
   const uploading = pathname.endsWith("/photos/new");
 
   useEffect(() => {
+    if (uploading) processed.current = 0;
     let disposed = false;
     let running = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -40,8 +53,13 @@ export function AIAnalysisRunner() {
         const batch = async () => {
           const state = await requestQueue("GET");
           if (disposed || document.visibilityState !== "visible" || !state.ready || state.stopped) return state;
+          if (!shouldContinueIntake(processed.current, true)) return { ...state, stopped: true };
           setOrganizing(true);
-          return requestQueue("POST");
+          const preferred = lastStage.current === "semantic" ? "intelligence" : "semantic";
+          const next = await requestQueue("POST", preferred);
+          processed.current += 1;
+          lastStage.current = next.stage ?? preferred;
+          return next;
         };
         const request = batch();
         activeRequest = request;
@@ -51,7 +69,14 @@ export function AIAnalysisRunner() {
         if (disposed) return;
         setOrganizing(false);
         if (state.changed) router.refresh();
-        if (!state.stopped) schedule(state.waitMs ?? 0);
+        if (shouldContinueIntake(processed.current, Boolean(state.ready), state.stopped)) {
+          schedule(state.waitMs ?? PHOTO_INTAKE_CONFIG.runnerDelayMs);
+        } else if (!state.stopped && state.ready) {
+          timer = setTimeout(() => {
+            processed.current = 0;
+            void tick();
+          }, PHOTO_INTAKE_CONFIG.workWindowMs);
+        }
       } catch {
         // Stop on auth/network/schema errors. A visit or visibility change resumes.
         if (!disposed) setOrganizing(false);

@@ -3,14 +3,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { PHOTO_IMAGE_DELIVERY, photoPreviewPath, rememberPhotoPreviewPresent } from "@/lib/photo-image-delivery";
 
 const ORIGINAL_BUCKET = "pet-photos";
 const THUMBNAIL_BUCKET = "pet-photo-thumbnails";
 const BATCH_SIZE = 5;
 const SIGNED_URL_SECONDS = 300;
-const MAX_THUMBNAIL_SIZE = 1024 * 1024;
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_THUMBNAIL_SIZE = PHOTO_IMAGE_DELIVERY.thumbnail.maxSizeBytes;
+const MAX_PREVIEW_SIZE = PHOTO_IMAGE_DELIVERY.preview.maxSizeBytes;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type BackfillCursor = {
   createdAt: string;
@@ -28,9 +29,13 @@ type BackfillPhoto = {
 
 export type ThumbnailBackfillItem = {
   photoId: string;
-  originalSignedUrl: string;
-  thumbnailPath: string;
-  thumbnailToken: string;
+  originalSignedUrl: string | null;
+  thumbnailPath: string | null;
+  thumbnailToken: string | null;
+  previewPath: string;
+  previewToken: string | null;
+  needsThumbnail: boolean;
+  previewReady: boolean;
 };
 
 export type ThumbnailBackfillBatchResult = {
@@ -59,34 +64,17 @@ function parseCursor(cursor: BackfillCursor | null) {
   return { createdAt: date.toISOString(), id: cursor.id };
 }
 
-function thumbnailPathFromOriginal(
-  storagePath: string,
-  userId: string,
-  petId: string,
-) {
+function thumbnailPathFromOriginal(storagePath: string, userId: string, petId: string) {
   const parts = storagePath.split("/");
   const [pathUserId, pathPetId, year, month, fileName] = parts;
-  const match = fileName?.match(
-    /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(jpg|png|webp)$/i,
-  );
-  if (
-    parts.length !== 5 ||
-    pathUserId !== userId ||
-    pathPetId !== petId ||
-    !/^\d{4}$/.test(year ?? "") ||
-    !/^(0[1-9]|1[0-2])$/.test(month ?? "") ||
-    !match
-  ) {
+  const match = fileName?.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(jpg|png|webp)$/i);
+  if (parts.length !== 5 || pathUserId !== userId || pathPetId !== petId || !/^\d{4}$/.test(year ?? "") || !/^(0[1-9]|1[0-2])$/.test(month ?? "") || !match) {
     return null;
   }
   return `${pathUserId}/${pathPetId}/${year}/${month}/${match[1]}.webp`;
 }
 
-function logBackfillFailure(
-  stage: string,
-  error: { code?: string; message?: string } | null,
-  photoId?: string,
-) {
+function logBackfillFailure(stage: string, error: { code?: string; message?: string } | null, photoId?: string) {
   if (process.env.NODE_ENV !== "development") return;
   console.error("Photo thumbnail backfill failed", {
     stage,
@@ -106,20 +94,12 @@ async function getContext(petId: string) {
   if (userError || !user) return null;
 
   const client = databaseClient(supabase);
-  const { data: pet, error: petError } = await client
-    .from("pets")
-    .select("id, owner_user_id")
-    .eq("id", petId)
-    .eq("owner_user_id", user.id)
-    .maybeSingle();
+  const { data: pet, error: petError } = await client.from("pets").select("id, owner_user_id").eq("id", petId).eq("owner_user_id", user.id).maybeSingle();
   if (petError || !pet || pet.owner_user_id !== user.id) return null;
   return { supabase, client, user };
 }
 
-export async function prepareThumbnailBackfillBatch(
-  petId: string,
-  cursor: BackfillCursor | null,
-): Promise<ThumbnailBackfillBatchResult> {
+export async function prepareThumbnailBackfillBatch(petId: string, cursor: BackfillCursor | null): Promise<ThumbnailBackfillBatchResult> {
   const context = await getContext(petId);
   if (!context) {
     return {
@@ -145,31 +125,13 @@ export async function prepareThumbnailBackfillBatch(
   }
 
   const { supabase, client, user } = context;
-  let query = client
-    .from("photos")
-    .select("id, pet_id, uploader_user_id, storage_path, thumbnail_path, created_at")
-    .eq("pet_id", petId)
-    .eq("uploader_user_id", user.id)
-    .is("thumbnail_path", null)
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(BATCH_SIZE);
+  let query = client.from("photos").select("id, pet_id, uploader_user_id, storage_path, thumbnail_path, created_at").eq("pet_id", petId).eq("uploader_user_id", user.id).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(BATCH_SIZE);
 
   if (parsedCursor) {
-    query = query.or(
-      `created_at.lt.${parsedCursor.createdAt},and(created_at.eq.${parsedCursor.createdAt},id.lt.${parsedCursor.id})`,
-    );
+    query = query.or(`created_at.lt.${parsedCursor.createdAt},and(created_at.eq.${parsedCursor.createdAt},id.lt.${parsedCursor.id})`);
   }
 
-  const [photosResult, countResult] = await Promise.all([
-    query,
-    client
-      .from("photos")
-      .select("id", { count: "exact", head: true })
-      .eq("pet_id", petId)
-      .eq("uploader_user_id", user.id)
-      .is("thumbnail_path", null),
-  ]);
+  const [photosResult, countResult] = await Promise.all([query, client.from("photos").select("id", { count: "exact", head: true }).eq("pet_id", petId).eq("uploader_user_id", user.id)]);
   if (photosResult.error || countResult.error) {
     logBackfillFailure("batch_query", photosResult.error ?? countResult.error);
     return {
@@ -183,44 +145,42 @@ export async function prepareThumbnailBackfillBatch(
   }
 
   const photos = (photosResult.data ?? []) as BackfillPhoto[];
-  const prepared = await Promise.all(
+  const prepared: Array<ThumbnailBackfillItem | null> = await Promise.all(
     photos.map(async (photo) => {
-      const thumbnailPath = thumbnailPathFromOriginal(
-        photo.storage_path,
-        user.id,
-        petId,
-      );
-      if (!thumbnailPath || photo.pet_id !== petId || photo.thumbnail_path !== null) {
+      const thumbnailPath = thumbnailPathFromOriginal(photo.storage_path, user.id, petId);
+      const previewPath = photoPreviewPath(photo.storage_path);
+      if (!thumbnailPath || !previewPath || photo.pet_id !== petId || (photo.thumbnail_path && photo.thumbnail_path !== thumbnailPath)) {
         logBackfillFailure("path_validation", null, photo.id);
         return null;
       }
-      const [original, thumbnail] = await Promise.all([
-        supabase.storage
-          .from(ORIGINAL_BUCKET)
-          .createSignedUrl(photo.storage_path, SIGNED_URL_SECONDS),
-        supabase.storage
-          .from(THUMBNAIL_BUCKET)
-          .createSignedUploadUrl(thumbnailPath),
+      const previewInfo = await supabase.storage.from(THUMBNAIL_BUCKET).info(previewPath);
+      const previewReady = !previewInfo.error && Boolean(previewInfo.data) && Number(previewInfo.data.size) > 0 && Number(previewInfo.data.size) <= MAX_PREVIEW_SIZE && previewInfo.data.contentType === "image/webp";
+      const needsThumbnail = photo.thumbnail_path === null;
+      if (previewReady && !needsThumbnail) {
+        return { photoId: photo.id, originalSignedUrl: null, thumbnailPath: null, thumbnailToken: null, previewPath, previewToken: null, needsThumbnail, previewReady };
+      }
+      const [original, thumbnail, preview] = await Promise.all([
+        supabase.storage.from(ORIGINAL_BUCKET).createSignedUrl(photo.storage_path, SIGNED_URL_SECONDS),
+        needsThumbnail ? supabase.storage.from(THUMBNAIL_BUCKET).createSignedUploadUrl(thumbnailPath) : Promise.resolve({ data: null, error: null }),
+        previewReady ? Promise.resolve({ data: null, error: null }) : supabase.storage.from(THUMBNAIL_BUCKET).createSignedUploadUrl(previewPath),
       ]);
-      if (original.error || !original.data || thumbnail.error || !thumbnail.data) {
-        logBackfillFailure(
-          "signed_url",
-          original.error ?? thumbnail.error,
-          photo.id,
-        );
+      if (original.error || !original.data || (needsThumbnail && (thumbnail.error || !thumbnail.data)) || (!previewReady && (preview.error || !preview.data))) {
+        logBackfillFailure("signed_url", original.error ?? thumbnail.error ?? preview.error, photo.id);
         return null;
       }
       return {
         photoId: photo.id,
         originalSignedUrl: original.data.signedUrl,
-        thumbnailPath,
-        thumbnailToken: thumbnail.data.token,
+        thumbnailPath: needsThumbnail ? thumbnailPath : null,
+        thumbnailToken: thumbnail.data?.token ?? null,
+        previewPath,
+        previewToken: preview.data?.token ?? null,
+        needsThumbnail,
+        previewReady,
       };
     }),
   );
-  const items = prepared.filter(
-    (item): item is ThumbnailBackfillItem => item !== null,
-  );
+  const items = prepared.filter((item): item is ThumbnailBackfillItem => item !== null);
   const lastPhoto = photos.at(-1);
 
   return {
@@ -229,16 +189,11 @@ export async function prepareThumbnailBackfillBatch(
     items,
     failedCount: photos.length - items.length,
     remainingCount: countResult.count ?? 0,
-    nextCursor: lastPhoto
-      ? { createdAt: lastPhoto.created_at, id: lastPhoto.id }
-      : null,
+    nextCursor: lastPhoto ? { createdAt: lastPhoto.created_at, id: lastPhoto.id } : null,
   };
 }
 
-export async function finalizeThumbnailBackfill(
-  petId: string,
-  photoId: string,
-): Promise<FinalizeThumbnailBackfillResult> {
+export async function finalizeThumbnailBackfill(petId: string, photoId: string): Promise<FinalizeThumbnailBackfillResult> {
   if (!UUID_PATTERN.test(photoId)) {
     return { success: false, skipped: false, message: "写真を確認できませんでした。" };
   }
@@ -247,77 +202,56 @@ export async function finalizeThumbnailBackfill(
     return { success: false, skipped: false, message: "写真を確認できませんでした。" };
   }
   const { supabase, client, user } = context;
-  const { data: photo, error: photoError } = await client
-    .from("photos")
-    .select("id, pet_id, uploader_user_id, storage_path, thumbnail_path")
-    .eq("id", photoId)
-    .eq("pet_id", petId)
-    .eq("uploader_user_id", user.id)
-    .maybeSingle();
+  const { data: photo, error: photoError } = await client.from("photos").select("id, pet_id, uploader_user_id, storage_path, thumbnail_path").eq("id", photoId).eq("pet_id", petId).eq("uploader_user_id", user.id).maybeSingle();
   if (photoError || !photo || photo.pet_id !== petId) {
     logBackfillFailure("photo_authorization", photoError, photoId);
     return { success: false, skipped: false, message: "写真を確認できませんでした。" };
   }
 
   const expectedPath = thumbnailPathFromOriginal(photo.storage_path, user.id, petId);
-  if (!expectedPath) {
+  const expectedPreviewPath = photoPreviewPath(photo.storage_path);
+  if (!expectedPath || !expectedPreviewPath) {
     logBackfillFailure("finalize_path_validation", null, photoId);
     return { success: false, skipped: false, message: "写真を確認できませんでした。" };
   }
+
+  const previewFolder = expectedPreviewPath.split("/").slice(0, -1).join("/");
+  const previewName = expectedPreviewPath.split("/").at(-1)!;
+  const { data: previewObjects, error: previewListError } = await supabase.storage.from(THUMBNAIL_BUCKET).list(previewFolder, { limit: 2, search: previewName });
+  const previewObject = previewObjects?.find((candidate) => candidate.name === previewName);
+  const previewSize = Number(previewObject?.metadata?.size);
+  if (previewListError || !previewObject || !Number.isSafeInteger(previewSize) || previewSize <= 0 || previewSize > MAX_PREVIEW_SIZE || previewObject.metadata?.mimetype !== "image/webp") {
+    logBackfillFailure("preview_validation", previewListError, photoId);
+    return { success: false, skipped: false, message: "PREVIEWを確認できませんでした。" };
+  }
+  rememberPhotoPreviewPresent(user.id, expectedPreviewPath);
+
   if (photo.thumbnail_path) {
-    return photo.thumbnail_path === expectedPath
-      ? { success: true, skipped: true, message: null }
-      : { success: false, skipped: false, message: "写真を確認できませんでした。" };
+    return photo.thumbnail_path === expectedPath ? { success: true, skipped: true, message: null } : { success: false, skipped: false, message: "写真を確認できませんでした。" };
   }
 
   const pathParts = expectedPath.split("/");
   const fileName = pathParts.at(-1)!;
   const folder = pathParts.slice(0, -1).join("/");
-  const { data: objects, error: listError } = await supabase.storage
-    .from(THUMBNAIL_BUCKET)
-    .list(folder, { limit: 2, search: fileName });
+  const { data: objects, error: listError } = await supabase.storage.from(THUMBNAIL_BUCKET).list(folder, { limit: 2, search: fileName });
   const object = objects?.find((candidate) => candidate.name === fileName);
   const size = Number(object?.metadata?.size);
-  if (
-    listError ||
-    !object ||
-    !Number.isSafeInteger(size) ||
-    size <= 0 ||
-    size > MAX_THUMBNAIL_SIZE ||
-    object.metadata?.mimetype !== "image/webp"
-  ) {
+  if (listError || !object || !Number.isSafeInteger(size) || size <= 0 || size > MAX_THUMBNAIL_SIZE || object.metadata?.mimetype !== "image/webp") {
     logBackfillFailure("object_validation", listError, photoId);
-    const { error: cleanupError } = await supabase.storage
-      .from(THUMBNAIL_BUCKET)
-      .remove([expectedPath]);
+    const { error: cleanupError } = await supabase.storage.from(THUMBNAIL_BUCKET).remove([expectedPath]);
     if (cleanupError) {
       logBackfillFailure("object_validation_cleanup", cleanupError, photoId);
     }
     return { success: false, skipped: false, message: "サムネイルを確認できませんでした。" };
   }
 
-  const { data: updated, error: updateError } = await client
-    .from("photos")
-    .update({ thumbnail_path: expectedPath })
-    .eq("id", photoId)
-    .eq("pet_id", petId)
-    .eq("uploader_user_id", user.id)
-    .is("thumbnail_path", null)
-    .select("id, thumbnail_path")
-    .maybeSingle();
+  const { data: updated, error: updateError } = await client.from("photos").update({ thumbnail_path: expectedPath }).eq("id", photoId).eq("pet_id", petId).eq("uploader_user_id", user.id).is("thumbnail_path", null).select("id, thumbnail_path").maybeSingle();
   if (updateError || !updated || updated.thumbnail_path !== expectedPath) {
-    const { data: current } = await client
-      .from("photos")
-      .select("thumbnail_path")
-      .eq("id", photoId)
-      .eq("pet_id", petId)
-      .maybeSingle();
+    const { data: current } = await client.from("photos").select("thumbnail_path").eq("id", photoId).eq("pet_id", petId).maybeSingle();
     if (current?.thumbnail_path === expectedPath) {
       return { success: true, skipped: true, message: null };
     }
-    const { error: cleanupError } = await supabase.storage
-      .from(THUMBNAIL_BUCKET)
-      .remove([expectedPath]);
+    const { error: cleanupError } = await supabase.storage.from(THUMBNAIL_BUCKET).remove([expectedPath]);
     logBackfillFailure("database_update", updateError, photoId);
     if (cleanupError) {
       logBackfillFailure("cleanup", cleanupError, photoId);

@@ -1,42 +1,28 @@
 "use client";
 
-import { useRef, useState } from "react";
-import {
-  overrideFrameCrop,
-  overrideFramePhoto,
-  overrideSpreadDecoration,
-  overrideSpreadLayout,
-  overrideSpreadText,
-  refreshDraftPhotoUrls,
-} from "@/app/(app)/album-draft-service";
-import {
-  canPlaceDecoration,
-  decorationSlotIssue,
-  isDecorationId,
-  plainTextIssue,
-  slotKind,
-  styleIssue,
-  textSlotIssue,
-} from "@/lib/album-polish/catalog";
+import { useEffect, useRef, useState } from "react";
+import { overrideFrameCrop, overrideFramePhoto, overrideSpreadDecoration, overridePageElement, overrideSpreadBackground, overrideSpreadLayout, overrideSpreadText, refreshDraftPhotoUrls } from "@/app/(app)/album-draft-service";
+import { canPlaceDecoration, decorationSlotIssue, isDecorationId, plainTextIssue, slotKind, styleIssue, textSlotIssue } from "@/lib/album-polish/catalog";
 import { decorationUserSnapshot, textUserSnapshot } from "@/lib/album-polish/rows";
+import { normalizePageElement, type ElementBackgroundId, type PageElement, type PageSide } from "@/lib/album-elements/model";
 import { applyDecorationState, applyTextState, decorationTargetId, textTargetId } from "@/lib/album-polish/state";
 import type { DecorationOverrideSnapshot, OverrideMode, ScalePreset, TextOverrideSnapshot, TextStyleId } from "@/lib/album-polish/types";
 import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/album-persistence/config";
-import {
-  applyFrameCrop,
-  applyFramePhoto,
-  applyPreviewUrls,
-  applySpreadLayout,
-  clientSeqOf,
-  mergeServerDraft,
-  presentSaveError,
-} from "@/lib/album-persistence/editor";
+import { applyFrameCrop, applyFramePhoto, applyPreviewUrls, applySpreadLayout, clientSeqOf, mergeServerDraft, presentSaveError } from "@/lib/album-persistence/editor";
 import { useEditorHistory } from "@/lib/album-persistence/use-editor-history";
 import type { EditorHistoryEntry } from "@/lib/album-persistence/history";
 import type { CropTriple } from "@/lib/album-persistence/types";
 import type { PersistedDraftView, PersistenceResult } from "@/lib/album-persistence/view";
 
 type SaveState = "saved" | "saving" | "error";
+type RecommendationSnapshot = {
+  elements: PageElement[];
+  backgrounds: Record<PageSide, ElementBackgroundId | null>;
+};
+type RecommendationChange = {
+  elements: PageElement[];
+  backgrounds: Partial<Record<PageSide, ElementBackgroundId>>;
+};
 
 type Intent =
   | { kind: "layout"; spreadId: string; layoutId: string | null }
@@ -50,13 +36,43 @@ type Intent =
       mode: OverrideMode;
       decorationId: DecorationOverrideSnapshot["decorationId"];
       scale: ScalePreset | null;
-    };
+    }
+  | { kind: "element"; spreadId: string; elementId: string; element: PageElement | null }
+  | { kind: "background"; spreadId: string; pageSide: PageSide; backgroundId: ElementBackgroundId | null };
 
-export function usePageEditDraft(
-  initial: PersistedDraftView | null,
-  albumId: string,
-  readonly: boolean,
-) {
+function rememberDraft(next: PersistedDraftView, seq: Map<string, number>, revision: Map<string, number>) {
+  for (const spread of next.spreads) {
+    seq.set(spread.id, Math.max(seq.get(spread.id) ?? 0, spread.source.clientSeq));
+    revision.set(spread.id, spread.source.revision);
+    for (const frame of spread.sourceFrames) {
+      seq.set(frame.id, Math.max(seq.get(frame.id) ?? 0, frame.clientSeq));
+      revision.set(frame.id, frame.revision);
+    }
+    for (const text of spread.texts ?? []) {
+      const key = textTargetId(spread.id, text.slotId);
+      seq.set(key, Math.max(seq.get(key) ?? 0, text.clientSeq));
+      revision.set(key, text.revision);
+    }
+    for (const decoration of spread.decorations ?? []) {
+      const key = decorationTargetId(spread.id, decoration.slotId);
+      seq.set(key, Math.max(seq.get(key) ?? 0, decoration.clientSeq));
+      revision.set(key, decoration.revision);
+    }
+    for (const element of spread.elements ?? []) {
+      const key = `element:${spread.id}:${element.id}`;
+      seq.set(key, Math.max(seq.get(key) ?? 0, element.clientSeq));
+      revision.set(key, element.revision);
+    }
+    for (const side of ["left", "right"] as const) {
+      const background = spread.backgrounds?.[side];
+      const key = `background:${spread.id}:${side}`;
+      seq.set(key, Math.max(seq.get(key) ?? 0, background?.clientSeq ?? 0));
+      revision.set(key, background?.revision ?? 0);
+    }
+  }
+}
+
+export function usePageEditDraft(initial: PersistedDraftView | null, albumId: string, readonly: boolean) {
   const [view, setView] = useState(initial);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [error, setError] = useState<string | null>(null);
@@ -64,33 +80,20 @@ export function usePageEditDraft(
   const revisionRef = useRef(new Map<string, number>());
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const inFlight = useRef(0);
+  const initialized = useRef(false);
   const intent = useRef<Intent | null>(null);
   const viewRef = useRef(view);
-  viewRef.current = view;
   const history = useEditorHistory("page");
 
-  function remember(next: PersistedDraftView) {
-    for (const spread of next.spreads) {
-      seqRef.current.set(spread.id, Math.max(seqRef.current.get(spread.id) ?? 0, spread.source.clientSeq));
-      revisionRef.current.set(spread.id, spread.source.revision);
-      for (const frame of spread.sourceFrames) {
-        seqRef.current.set(frame.id, Math.max(seqRef.current.get(frame.id) ?? 0, frame.clientSeq));
-        revisionRef.current.set(frame.id, frame.revision);
-      }
-      for (const text of spread.texts ?? []) {
-        const key = textTargetId(spread.id, text.slotId);
-        seqRef.current.set(key, Math.max(seqRef.current.get(key) ?? 0, text.clientSeq));
-        revisionRef.current.set(key, text.revision);
-      }
-      for (const decoration of spread.decorations ?? []) {
-        const key = decorationTargetId(spread.id, decoration.slotId);
-        seqRef.current.set(key, Math.max(seqRef.current.get(key) ?? 0, decoration.clientSeq));
-        revisionRef.current.set(key, decoration.revision);
-      }
-    }
-  }
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
 
-  if (initial && seqRef.current.size === 0) remember(initial);
+  useEffect(() => {
+    if (!initial || initialized.current) return;
+    rememberDraft(initial, seqRef.current, revisionRef.current);
+    initialized.current = true;
+  }, [initial]);
 
   function bump(id: string, fallback: number) {
     const next = (seqRef.current.get(id) ?? fallback) + 1;
@@ -103,9 +106,9 @@ export function usePageEditDraft(
       setView((current) => {
         const base = current ?? viewRef.current;
         if (!base) return result.view;
-        if (!result.ok || clientSeqOf(base, targetId) > sentSeq) return base;
+        if (!result.ok || clientSeqOf(base, targetId) > sentSeq || (seqRef.current.get(targetId) ?? 0) > sentSeq) return base;
         const next = mergeServerDraft(base, result.view as PersistedDraftView, sentSeq, targetId);
-        if (next === result.view) remember(next);
+        if (next === result.view) rememberDraft(next, seqRef.current, revisionRef.current);
         viewRef.current = next;
         return next;
       });
@@ -225,14 +228,7 @@ export function usePageEditDraft(
     return { spreadId, slotId: rest.join(":") };
   }
 
-  function writeText(
-    spreadId: string,
-    slotId: string,
-    next: { mode: OverrideMode; text: string | null; styleId: TextStyleId | null },
-    field: "text" | "textStyle",
-    debounce: boolean,
-    record: boolean,
-  ) {
+  function writeText(spreadId: string, slotId: string, next: { mode: OverrideMode; text: string | null; styleId: TextStyleId | null }, field: "text" | "textStyle", debounce: boolean, record: boolean) {
     const current = viewRef.current;
     const spread = current?.spreads.find((item) => item.id === spreadId);
     const kind = slotKind(slotId);
@@ -256,11 +252,7 @@ export function usePageEditDraft(
     if (pending) clearTimeout(pending);
     const send = () => {
       timers.current.delete(targetId);
-      void track(
-        () => overrideSpreadText(spreadId, slotId, kind, revision, nextSeq, next.mode, next.text, next.styleId),
-        nextSeq,
-        targetId,
-      );
+      void track(() => overrideSpreadText(spreadId, slotId, kind, revision, nextSeq, next.mode, next.text, next.styleId), nextSeq, targetId);
     };
     if (record) {
       if (field === "textStyle") {
@@ -284,12 +276,7 @@ export function usePageEditDraft(
     timers.current.set(targetId, setTimeout(send, AUTOSAVE_DEBOUNCE_MS));
   }
 
-  function writeDecoration(
-    spreadId: string,
-    slotId: string,
-    next: DecorationOverrideSnapshot,
-    record: boolean,
-  ) {
+  function writeDecoration(spreadId: string, slotId: string, next: DecorationOverrideSnapshot, record: boolean) {
     const current = viewRef.current;
     const spread = current?.spreads.find((item) => item.id === spreadId);
     if (!current || !spread || readonly) return;
@@ -326,11 +313,161 @@ export function usePageEditDraft(
     viewRef.current = nextView;
     setView(nextView);
     if (record) history.push({ targetId, field: "decoration", before, after: next });
-    void track(
-      () => overrideSpreadDecoration(spreadId, slotId, revision, nextSeq, next.mode, next.decorationId, next.scale),
-      nextSeq,
-      targetId,
+    void track(() => overrideSpreadDecoration(spreadId, slotId, revision, nextSeq, next.mode, next.decorationId, next.scale), nextSeq, targetId);
+  }
+
+  function writePageElement(spreadId: string, elementId: string, next: PageElement | null, record = true, debounce = false) {
+    const current = viewRef.current;
+    const spread = current?.spreads.find((item) => item.id === spreadId);
+    const before = spread?.elements.find((item) => item.id === elementId) ?? null;
+    if (!current || !spread || readonly) return;
+    const normalized = next ? normalizePageElement(next) : null;
+    if (next && (!normalized || normalized.id !== elementId)) {
+      setSaveState("error");
+      setError("要素の内容が不正です。");
+      return;
+    }
+    const targetId = `element:${spreadId}:${elementId}`;
+    const nextSeq = bump(targetId, before?.clientSeq ?? 0);
+    const revision = revisionOf(targetId, before?.revision ?? 0);
+    const element = normalized ? { ...normalized, revision, clientSeq: nextSeq } : null;
+    intent.current = { kind: "element", spreadId, elementId, element };
+    revisionRef.current.set(targetId, revision);
+    const nextView: PersistedDraftView = {
+      ...current,
+      spreads: current.spreads.map((item) => {
+        if (item.id !== spreadId) return item;
+        const elements = item.elements.filter((candidate) => candidate.id !== elementId);
+        if (element) elements.push(element);
+        return { ...item, elements };
+      }),
+    };
+    viewRef.current = nextView;
+    setView(nextView);
+    if (record) {
+      const edit = { targetId, field: "element" as const, before, after: element };
+      if (debounce) history.note(edit);
+      else history.push(edit);
+    }
+    const pending = timers.current.get(targetId);
+    if (pending) clearTimeout(pending);
+    const send = () => {
+      timers.current.delete(targetId);
+      void track(() => overridePageElement(spreadId, elementId, revision, nextSeq, element), nextSeq, targetId);
+    };
+    if (!debounce) {
+      send();
+      return;
+    }
+    setSaveState("saving");
+    timers.current.set(targetId, setTimeout(send, AUTOSAVE_DEBOUNCE_MS));
+  }
+
+  function writeBackground(spreadId: string, pageSide: PageSide, backgroundId: ElementBackgroundId | null, record = true) {
+    const current = viewRef.current;
+    const spread = current?.spreads.find((item) => item.id === spreadId);
+    if (!current || !spread || readonly) return;
+    const targetId = `background:${spreadId}:${pageSide}`;
+    const before = spread.backgrounds[pageSide];
+    const nextSeq = bump(targetId, before.clientSeq);
+    const revision = revisionOf(targetId, before.revision);
+    intent.current = { kind: "background", spreadId, pageSide, backgroundId };
+    revisionRef.current.set(targetId, revision);
+    const nextView: PersistedDraftView = {
+      ...current,
+      spreads: current.spreads.map((item) => (item.id === spreadId ? { ...item, backgrounds: { ...item.backgrounds, [pageSide]: { backgroundId, revision, clientSeq: nextSeq } } } : item)),
+    };
+    viewRef.current = nextView;
+    setView(nextView);
+    if (record) history.push({ targetId, field: "background", before: before.backgroundId, after: backgroundId });
+    void track(() => overrideSpreadBackground(spreadId, pageSide, revision, nextSeq, backgroundId), nextSeq, targetId);
+  }
+
+  function writeRecommendationSnapshot(spreadId: string, next: RecommendationSnapshot, record: boolean) {
+    const spread = viewRef.current?.spreads.find((item) => item.id === spreadId);
+    if (!spread || readonly) return;
+    const before: RecommendationSnapshot = {
+      elements: spread.elements.filter((element) => element.recommendationId?.startsWith("task059:")),
+      backgrounds: { left: spread.backgrounds.left.backgroundId, right: spread.backgrounds.right.backgroundId },
+    };
+    if (record) {
+      history.push({ targetId: `recommendation:${spreadId}`, field: "recommendation", before, after: next });
+    }
+    const elementIds = new Set([...before.elements.map((element) => element.id), ...next.elements.map((element) => element.id)]);
+    for (const elementId of elementIds) {
+      const target = next.elements.find((element) => element.id === elementId) ?? null;
+      const current = spread.elements.find((element) => element.id === elementId);
+      if (!current || !target || JSON.stringify(current) !== JSON.stringify(target)) {
+        writePageElement(spreadId, elementId, target, false, false);
+      }
+    }
+    for (const side of ["left", "right"] as const) {
+      if (spread.backgrounds[side].backgroundId !== next.backgrounds[side]) {
+        writeBackground(spreadId, side, next.backgrounds[side], false);
+      }
+    }
+  }
+
+  function applyDecorationRecommendation(spreadId: string, change: RecommendationChange) {
+    const current = viewRef.current?.spreads.find((item) => item.id === spreadId);
+    if (!current || readonly) return false;
+    const ownedByRecommendation = (element: PageElement) => element.recommendationId?.startsWith("task059:") === true;
+    const userElements = current.elements.filter((element) => !ownedByRecommendation(element));
+    const hasUserPolish = current.texts.some((item) => item.overrideMode !== "inherit") || current.decorations.some((item) => item.overrideMode !== "inherit");
+    const previousAi = current.elements.filter(ownedByRecommendation);
+    const backgroundsAreAiOwned = previousAi.some((element) =>
+      ["left", "right"].every((side) => {
+        const expected = element.recommendationBackgroundsAfter?.[side as PageSide];
+        return expected === undefined || expected === current.backgrounds[side as PageSide].backgroundId;
+      }),
     );
+    const hasManualBackground = (["left", "right"] as const).some((side) => current.backgrounds[side].backgroundId != null && !backgroundsAreAiOwned);
+    if (userElements.length > 0 || hasUserPolish || hasManualBackground) {
+      setError("手動で追加した要素を保護するため、AI提案は適用できません。");
+      return false;
+    }
+    const before: RecommendationSnapshot = {
+      elements: previousAi,
+      backgrounds: { left: current.backgrounds.left.backgroundId, right: current.backgrounds.right.backgroundId },
+    };
+    const inheritedBackgrounds = previousAi.find((element) => element.recommendationBackgroundsBefore)?.recommendationBackgroundsBefore;
+    const backgroundBaseline = {
+      left: inheritedBackgrounds?.left ?? before.backgrounds.left,
+      right: inheritedBackgrounds?.right ?? before.backgrounds.right,
+    };
+    const nextBackgrounds = { ...backgroundBaseline, ...change.backgrounds };
+    const recommendationId = `task059:${crypto.randomUUID()}`;
+    const next: RecommendationSnapshot = {
+      backgrounds: nextBackgrounds,
+      elements: change.elements.map((element) => ({
+        ...element,
+        recommendationId,
+        recommendationBackgroundsBefore: backgroundBaseline,
+        recommendationBackgroundsAfter: nextBackgrounds,
+      })),
+    };
+    writeRecommendationSnapshot(spreadId, next, true);
+    setSaveState("saving");
+    return true;
+  }
+
+  function clearAIRecommendations(spreadId: string) {
+    const current = viewRef.current?.spreads.find((item) => item.id === spreadId);
+    if (!current || readonly) return false;
+    const recommendations = current.elements.filter((element) => element.recommendationId?.startsWith("task059:"));
+    if (recommendations.length === 0) return false;
+    const backgrounds = { left: current.backgrounds.left.backgroundId, right: current.backgrounds.right.backgroundId };
+    for (const element of recommendations) {
+      for (const side of ["left", "right"] as const) {
+        const applied = element.recommendationBackgroundsAfter?.[side];
+        if (applied !== undefined && backgrounds[side] === applied) {
+          backgrounds[side] = element.recommendationBackgroundsBefore?.[side] ?? null;
+        }
+      }
+    }
+    writeRecommendationSnapshot(spreadId, { elements: [], backgrounds }, true);
+    setSaveState("saving");
+    return true;
   }
 
   function applyEntry(entry: EditorHistoryEntry, value: unknown) {
@@ -355,13 +492,25 @@ export function usePageEditDraft(
       const { spreadId, slotId } = targetParts(entry.targetId);
       writeDecoration(spreadId, slotId, value as DecorationOverrideSnapshot, false);
     }
+    if (entry.field === "element") {
+      const { spreadId, slotId: elementId } = targetParts(entry.targetId);
+      writePageElement(spreadId, elementId, (value as PageElement | null) ?? null, false);
+    }
+    if (entry.field === "background") {
+      const { spreadId, slotId } = targetParts(entry.targetId);
+      writeBackground(spreadId, slotId as PageSide, (value as ElementBackgroundId | null) ?? null, false);
+    }
+    if (entry.field === "recommendation") {
+      const { spreadId } = targetParts(entry.targetId);
+      writeRecommendationSnapshot(spreadId, value as RecommendationSnapshot, false);
+    }
   }
 
   function spreadIdOf(entry: EditorHistoryEntry) {
     const current = viewRef.current;
     if (!current) return null;
     if (entry.field === "layout") return entry.targetId;
-    if (entry.field === "text" || entry.field === "textStyle" || entry.field === "decoration") {
+    if (entry.field === "text" || entry.field === "textStyle" || entry.field === "decoration" || entry.field === "element" || entry.field === "background" || entry.field === "recommendation") {
       return targetParts(entry.targetId).spreadId || null;
     }
     return current.spreads.find((spread) => spread.sourceFrames.some((frame) => frame.id === entry.targetId))?.id ?? null;
@@ -393,6 +542,8 @@ export function usePageEditDraft(
       writeText(pending.spreadId, pending.slotId, pending, "text", false, false);
     }
     if (pending.kind === "decoration") writeDecoration(pending.spreadId, pending.slotId, pending, false);
+    if (pending.kind === "element") writePageElement(pending.spreadId, pending.elementId, pending.element, false, false);
+    if (pending.kind === "background") writeBackground(pending.spreadId, pending.pageSide, pending.backgroundId, false);
   }
 
   async function refreshUrls() {
@@ -441,16 +592,7 @@ export function usePageEditDraft(
           after: null,
         });
       }
-      writeText(
-        spreadId,
-        slotId,
-        mode === "inherit"
-          ? { mode, text: null, styleId: null }
-          : { mode, text: current.text, styleId: current.styleId },
-        "text",
-        false,
-        true,
-      );
+      writeText(spreadId, slotId, mode === "inherit" ? { mode, text: null, styleId: null } : { mode, text: current.text, styleId: current.styleId }, "text", false, true);
     },
     setDecoration: (spreadId: string, slotId: string, decorationId: string | null, scale: ScalePreset | null) => {
       if (decorationId != null && !isDecorationId(decorationId)) {
@@ -458,25 +600,23 @@ export function usePageEditDraft(
         setError("未対応の装飾です。");
         return;
       }
-      writeDecoration(
-        spreadId,
-        slotId,
-        { mode: "replace", decorationId: decorationId ?? null, scale: scale ?? "small" },
-        true,
-      );
+      writeDecoration(spreadId, slotId, { mode: "replace", decorationId: decorationId ?? null, scale: scale ?? "small" }, true);
     },
     setDecorationMode: (spreadId: string, slotId: string, mode: "inherit" | "hidden") => {
       const spread = viewRef.current?.spreads.find((item) => item.id === spreadId);
       const current = decorationUserSnapshot(spread?.decorations.find((item) => item.slotId === slotId));
-      writeDecoration(
-        spreadId,
-        slotId,
-        mode === "inherit"
-          ? { mode, decorationId: null, scale: null }
-          : { mode, decorationId: current.decorationId, scale: current.scale },
-        true,
-      );
+      writeDecoration(spreadId, slotId, mode === "inherit" ? { mode, decorationId: null, scale: null } : { mode, decorationId: current.decorationId, scale: current.scale }, true);
     },
+    beginPageElementGesture: (spreadId: string, elementId: string) => {
+      if (readonly) return;
+      const element = viewRef.current?.spreads.find((item) => item.id === spreadId)?.elements.find((item) => item.id === elementId);
+      history.beginGesture({ targetId: `element:${spreadId}:${elementId}`, field: "element", before: element ?? null, after: element ?? null });
+    },
+    endPageElementGesture: () => history.endGesture(),
+    setPageElement: (spreadId: string, elementId: string, element: PageElement | null, debounce = false) => writePageElement(spreadId, elementId, element ? { ...element, recommendationId: undefined, recommendationBackgroundsBefore: undefined, recommendationBackgroundsAfter: undefined } : null, true, debounce),
+    setPageBackground: (spreadId: string, pageSide: PageSide, backgroundId: ElementBackgroundId | null) => writeBackground(spreadId, pageSide, backgroundId, true),
+    applyDecorationRecommendation,
+    clearAIRecommendations,
     undo,
     redo,
     canUndo: !readonly && Boolean(view) && history.canUndo,

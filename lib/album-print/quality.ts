@@ -2,9 +2,10 @@ import { DECORATIONS, textStylePreset } from "../album-polish/catalog.ts";
 import type { TextStyleId } from "../album-polish/types.ts";
 import { ALBUM_PRINT_CONFIG } from "./config.ts";
 import { visibleSourcePixels } from "./crop.ts";
-import { gutterNorm } from "./geometry.ts";
+import { gutterNorm, spreadFontPt } from "./geometry.ts";
 import { fontPlan } from "./fonts.ts";
-import { estimateDpi } from "../print/layout/units.ts";
+import { estimateDpi, mmToPoints } from "../print/layout/units.ts";
+import { ALBUM_PRINT_SPEC } from "./print-spec.ts";
 import type { AlbumPrintSnapshot, PrintIssue, PrintRect } from "./types.ts";
 
 export type PrintImageFact = {
@@ -19,6 +20,15 @@ function intersects(a: { x: number; y: number; w: number; h: number }, b: { x: n
 
 function outside(rect: { x: number; y: number; w: number; h: number }) {
   return rect.x < -0.001 || rect.y < -0.001 || rect.x + rect.w > 1.001 || rect.y + rect.h > 1.001 || rect.w <= 0 || rect.h <= 0;
+}
+
+function inside(rect: { x: number; y: number; w: number; h: number }, area: { x: number; y: number; w: number; h: number }) {
+  return rect.x >= area.x && rect.y >= area.y && rect.x + rect.w <= area.x + area.w && rect.y + rect.h <= area.y + area.h;
+}
+
+function pageSafeArea(rect: { x: number; y: number; w: number; h: number }, snapshot: AlbumPrintSnapshot) {
+  const side = rect.x + rect.w / 2 < 0.5 ? "left" : "right";
+  return inside(rect, snapshot.geometry.safeArea[side]);
 }
 
 function cssFontPx(styleId: TextStyleId) {
@@ -42,17 +52,33 @@ export function textOverflows(text: string, slotWidthPx: number, slotHeightPx: n
   return lines > 2 || lines * fontPx * 1.35 > slotHeightPx + fontPx * 2;
 }
 
+function printTextOverflows(text: string, widthPt: number, heightPt: number, fontPt: number) {
+  let lines = 1;
+  let lineWidth = 0;
+  for (const character of text) {
+    if (character === "\n") {
+      lines++;
+      lineWidth = 0;
+      continue;
+    }
+    const glyphWidth = character.charCodeAt(0) > 255 ? fontPt * 0.9 : fontPt * 0.56;
+    if (lineWidth > 0 && lineWidth + glyphWidth > widthPt) {
+      lines++;
+      lineWidth = glyphWidth;
+    } else {
+      lineWidth += glyphWidth;
+    }
+  }
+  return lines * fontPt * 1.25 > heightPt + fontPt * 0.2;
+}
+
 function dpiLevel(dpi: number): "good" | "warning" | "low_resolution" {
   if (dpi >= ALBUM_PRINT_CONFIG.dpi.good) return "good";
   if (dpi >= ALBUM_PRINT_CONFIG.dpi.warning) return "warning";
   return "low_resolution";
 }
 
-export function assessPrintQuality(
-  snapshot: AlbumPrintSnapshot,
-  images: Record<string, PrintImageFact | null>,
-  options?: { fontsReady?: Partial<Record<TextStyleId, boolean>> },
-): PrintIssue[] {
+export function assessPrintQuality(snapshot: AlbumPrintSnapshot, images: Record<string, PrintImageFact | null>, options?: { fontsReady?: Partial<Record<TextStyleId, boolean>> }): PrintIssue[] {
   const issues: PrintIssue[] = [];
   const geometry = snapshot.geometry;
   if (geometry.canvas.width < 1 || geometry.spread.widthPt < 1 || geometry.cover.widthPt < 1) {
@@ -85,11 +111,34 @@ export function assessPrintQuality(
       }
     }
   }
-  if (
-    textOverflows(snapshot.cover.title, 21.5 * 10.5, 21.5 * 2.4, 21.5) ||
-    textOverflows(snapshot.cover.subtitle, 12.5 * 16, 12.5 * 2, 12.5)
-  ) {
+  if (textOverflows(snapshot.cover.title, 21.5 * 10.5, 21.5 * 2.4, 21.5) || textOverflows(snapshot.cover.subtitle, 12.5 * 16, 12.5 * 2, 12.5)) {
     issues.push({ code: "TEXT_OVERFLOW", severity: "blocking", message: "表紙の文字が枠を超えています。" });
+  }
+
+  for (const item of snapshot.compositionPlan?.items ?? []) {
+    if (item.kind !== "title" && item.kind !== "event") continue;
+    styles.add("editorial");
+    const inset = mmToPoints(ALBUM_PRINT_SPEC.safeInsetMm);
+    const safeWidth = mmToPoints(ALBUM_PRINT_SPEC.trimWidthMm) - inset * 2;
+    const blocks =
+      item.kind === "title"
+        ? [
+            { text: item.title, size: mmToPoints(7), height: mmToPoints(18) },
+            { text: item.petName, size: mmToPoints(4.2), height: mmToPoints(10) },
+            { text: item.period, size: mmToPoints(3.8), height: mmToPoints(9) },
+          ]
+        : [
+            { text: item.title, size: mmToPoints(6), height: mmToPoints(16) },
+            { text: item.dateLabel, size: mmToPoints(4.2), height: mmToPoints(10) },
+          ];
+    for (const block of blocks) {
+      if (block.size < 8) {
+        issues.push({ code: "MIN_FONT_SIZE", severity: "blocking", message: "イベントページの文字が印刷に必要な大きさを下回っています。" });
+      }
+      if (printTextOverflows(block.text, safeWidth, block.height, block.size)) {
+        issues.push({ code: "TEXT_OVERFLOW", severity: "blocking", message: "タイトル/イベントページの文字が安全な枠に収まりません。" });
+      }
+    }
   }
 
   for (const spread of snapshot.spreads) {
@@ -151,8 +200,20 @@ export function assessPrintQuality(
       if (outside(text.rect)) {
         issues.push({ code: "SAFE_AREA_VIOLATION", severity: "blocking", message: "文字が安全領域の外です。", spreadId: spread.id });
       }
+      if (!pageSafeArea(text.rect, snapshot)) {
+        issues.push({ code: "SAFE_AREA_VIOLATION", severity: "blocking", message: "文字が仕上がり安全域の外です。", spreadId: spread.id });
+      }
       if (intersects(text.rect, gutter)) {
         issues.push({ code: "GUTTER_VIOLATION", severity: "blocking", message: "文字がノドに入っています。", spreadId: spread.id });
+      }
+      if (spreadFontPt(cssFontPx(text.styleId), geometry) < 8) {
+        issues.push({ code: "MIN_FONT_SIZE", severity: "blocking", message: "文字が印刷に必要な大きさを下回っています。", spreadId: spread.id });
+      }
+      if (spread.frames.some((frame) => intersects(text.rect, frame.rect))) {
+        issues.push({ code: "TEXT_PHOTO_COLLISION", severity: "blocking", message: "文字が写真に重なっています。", spreadId: spread.id });
+      }
+      if (spread.decorations.some((decoration) => intersects(text.rect, decoration.rect))) {
+        issues.push({ code: "TEXT_DECORATION_COLLISION", severity: "blocking", message: "文字が装飾に重なっています。", spreadId: spread.id });
       }
     }
     for (const decoration of spread.decorations) {
@@ -170,7 +231,23 @@ export function assessPrintQuality(
       const hitsPhoto = spread.frames.some((frame) => intersects(decoration.rect, frame.rect));
       const hitsText = spread.texts.some((text) => intersects(decoration.rect, text.rect));
       if (hitsPhoto || hitsText) {
-        issues.push({ code: "DECORATION_COLLISION", severity: "warning", message: "装飾が写真または文字に重なっています。", spreadId: spread.id });
+        issues.push({ code: "DECORATION_COLLISION", severity: "blocking", message: "装飾が写真または文字に重なっています。", spreadId: spread.id });
+      }
+    }
+    for (const element of spread.elements) {
+      if (outside(element.rect) || !pageSafeArea(element.rect, snapshot)) {
+        issues.push({ code: "SAFE_AREA_VIOLATION", severity: "blocking", message: "ページ要素が仕上がり安全域の外です。", spreadId: spread.id });
+      }
+      if (element.type === "text") {
+        styles.add(element.fontId);
+        if (spreadFontPt(element.fontSize, geometry) < 8) {
+          issues.push({ code: "MIN_FONT_SIZE", severity: "blocking", message: "文字が印刷に必要な大きさを下回っています。", spreadId: spread.id });
+        }
+        if (spread.frames.some((frame) => intersects(element.rect, frame.rect))) {
+          issues.push({ code: "TEXT_PHOTO_COLLISION", severity: "blocking", message: "ページ文字が写真に重なっています。", spreadId: spread.id });
+        }
+      } else if (spread.frames.some((frame) => intersects(element.rect, frame.rect))) {
+        issues.push({ code: "DECORATION_COLLISION", severity: "blocking", message: "ページ装飾が写真に重なっています。", spreadId: spread.id });
       }
     }
   }

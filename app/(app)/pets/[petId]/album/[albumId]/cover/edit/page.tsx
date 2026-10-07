@@ -1,9 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import { loadActiveDraft, loadCoverEditor, loadEditorCandidates } from "@/app/(app)/album-draft-service";
-import { buildCoverTitleLines } from "@/lib/album-cover-title";
+import { buildCoverTitleLines, formatAlbumPeriodLabels } from "@/lib/album-cover-title";
 import { EDITOR_MISSING_DRAFT_MESSAGE, editorIsReadonly } from "@/lib/album-persistence/editor";
 import { createListImageUrls } from "@/lib/photo-list-images";
-import { signedUrls } from "@/lib/album-persistence/read-draft";
+import { signedPreviewUrls } from "@/lib/album-persistence/read-draft";
 import { createClient } from "@/lib/supabase/server";
 import { CoverEditScreen } from "./cover-edit-screen";
 
@@ -20,40 +20,21 @@ export default async function CoverEditPage({ params }: Props) {
   } = await supabase.auth.getUser();
   if (userError || !user) redirect("/login");
 
-  const { data: album, error: albumError } = await supabase
-    .from("albums")
-    .select("id, owner_user_id, pet_id, title, status, period_from, period_to, cover_photo_id")
-    .eq("id", albumId)
-    .eq("owner_user_id", user.id)
-    .eq("pet_id", petId)
-    .maybeSingle();
+  const { data: album, error: albumError } = await supabase.from("albums").select("id, owner_user_id, pet_id, title, status, period_from, period_to, cover_photo_id").eq("id", albumId).eq("owner_user_id", user.id).eq("pet_id", petId).maybeSingle();
 
   if (albumError || !album) notFound();
 
-  const { data: pet } = await supabase
-    .from("pets")
-    .select("id, name, owner_user_id")
-    .eq("id", petId)
-    .eq("owner_user_id", user.id)
-    .maybeSingle();
+  const { data: pet } = await supabase.from("pets").select("id, name, owner_user_id").eq("id", petId).eq("owner_user_id", user.id).maybeSingle();
   if (!pet) notFound();
 
-  const periodMonthLabel = formatMonthLabel(album.period_to ?? album.period_from);
+  const periodLabels = formatAlbumPeriodLabels(album.period_from, album.period_to);
+  const periodMonthLabel = periodLabels.monthLabel;
   const lines = buildCoverTitleLines(pet.name, album.title ?? "", periodMonthLabel);
-  const { data: rawAlbumPhotos } = await supabase
-    .from("album_photos")
-    .select("photo_id, position")
-    .eq("album_id", albumId)
-    .order("position", { ascending: true });
+  const { data: rawAlbumPhotos } = await supabase.from("album_photos").select("photo_id, position").eq("album_id", albumId).order("position", { ascending: true });
   const albumPhotoIds = (rawAlbumPhotos ?? []).map((row) => row.photo_id);
   const draft = albumPhotoIds.length === 0 ? await loadActiveDraft(albumId) : null;
-  const draftPhotoId =
-    draft?.view?.spreads.flatMap((spread) => spread.frames.map((frame) => frame.effectivePhotoId)).find(Boolean) ??
-    null;
-  const initialPhotoId =
-    (album.cover_photo_id && albumPhotoIds.includes(album.cover_photo_id) ? album.cover_photo_id : null) ??
-    albumPhotoIds[0] ??
-    draftPhotoId;
+  const draftPhotoId = draft?.view?.spreads.flatMap((spread) => spread.frames.map((frame) => frame.effectivePhotoId)).find(Boolean) ?? null;
+  const initialPhotoId = (album.cover_photo_id && albumPhotoIds.includes(album.cover_photo_id) ? album.cover_photo_id : null) ?? albumPhotoIds[0] ?? draftPhotoId;
   const seed = {
     aiPhotoId: initialPhotoId,
     aiTitle: lines.main,
@@ -73,21 +54,16 @@ export default async function CoverEditPage({ params }: Props) {
       })
     : owned;
   if (albumCandidates.length === 0 && albumPhotoIds.length > 0) {
-    const { data: photos } = await supabase
-      .from("photos")
-      .select("id, storage_path, thumbnail_path")
-      .in("id", albumPhotoIds)
-      .eq("pet_id", petId)
-      .eq("uploader_user_id", user.id);
-    const originals = await signedUrls(
+    const { data: photos } = await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", albumPhotoIds).eq("pet_id", petId);
+    const previews = await signedPreviewUrls(
       supabase,
       (photos ?? []).map((photo) => photo.id),
     );
     const listed = await createListImageUrls(supabase, photos ?? []);
     for (const photo of photos ?? []) {
-      const src = originals.get(photo.id);
+      const src = previews.get(photo.id);
       if (!src) continue;
-      const thumb = photo.thumbnail_path ? listed.signedUrlByPath.get(photo.thumbnail_path) ?? src : src;
+      const thumb = photo.thumbnail_path ? (listed.signedUrlByPath.get(photo.thumbnail_path) ?? src) : src;
       albumCandidates.push({ id: photo.id, src, thumb });
     }
   }
@@ -97,7 +73,7 @@ export default async function CoverEditPage({ params }: Props) {
   return (
     <CoverEditScreen
       petName={pet.name}
-      dateLabel={formatCoverDate(album.period_to ?? album.period_from)}
+      dateLabel={periodLabels.coverDateLabel}
       cover={loaded.cover}
       seed={seed}
       albumId={albumId}
@@ -115,29 +91,4 @@ export default async function CoverEditPage({ params }: Props) {
       generateHref={`/pets/${petId}/album/new`}
     />
   );
-}
-
-function formatCoverDate(iso: string | null): string {
-  if (!iso) {
-    const now = new Date();
-    return `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}`;
-  }
-  const d = new Date(iso);
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Tokyo",
-    year: "numeric",
-    month: "2-digit",
-  }).formatToParts(d);
-  const y = parts.find((p) => p.type === "year")?.value ?? "2026";
-  const m = parts.find((p) => p.type === "month")?.value ?? "01";
-  return `${y}.${m}`;
-}
-
-function formatMonthLabel(iso: string | null): string {
-  if (!iso) return "今月";
-  const d = new Date(iso);
-  return d.toLocaleDateString("ja-JP", {
-    timeZone: "Asia/Tokyo",
-    month: "long",
-  });
 }

@@ -18,6 +18,7 @@ export type AlbumListCardData = {
   count: number;
   href: string;
   src: string | null;
+  statusLabel?: string;
   filterKeys: string[];
 };
 
@@ -98,6 +99,7 @@ export function AlbumListFilters({
                   </span>
                   <span className="album-list-text">
                     <span className="album-list-name">{card.label}</span>
+                    {card.statusLabel ? <span className="album-list-count">{card.statusLabel}</span> : null}
                     <span className="album-list-count">
                       {card.count.toLocaleString()}枚
                     </span>

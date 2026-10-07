@@ -1,4 +1,6 @@
 import type { AlbumLayoutDefinition } from "./types.ts";
+import { GRAMMAR_V1_PHOTO_TEMPLATES } from "./templates-v1.ts";
+import { withTemplateMetadata } from "./template-system.ts";
 
 /**
  * Task050 — Spread layout catalog (tech verification).
@@ -330,7 +332,180 @@ export const ALBUM_LAYOUTS: AlbumLayoutDefinition[] = [
       },
     ],
   },
-];
+  {
+    id: "L13",
+    name: "Portrait Hero + 4",
+    photoCount: 5,
+    purpose: "story",
+    balanceProfile: { heroWeight: 0.82, symmetry: 0.38, variety: 0.68 },
+    frames: [
+      {
+        id: "L13-hero",
+        cropShapeId: "portrait",
+        slotRole: "hero",
+        importance: 1,
+        rect: { x: 0.04, y: 0.05, w: 0.43, h: 0.9 },
+      },
+      {
+        id: "L13-s1",
+        cropShapeId: "square",
+        slotRole: "secondary",
+        importance: 0.52,
+        rect: { x: 0.56, y: 0.03, w: 0.4, h: 0.22 },
+      },
+      {
+        id: "L13-s2",
+        cropShapeId: "square",
+        slotRole: "secondary",
+        importance: 0.52,
+        rect: { x: 0.56, y: 0.27, w: 0.4, h: 0.22 },
+      },
+      {
+        id: "L13-s3",
+        cropShapeId: "square",
+        slotRole: "secondary",
+        importance: 0.52,
+        rect: { x: 0.56, y: 0.51, w: 0.4, h: 0.22 },
+      },
+      {
+        id: "L13-s4",
+        cropShapeId: "square",
+        slotRole: "secondary",
+        importance: 0.52,
+        rect: { x: 0.56, y: 0.75, w: 0.4, h: 0.22 },
+      },
+    ],
+  },
+  {
+    id: "L14",
+    name: "5 Balanced Grid",
+    photoCount: 5,
+    purpose: "collage",
+    balanceProfile: { heroWeight: 0.34, symmetry: 0.96, variety: 0.58 },
+    frames: [
+      {
+        id: "L14-a",
+        cropShapeId: "landscape",
+        slotRole: "primary",
+        importance: 0.74,
+        rect: { x: 0.04, y: 0.08, w: 0.42, h: 0.27 },
+      },
+      {
+        id: "L14-b",
+        cropShapeId: "landscape",
+        slotRole: "primary",
+        importance: 0.74,
+        rect: { x: 0.04, y: 0.54, w: 0.42, h: 0.27 },
+      },
+      {
+        id: "L14-c",
+        cropShapeId: "square",
+        slotRole: "primary",
+        importance: 0.74,
+        rect: { x: 0.66, y: 0.04, w: 0.3, h: 0.25 },
+      },
+      {
+        id: "L14-d",
+        cropShapeId: "square",
+        slotRole: "primary",
+        importance: 0.74,
+        rect: { x: 0.66, y: 0.37, w: 0.3, h: 0.25 },
+      },
+      {
+        id: "L14-e",
+        cropShapeId: "square",
+        slotRole: "primary",
+        importance: 0.74,
+        rect: { x: 0.66, y: 0.7, w: 0.3, h: 0.25 },
+      },
+    ],
+  },
+  {
+    id: "L15",
+    name: "Landscape Hero + 4",
+    photoCount: 5,
+    purpose: "story",
+    balanceProfile: { heroWeight: 0.84, symmetry: 0.42, variety: 0.72 },
+    frames: [
+      { id: "L15-hero", cropShapeId: "landscape", slotRole: "hero", importance: 1, rect: { x: 0.04, y: 0.05, w: 0.92, h: 0.53 } },
+      { id: "L15-a", cropShapeId: "square", slotRole: "secondary", importance: 0.55, rect: { x: 0.04, y: 0.62, w: 0.21, h: 0.32 } },
+      { id: "L15-b", cropShapeId: "square", slotRole: "secondary", importance: 0.55, rect: { x: 0.275, y: 0.62, w: 0.21, h: 0.32 } },
+      { id: "L15-c", cropShapeId: "square", slotRole: "secondary", importance: 0.55, rect: { x: 0.515, y: 0.62, w: 0.21, h: 0.32 } },
+      { id: "L15-d", cropShapeId: "square", slotRole: "secondary", importance: 0.55, rect: { x: 0.75, y: 0.62, w: 0.21, h: 0.32 } },
+    ],
+  },
+  {
+    id: "L16",
+    name: "4 + Right Hero",
+    photoCount: 5,
+    purpose: "story",
+    balanceProfile: { heroWeight: 0.82, symmetry: 0.38, variety: 0.68 },
+    frames: [
+      { id: "L16-a", cropShapeId: "square", slotRole: "secondary", importance: 0.54, rect: { x: 0.04, y: 0.05, w: 0.2, h: 0.42 } },
+      { id: "L16-b", cropShapeId: "square", slotRole: "secondary", importance: 0.54, rect: { x: 0.27, y: 0.05, w: 0.2, h: 0.42 } },
+      { id: "L16-c", cropShapeId: "square", slotRole: "secondary", importance: 0.54, rect: { x: 0.04, y: 0.53, w: 0.2, h: 0.42 } },
+      { id: "L16-d", cropShapeId: "square", slotRole: "secondary", importance: 0.54, rect: { x: 0.27, y: 0.53, w: 0.2, h: 0.42 } },
+      { id: "L16-hero", cropShapeId: "portrait", slotRole: "hero", importance: 1, rect: { x: 0.53, y: 0.05, w: 0.43, h: 0.9 } },
+    ],
+  },
+  {
+    id: "L17",
+    name: "Two Leads + 3",
+    photoCount: 5,
+    purpose: "story",
+    balanceProfile: { heroWeight: 0.66, symmetry: 0.7, variety: 0.7 },
+    frames: [
+      { id: "L17-a", cropShapeId: "portrait", slotRole: "primary", importance: 0.88, rect: { x: 0.04, y: 0.05, w: 0.43, h: 0.56 } },
+      { id: "L17-b", cropShapeId: "portrait", slotRole: "primary", importance: 0.88, rect: { x: 0.53, y: 0.05, w: 0.43, h: 0.56 } },
+      { id: "L17-c", cropShapeId: "landscape", slotRole: "secondary", importance: 0.58, rect: { x: 0.04, y: 0.66, w: 0.27, h: 0.29 } },
+      { id: "L17-d", cropShapeId: "landscape", slotRole: "secondary", importance: 0.58, rect: { x: 0.365, y: 0.66, w: 0.27, h: 0.29 } },
+      { id: "L17-e", cropShapeId: "landscape", slotRole: "secondary", importance: 0.58, rect: { x: 0.69, y: 0.66, w: 0.27, h: 0.29 } },
+    ],
+  },
+  {
+    id: "L18",
+    name: "Editorial Steps",
+    photoCount: 5,
+    purpose: "story",
+    balanceProfile: { heroWeight: 0.76, symmetry: 0.28, variety: 0.84 },
+    frames: [
+      { id: "L18-hero", cropShapeId: "landscape", slotRole: "hero", importance: 1, rect: { x: 0.04, y: 0.05, w: 0.55, h: 0.52 } },
+      { id: "L18-a", cropShapeId: "portrait", slotRole: "primary", importance: 0.76, rect: { x: 0.64, y: 0.05, w: 0.32, h: 0.42 } },
+      { id: "L18-b", cropShapeId: "portrait", slotRole: "secondary", importance: 0.58, rect: { x: 0.04, y: 0.63, w: 0.25, h: 0.32 } },
+      { id: "L18-c", cropShapeId: "landscape", slotRole: "secondary", importance: 0.58, rect: { x: 0.34, y: 0.63, w: 0.29, h: 0.32 } },
+      { id: "L18-d", cropShapeId: "square", slotRole: "secondary", importance: 0.58, rect: { x: 0.68, y: 0.53, w: 0.28, h: 0.42 } },
+    ],
+  },
+  {
+    id: "L19",
+    name: "Center Hero",
+    photoCount: 5,
+    purpose: "story",
+    balanceProfile: { heroWeight: 0.8, symmetry: 0.75, variety: 0.68 },
+    frames: [
+      { id: "L19-a", cropShapeId: "square", slotRole: "secondary", importance: 0.5, rect: { x: 0.04, y: 0.05, w: 0.23, h: 0.3 } },
+      { id: "L19-b", cropShapeId: "square", slotRole: "secondary", importance: 0.5, rect: { x: 0.73, y: 0.05, w: 0.23, h: 0.3 } },
+      { id: "L19-hero", cropShapeId: "portrait", slotRole: "hero", importance: 1, rect: { x: 0.31, y: 0.08, w: 0.38, h: 0.84 } },
+      { id: "L19-c", cropShapeId: "square", slotRole: "secondary", importance: 0.5, rect: { x: 0.04, y: 0.65, w: 0.23, h: 0.3 } },
+      { id: "L19-d", cropShapeId: "square", slotRole: "secondary", importance: 0.5, rect: { x: 0.73, y: 0.65, w: 0.23, h: 0.3 } },
+    ],
+  },
+  {
+    id: "L20",
+    name: "Balanced 2 + 3",
+    photoCount: 5,
+    purpose: "collage",
+    balanceProfile: { heroWeight: 0.38, symmetry: 0.9, variety: 0.6 },
+    frames: [
+      { id: "L20-a", cropShapeId: "landscape", slotRole: "primary", importance: 0.78, rect: { x: 0.04, y: 0.05, w: 0.43, h: 0.43 } },
+      { id: "L20-b", cropShapeId: "landscape", slotRole: "primary", importance: 0.78, rect: { x: 0.53, y: 0.05, w: 0.43, h: 0.43 } },
+      { id: "L20-c", cropShapeId: "square", slotRole: "primary", importance: 0.68, rect: { x: 0.04, y: 0.54, w: 0.27, h: 0.41 } },
+      { id: "L20-d", cropShapeId: "square", slotRole: "primary", importance: 0.68, rect: { x: 0.365, y: 0.54, w: 0.27, h: 0.41 } },
+      { id: "L20-e", cropShapeId: "square", slotRole: "primary", importance: 0.68, rect: { x: 0.69, y: 0.54, w: 0.27, h: 0.41 } },
+    ],
+  },
+  ...GRAMMAR_V1_PHOTO_TEMPLATES,
+].map((layout) => withTemplateMetadata(layout as AlbumLayoutDefinition));
 
 export function getAlbumLayout(id: string): AlbumLayoutDefinition | undefined {
   return ALBUM_LAYOUTS.find((l) => l.id === id);

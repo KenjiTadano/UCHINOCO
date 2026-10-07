@@ -1,32 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import {
-  applyCoverPhoto,
-  applyCoverTitle,
-  toCoverEditor,
-} from "../lib/album-persistence/cover.ts";
+import { applyCoverPhoto, applyCoverTitle, toCoverEditor } from "../lib/album-persistence/cover.ts";
 import { EDITOR_HISTORY_LIMIT } from "../lib/album-persistence/config.ts";
-import {
-  applyFrameCrop,
-  applyFramePhoto,
-  applySpreadLayout,
-  assembleEditorSpread,
-  toAlbumEditorSpread,
-} from "../lib/album-persistence/editor.ts";
+import { applyFrameCrop, applyFramePhoto, applySpreadLayout, assembleEditorSpread, toAlbumEditorSpread } from "../lib/album-persistence/editor.ts";
 import { decideWrite } from "../lib/album-persistence/resolve.ts";
-import {
-  beginGesture,
-  canRedoHistory,
-  canUndoHistory,
-  commitOpen,
-  createHistorySession,
-  historyValuesEqual,
-  noteEdit,
-  pushEdit,
-  redoHistory,
-  undoHistory,
-} from "../lib/album-persistence/history.ts";
+import { beginGesture, canRedoHistory, canUndoHistory, commitOpen, createHistorySession, historyValuesEqual, noteEdit, pushEdit, redoHistory, undoHistory } from "../lib/album-persistence/history.ts";
 
 const pageHook = await readFile("./app/(app)/pets/[petId]/album/[albumId]/pages/edit/use-page-edit-draft.ts", "utf8");
 const coverHook = await readFile("./app/(app)/pets/[petId]/album/[albumId]/cover/edit/use-cover-edit-draft.ts", "utf8");
@@ -88,35 +67,31 @@ function view() {
     revision: 1,
     signature: "sig",
     previewUrls: Object.fromEntries(urls),
-    spreads: [
-      assembleEditorSpread(first, [
-        frame("frame-1", first.id, 0, "L02-a", "primary", "photo-a", { x: 0.43, y: 0.43, scale: 1.15 }),
-      ], urls),
-      assembleEditorSpread(third, [
-        frame("frame-5", third.id, 0, "L01-hero", "hero", "photo-a", { x: 0.5, y: 0.37, scale: 1 }),
-      ], urls),
-    ],
+    spreads: [assembleEditorSpread(first, [frame("frame-1", first.id, 0, "L02-a", "primary", "photo-a", { x: 0.43, y: 0.43, scale: 1.15 })], urls), assembleEditorSpread(third, [frame("frame-5", third.id, 0, "L01-hero", "hero", "photo-a", { x: 0.5, y: 0.37, scale: 1 })], urls)],
   };
 }
 
 function coverModel() {
-  return toCoverEditor({
-    id: "cover-1",
-    draftVersionId: "version-1",
-    coverType: "front",
-    aiPhotoId: "photo-a",
-    userPhotoId: null,
-    aiTitle: "7月の思い出",
-    userTitle: null,
-    aiSubtitle: "わかの",
-    userSubtitle: null,
-    aiTemplateId: "simple",
-    userTemplateId: null,
-    aiColorId: "white",
-    userColorId: null,
-    revision: 1,
-    clientSeq: 0,
-  }, { "photo-a": "https://example.test/a.jpg", "photo-b": "https://example.test/b.jpg" });
+  return toCoverEditor(
+    {
+      id: "cover-1",
+      draftVersionId: "version-1",
+      coverType: "front",
+      aiPhotoId: "photo-a",
+      userPhotoId: null,
+      aiTitle: "7月の思い出",
+      userTitle: null,
+      aiSubtitle: "わかの",
+      userSubtitle: null,
+      aiTemplateId: "simple",
+      userTemplateId: null,
+      aiColorId: "white",
+      userColorId: null,
+      revision: 1,
+      clientSeq: 0,
+    },
+    { "photo-a": "https://example.test/a.jpg", "photo-b": "https://example.test/b.jpg" },
+  );
 }
 
 test("1. layout undo restores the previous user override", () => {
@@ -319,17 +294,24 @@ test("12. title redo reapplies the grouped text", () => {
 });
 
 test("13. subtitle undo restores the previous user subtitle", () => {
-  const session = pushEdit(commitOpen(noteEdit(createHistorySession(), "cover", {
-    targetId: "cover-1",
-    field: "subtitle",
-    before: null,
-    after: "うちのこの夏",
-  }), "cover"), "cover", {
-    targetId: "cover-1",
-    field: "template",
-    before: null,
-    after: "natural",
-  });
+  const session = pushEdit(
+    commitOpen(
+      noteEdit(createHistorySession(), "cover", {
+        targetId: "cover-1",
+        field: "subtitle",
+        before: null,
+        after: "うちのこの夏",
+      }),
+      "cover",
+    ),
+    "cover",
+    {
+      targetId: "cover-1",
+      field: "template",
+      before: null,
+      after: "natural",
+    },
+  );
   const undone = undoHistory(undoHistory(session, "cover").session, "cover");
   assert.equal(undone.entry.field, "subtitle");
   assert.equal(undone.entry.before, null);
@@ -419,12 +401,18 @@ test("19. an unchanged value is not recorded", () => {
 test("20. history keeps only the configured limit", () => {
   let session = createHistorySession();
   for (let index = 0; index < 5; index += 1) {
-    session = pushEdit(session, "page", {
-      targetId: `spread-${index}`,
-      field: "layout",
-      before: null,
-      after: `L0${index}`,
-    }, index, 3);
+    session = pushEdit(
+      session,
+      "page",
+      {
+        targetId: `spread-${index}`,
+        field: "layout",
+        before: null,
+        after: `L0${index}`,
+      },
+      index,
+      3,
+    );
   }
   assert.equal(session.undo.length, 3);
   assert.equal(session.undo[0].targetId, "spread-2");
@@ -446,6 +434,26 @@ test("22. reload starts from an empty session history", () => {
   assert.match(historyHook, /createHistorySession\(\)/);
   assert.equal(historyHook.includes("localStorage"), false);
   assert.equal(historySource.includes("album_draft"), false);
+});
+
+test("Task059 apply/reset is one recommendation snapshot in the existing undo stack", () => {
+  const before = { elements: [], backgrounds: { left: null, right: null } };
+  const after = {
+    elements: [{ id: "rec-mark", type: "stamp", recommendationId: "task059:rec-1" }],
+    backgrounds: { left: "warm", right: "warm" },
+  };
+  const applied = pushEdit(createHistorySession(), "page", {
+    targetId: "recommendation:spread-1",
+    field: "recommendation",
+    before,
+    after,
+  });
+  assert.deepEqual(undoHistory(applied, "page").entry.before, before);
+  assert.deepEqual(redoHistory(undoHistory(applied, "page").session, "page").entry.after, after);
+  assert.match(pageHook, /field: "recommendation"/);
+  assert.match(pageHook, /writeRecommendationSnapshot\(spreadId, value as RecommendationSnapshot, false\)/);
+  assert.match(pageHook, /userElements\.length > 0 \|\| hasUserPolish \|\| hasManualBackground/);
+  assert.ok(pageHook.includes('element.recommendationId?.startsWith("task059:")'));
 });
 
 test("23. undo saves through the newest client sequence", () => {
@@ -474,7 +482,7 @@ test("25. undo does not call Vision", () => {
   assert.match(spreadView, /onCropStart/);
   assert.match(spreadView, /onCropEnd/);
   assert.match(pageScreen, /revealSpread/);
-  assert.match(controls, /tag === "INPUT"/);
+  assert.match(controls, /target\.type === "range"/);
   assert.match(controls, /data-testid="editor-undo"/);
   assert.match(coverScreen, /EditorHistoryControls/);
 });

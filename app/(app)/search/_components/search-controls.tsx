@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Cake,
@@ -97,18 +98,20 @@ export function SearchControls({
   facets,
   contextPetName,
   popularKeywords,
+  advancedEnabled,
 }: {
   base: string;
   state: SearchState;
   facets: SearchFacets | null;
   contextPetName?: string;
   popularKeywords: KeywordItem[];
+  advancedEnabled: boolean;
 }) {
   const router = useRouter();
   const filterId = useId();
   const [pending, startTransition] = useTransition();
   const [filtersOpen, setFiltersOpen] = useState(
-    Boolean(state.from || state.to || state.favorite),
+    Boolean(state.from || state.to || state.favorite || state.year || state.month || state.season || state.best || state.anniversary || state.story),
   );
   const [showAllKeywords, setShowAllKeywords] = useState(false);
 
@@ -127,6 +130,12 @@ export function SearchControls({
       state.favorite ||
       state.from ||
       state.to ||
+      state.year ||
+      state.month ||
+      state.season ||
+      state.best ||
+      state.anniversary ||
+      state.story ||
       (!contextPetName && state.pet),
   );
 
@@ -182,10 +191,11 @@ export function SearchControls({
           例）海、散歩、寝顔、おもちゃ、桜、誕生日 など
         </p>
 
-        {state.pet ? <input type="hidden" name="pet" value={state.pet} /> : null}
+        {contextPetName && state.pet ? <input type="hidden" name="pet" value={state.pet} /> : null}
         {state.kind ? <input type="hidden" name="kind" value={state.kind} /> : null}
         {state.word ? <input type="hidden" name="word" value={state.word} /> : null}
         {state.favorite ? <input type="hidden" name="favorite" value="1" /> : null}
+        {state.best ? <input type="hidden" name="best" value="1" /> : null}
 
         <div
           id={filterId}
@@ -193,6 +203,32 @@ export function SearchControls({
           hidden={!filtersOpen}
         >
           <div className="search-filters-dates">
+            {!contextPetName ? (
+              <label className="search-filter-label" htmlFor="search-pet">
+                ペット
+                <select className="app-input min-w-0" id="search-pet" name="pet" defaultValue={state.pet}>
+                  <option value="">すべてのうちの子</option>
+                  {(facets?.pets ?? []).map((pet) => <option key={pet.id} value={pet.id}>{pet.name}</option>)}
+                </select>
+              </label>
+            ) : null}
+            {advancedEnabled ? <><label className="search-filter-label" htmlFor="search-year">
+              年
+              <input className="app-input min-w-0" id="search-year" name="year" inputMode="numeric" pattern="[0-9]{4}" placeholder="2026" defaultValue={state.year} />
+            </label>
+            <label className="search-filter-label" htmlFor="search-month">
+              月
+              <select className="app-input min-w-0" id="search-month" name="month" defaultValue={state.month}>
+                <option value="">すべて</option>
+                {Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}月</option>)}
+              </select>
+            </label>
+            <label className="search-filter-label" htmlFor="search-season">
+              季節
+              <select className="app-input min-w-0" id="search-season" name="season" defaultValue={state.season}>
+                <option value="">すべて</option><option value="spring">春</option><option value="summer">夏</option><option value="autumn">秋</option><option value="winter">冬</option>
+              </select>
+            </label>
             <label className="search-filter-label" htmlFor="search-from">
               開始日
               <input
@@ -213,6 +249,26 @@ export function SearchControls({
                 defaultValue={state.to}
               />
             </label>
+            <label className="search-filter-label" htmlFor="search-anniversary">
+              記念日
+              <select className="app-input min-w-0" id="search-anniversary" name="anniversary" defaultValue={state.anniversary}>
+                <option value="">すべて</option><option value="birthday">誕生日</option><option value="adoption">お迎え日</option><option value="on_this_day">過去の今日</option>
+              </select>
+            </label>
+            <label className="search-filter-label" htmlFor="search-story">
+              Story
+              <select className="app-input min-w-0" id="search-story" name="story" defaultValue={state.story}>
+                <option value="">すべて</option><option value="event">イベント</option><option value="same_day">同じ日のStory</option><option value="sequence">連続したStory</option><option value="contrast">対比</option><option value="everyday">日常</option><option value="single">1枚のStory</option>
+              </select>
+            </label>
+            </> : (
+              <div className="rounded-[14px] border border-border-warm bg-surface-warm px-4 py-3 text-sm text-muted sm:col-span-2">
+                <p>年・月・季節・記念日・Storyでの詳細検索はPLUSで利用できます。</p>
+                <Link href={`/plus?next=${encodeURIComponent(base)}`} className="ds-focus mt-2 inline-flex min-h-11 items-center font-semibold text-brand-terracotta-strong">
+                  PLUSを見る
+                </Link>
+              </div>
+            )}
           </div>
           <div className="search-filters-actions">
             <button type="submit" className="app-button-secondary" disabled={pending}>
@@ -230,6 +286,9 @@ export function SearchControls({
                 <span className="tabular-nums text-[10px]">{facets.favorites}</span>
               ) : null}
             </button>
+            {advancedEnabled ? <button type="button" className={`search-fav-toggle ds-focus ${state.best ? "is-on" : ""}`} aria-pressed={state.best} disabled={pending} onClick={() => change({ best: !state.best })}>
+              <span aria-hidden="true">★</span> Best Shot
+            </button> : null}
             {isFiltered ? (
               <button
                 type="button"

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BEST_SHOT_VERSION } from "../lib/best-shot/config.ts";
-import { bestShotCacheKey, clearBestShotCache, getBestShotCache, setBestShotCache } from "../lib/best-shot/cache.ts";
+import { bestShotCacheKey, clearBestShotCache, getBestShotCache, getBestShotCacheByPhotoIds, setBestShotCache } from "../lib/best-shot/cache.ts";
 import { selectBestShot } from "../lib/best-shot/select.ts";
 import { visualPairKey } from "../lib/best-shot/score.ts";
 
@@ -113,10 +113,7 @@ test("sharper wins a tie, and expression still beats a large focus gap", () => {
 test("playing scene prefers the playing frame when keeper scores match", () => {
   const stare = photo("stare", 82, { tags: ["home", "looking_camera"], expression: 82, unique: 40 });
   const play = photo("play", 82, { tags: ["home", "playing"], expression: 82, unique: 40 });
-  const result = selectBestShot(
-    group([stare, play], { activity: "playing", tags: ["home", "playing"] }),
-    [stare, play],
-  );
+  const result = selectBestShot(group([stare, play], { activity: "playing", tags: ["home", "playing"] }), [stare, play]);
   assert.equal(result.primaryPhotoId, "play");
   assert.ok(result.ranking[0].scores.sceneRepresentativeness > result.ranking[1].scores.sceneRepresentativeness);
 });
@@ -130,20 +127,14 @@ test("secondary is a different view, not a near duplicate", () => {
     [visualPairKey("front", "side")]: 62,
     [visualPairKey("twin", "side")]: 58,
   };
-  const result = selectBestShot(group([primary, twin, side], { pairs, similarity: 60 }), [
-    primary,
-    twin,
-    side,
-  ]);
+  const result = selectBestShot(group([primary, twin, side], { pairs, similarity: 60 }), [primary, twin, side]);
   assert.equal(result.primaryPhotoId, "front");
   assert.equal(result.secondaryPhotoId, "side");
   const twinRank = result.ranking.find((candidate) => candidate.photoId === "twin");
   assert.equal(twinRank.role, "alternate");
   assert.ok(twinRank.scores.duplicationPenalty >= 16);
 
-  const copies = ["a", "b", "c", "d", "e"].map((id, index) =>
-    photo(id, 90 - index, { unique: 15, expression: 80, composition: 80 }),
-  );
+  const copies = ["a", "b", "c", "d", "e"].map((id, index) => photo(id, 90 - index, { unique: 15, expression: 80, composition: 80 }));
   const burst = selectBestShot(group(copies, { similarity: 93 }), copies);
   assert.equal(burst.secondaryPhotoId, undefined);
 });
@@ -212,10 +203,7 @@ test("an ambiguous group lowers selection confidence and keeps a warning", () =>
   const a = photo("a", 88, { expression: 92, unique: 55 });
   const b = photo("b", 70, { expression: 60, unique: 40 });
   const c = photo("c", 68, { expression: 58, unique: 42 });
-  const result = selectBestShot(
-    group([a, b, c], { groupConfidence: 0.72, warnings: ["AMBIGUOUS_GROUP"], similarity: 60 }),
-    [a, b, c],
-  );
+  const result = selectBestShot(group([a, b, c], { groupConfidence: 0.72, warnings: ["AMBIGUOUS_GROUP"], similarity: 60 }), [a, b, c]);
   assert.ok(result.warnings.includes("GROUP_AMBIGUOUS"));
   assert.ok(result.confidence <= 0.85, String(result.confidence));
   assert.ok(result.confidence < 1);
@@ -234,6 +222,11 @@ test("best shot cache key includes version, group, and sorted photo ids", () => 
   const sample = selectBestShot(group([photo("a", 80)]), [photo("a", 80)]);
   setBestShotCache(key, sample);
   assert.equal(getBestShotCache(key)?.primaryPhotoId, "a");
+  const byPhotoId = getBestShotCacheByPhotoIds(["a", "missing"]);
+  assert.deepEqual([...byPhotoId.keys()], ["a"]);
+  assert.equal(byPhotoId.get("a")?.candidate.role, "primary");
+  assert.equal(byPhotoId.get("a")?.candidate.scores.sceneRepresentativeness, sample.ranking[0].scores.sceneRepresentativeness);
+  assert.equal(byPhotoId.get("a")?.confidence, sample.confidence);
   clearBestShotCache();
   assert.equal(getBestShotCache(key), null);
 });

@@ -38,11 +38,14 @@ export function toPreviewSpread(
     layoutId: effective.layoutId,
     layoutScore: 0,
     engineScore: 0,
-    assignments: ordered.map((frame, index) => {
+    selectedLayout: null,
+    assignments: ordered.slice(0, layoutFrames.length).map((frame, index) => {
       const shown = resolveEffectiveFrame(frame);
       const slot = layoutFrames[index];
       return {
-        frameId: frame.frameId,
+        // A manual layout switch keeps the same photos, but the visible slot id
+        // must come from the selected layout rather than the persisted AI slot.
+        frameId: slot?.id ?? frame.frameId,
         role: frame.role as AlbumSpreadDraft["assignments"][number]["role"],
         photoId: shown.photoId,
         frameMatchScore: frame.cropQuality ?? 0,

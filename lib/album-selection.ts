@@ -31,6 +31,22 @@ export type AlbumCandidate = {
   tags: string[] | null;
 };
 
+export function scopeAlbumPhotos<T extends Pick<AlbumCandidate, "id" | "pet_id" | "timeline_at">>(photos: T[], petIds: string[], periodFrom: Date, periodTo: Date): T[] {
+  const selectedPets = new Set(petIds);
+  const seenPhotos = new Set<string>();
+  const start = periodFrom.getTime();
+  const end = periodTo.getTime();
+
+  return photos.filter((photo) => {
+    const takenAt = new Date(photo.timeline_at).getTime();
+    if (!selectedPets.has(photo.pet_id) || !Number.isFinite(takenAt) || takenAt < start || takenAt > end || seenPhotos.has(photo.id)) {
+      return false;
+    }
+    seenPhotos.add(photo.id);
+    return true;
+  });
+}
+
 function scorePhoto(p: AlbumCandidate): number {
   let score = 0;
   if (p.favorite) score += 3;
@@ -95,14 +111,10 @@ export function selectAlbumPhotos(candidates: AlbumCandidate[]): AlbumCandidate[
 export function generateFallbackTitle(petName: string, periodFrom: Date, periodTo: Date): string {
   const month = periodTo.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "long" });
   const year = periodTo.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric" });
-  const spanMonths = Math.round(
-    (periodTo.getTime() - periodFrom.getTime()) / (1000 * 60 * 60 * 24 * 30),
-  );
+  const spanMonths = Math.round((periodTo.getTime() - periodFrom.getTime()) / (1000 * 60 * 60 * 24 * 30));
   if (spanMonths <= 1) return `${petName}との思い出 ${month}`;
   const season = toSeason(periodTo);
-  return season
-    ? `${petName}との${season} ${year}`
-    : `${petName}との思い出 ${year}`;
+  return season ? `${petName}との${season} ${year}` : `${petName}との思い出 ${year}`;
 }
 
 function toSeason(date: Date): string | null {

@@ -1,5 +1,8 @@
 import type { DraftDecoration, DraftTextElement } from "../album-polish/types.ts";
 import type { AlbumSpreadDraft } from "../album-draft/types.ts";
+import type { SpreadLayoutRanking } from "../album-draft/types.ts";
+import type { PageBackgroundState, PageElement, PageSide } from "../album-elements/model.ts";
+import type { AlbumCompositionPlan } from "../album-draft/composition.ts";
 import type { CropTriple, DraftFrameRow, DraftSpreadRow, WriteStatus } from "./types.ts";
 
 export type PersistedFrameView = {
@@ -32,6 +35,9 @@ export type PersistedSpreadView = {
   sourceFrames: DraftFrameRow[];
   texts: DraftTextElement[];
   decorations: DraftDecoration[];
+  elements: PageElement[];
+  backgrounds: Record<PageSide, PageBackgroundState>;
+  layoutRanking?: SpreadLayoutRanking | null;
 };
 
 export type PersistedDraftView = {
@@ -41,6 +47,7 @@ export type PersistedDraftView = {
   revision: number;
   signature: string;
   previewUrls: Record<string, string>;
+  compositionPlan?: AlbumCompositionPlan | null;
   spreads: PersistedSpreadView[];
 };
 

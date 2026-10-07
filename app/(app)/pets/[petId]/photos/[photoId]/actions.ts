@@ -237,7 +237,6 @@ async function getOwnedPhotoContext(petId: string, photoId: string) {
       .from("pets")
       .select("id, owner_user_id")
       .eq("id", petId)
-      .eq("owner_user_id", user.id)
       .maybeSingle(),
     supabase
       .from("photos")
@@ -266,7 +265,6 @@ async function getOwnedPhotoContext(petId: string, photoId: string) {
     photoResult.error ||
     !pet ||
     !photo ||
-    pet.owner_user_id !== user.id ||
     photo.pet_id !== pet.id ||
     photo.uploader_user_id !== user.id
   ) {
@@ -277,6 +275,21 @@ async function getOwnedPhotoContext(petId: string, photoId: string) {
   }
 
   return { supabase, user, photo };
+}
+
+async function getDeletablePhotoContext(petId: string, photoId: string) {
+  const supabase = await createClient();
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  if (userError || !user || !UUID_PATTERN.test(petId) || !UUID_PATTERN.test(photoId)) return null;
+  const [petResult, photoResult] = await Promise.all([
+    supabase.from("pets").select("id,owner_user_id").eq("id", petId).maybeSingle(),
+    supabase.from("photos").select("id,pet_id,uploader_user_id,storage_path,thumbnail_path,favorite").eq("id", photoId).eq("pet_id", petId).maybeSingle(),
+  ]);
+  const pet = petResult.data;
+  const photo = photoResult.data;
+  if (petResult.error || photoResult.error || !pet || !photo || photo.pet_id !== pet.id) return null;
+  if (photo.uploader_user_id !== user.id && pet.owner_user_id !== user.id) return null;
+  return { supabase, user, pet, photo };
 }
 
 function revalidatePhotoPages(petId: string, photoId: string) {
@@ -550,7 +563,7 @@ export async function deletePhoto(
   void _previousState;
   void _formData;
 
-  const context = await getOwnedPhotoContext(petId, photoId);
+  const context = await getDeletablePhotoContext(petId, photoId);
   if (!context) {
     logPhotoDeletionFailure(
       "authorization",
@@ -562,7 +575,7 @@ export async function deletePhoto(
     return { success: false, message: "写真の削除に失敗しました。もう一度お試しください。" };
   }
 
-  const { supabase, user, photo } = context;
+  const { supabase, photo } = context;
 
   // Guard: block deletion if photo is referenced by a paid order snapshot.
   // order_photos rows only exist for paid orders (created inside mark_order_paid).
@@ -582,9 +595,8 @@ export async function deletePhoto(
   const fileName = pathParts.at(-1);
   const folder = pathParts.slice(0, -1).join("/");
   const storagePathIsOwned =
-    photo.uploader_user_id === user.id &&
     pathParts.length === 5 &&
-    pathParts[0] === user.id &&
+    pathParts[0] === photo.uploader_user_id &&
     pathParts[1] === petId &&
     /^\d{4}$/.test(pathParts[2] ?? "") &&
     /^(0[1-9]|1[0-2])$/.test(pathParts[3] ?? "") &&
@@ -613,8 +625,7 @@ export async function deletePhoto(
     .from("photos")
     .delete()
     .eq("id", photo.id)
-    .eq("pet_id", petId)
-    .eq("uploader_user_id", user.id);
+    .eq("pet_id", petId);
   if (databaseError) {
     logPhotoDeletionFailure(
       "database_delete",
@@ -631,7 +642,6 @@ export async function deletePhoto(
     .select("id")
     .eq("id", photo.id)
     .eq("pet_id", petId)
-    .eq("uploader_user_id", user.id)
     .maybeSingle();
   const databaseDeleted = !remainingPhoto && !verifyError;
 
@@ -708,7 +718,6 @@ export async function analyzePhoto(
       .from("pets")
       .select("id, owner_user_id")
       .eq("id", petId)
-      .eq("owner_user_id", user.id)
       .maybeSingle(),
     supabase
       .from("photos")
@@ -725,7 +734,6 @@ export async function analyzePhoto(
     photoResult.error ||
     !pet ||
     !photo ||
-    pet.owner_user_id !== user.id ||
     photo.pet_id !== pet.id ||
     photo.uploader_user_id !== user.id
   ) {

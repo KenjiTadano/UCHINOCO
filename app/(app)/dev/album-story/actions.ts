@@ -8,8 +8,7 @@ import { albumStoryCacheKey, getAlbumStoryCache, setAlbumStoryCache } from "@/li
 import { buildAlbumStory } from "@/lib/album-story/group";
 import type { AlbumStoryResult, StorySceneInput, StorySpread } from "@/lib/album-story/types";
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type StoryPhotoCard = {
   photoId: string;
@@ -38,12 +37,12 @@ function emptyRun(message: string): AlbumStoryRun {
 }
 
 /** Group the month's selected scenes into spreads. Does not write a database row. */
-export async function buildPetAlbumStory(petId: string, periodInput: AlbumPeriodInput): Promise<AlbumStoryRun> {
+export async function buildPetAlbumStory(petId: string, periodInput: AlbumPeriodInput, options?: { storedOnly?: boolean; allowLargeImageDegrade?: boolean; dateRange?: { start: string; end: string }; allowedPhotoIds?: string[] }): Promise<AlbumStoryRun> {
   if (!UUID_PATTERN.test(petId)) return emptyRun("不正なIDです。");
-  const candidates = await selectPetAlbumCandidates(petId, periodInput);
+  const candidates = await selectPetAlbumCandidates(petId, periodInput, options);
   if (!candidates.ok || !candidates.result) return emptyRun(candidates.message ?? "候補の取得に失敗しました。");
 
-  const shots = await selectPetBestShots(petId);
+  const shots = await selectPetBestShots(petId, options);
   const memoryByPhoto = new Map<string, number>();
   if (shots.ok) {
     for (const group of shots.groups) {

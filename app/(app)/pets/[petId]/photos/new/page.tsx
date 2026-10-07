@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { History } from "lucide-react";
 import { PetSwitcher } from "@/app/(app)/_components/pet-switcher";
+import { loadUserEntitlements } from "@/lib/entitlements-server";
 import { safeAppReturnPath } from "@/lib/app-return-path";
 import { loadOwnerPetsForSwitcher } from "@/lib/owner-pets";
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
@@ -40,12 +41,14 @@ export default async function NewPhotosPage({
     .from("pets")
     .select("id, name, owner_user_id, avatar_url")
     .eq("id", petId)
-    .eq("owner_user_id", user.id)
     .maybeSingle();
 
-  if (error || !pet || pet.owner_user_id !== user.id) {
+  if (error || !pet) {
     notFound();
   }
+
+  const ownerEntitlements = await loadUserEntitlements(client, pet.owner_user_id);
+  const canUpload = pet.owner_user_id === user.id || ownerEntitlements.canUseFamilySharing;
 
   const [ownerPetsResult, recentPhotosResult] = await Promise.all([
     loadOwnerPetsForSwitcher(client, user.id),
@@ -53,7 +56,6 @@ export default async function NewPhotosPage({
       .from("photos")
       .select("id, pet_id, storage_path, thumbnail_path, taken_at, created_at")
       .eq("pet_id", pet.id)
-      .eq("uploader_user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(8),
   ]);
@@ -123,12 +125,18 @@ export default async function NewPhotosPage({
         />
       )}
 
-      <PhotoUploadForm
-        petId={pet.id}
-        returnTo={returnTo}
-        recentPhotos={recentItems}
-        allPhotosHref={`/pets/${pet.id}`}
-      />
+      {canUpload ? (
+        <PhotoUploadForm
+          petId={pet.id}
+          returnTo={returnTo}
+          recentPhotos={recentItems}
+          allPhotosHref={`/pets/${pet.id}`}
+        />
+      ) : (
+        <p className="rounded-xl bg-surface-warm p-4 text-sm leading-6 text-muted">
+          共有中の思い出は閲覧できますが、オーナーのPLUSが再開されるまで新しい写真は追加できません。
+        </p>
+      )}
     </main>
   );
 }

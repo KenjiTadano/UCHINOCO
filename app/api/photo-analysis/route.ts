@@ -1,6 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { findAnalysisWork } from "@/lib/photo-analysis-queue";
+import { findPhotoIntelligenceWork } from "@/lib/photo-intake-server";
 import { analyzePhoto } from "@/app/(app)/pets/[petId]/photos/[photoId]/actions";
+import { analyzePhotoIntelligence } from "@/app/(app)/dev/photo-intelligence/actions";
+import { revalidatePath } from "next/cache";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -10,7 +13,38 @@ const json = (body: object, status = 200) => Response.json(body, {
   status, headers: { "Cache-Control": "no-store" },
 });
 
-async function handle(run: boolean) {
+type IntakeWork = {
+  stage: "semantic" | "intelligence";
+  photo: { id: string; pet_id: string };
+  waitMs: number;
+  reusedCount: number;
+};
+
+async function findWork(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  preferred?: IntakeWork["stage"],
+): Promise<IntakeWork | null> {
+  const semanticWork = async () => {
+    const semantic = await findAnalysisWork(supabase, userId);
+    return semantic.photo
+      ? { stage: "semantic" as const, photo: semantic.photo, waitMs: semantic.waitMs, reusedCount: 0 }
+      : null;
+  };
+  const intelligenceWork = async () => {
+    const intelligence = await findPhotoIntelligenceWork(supabase, userId);
+    return intelligence.photo
+      ? { stage: "intelligence" as const, photo: intelligence.photo, waitMs: 1_000, reusedCount: intelligence.reusedCount }
+      : null;
+  };
+  const first = preferred === "intelligence" ? await intelligenceWork() : await semanticWork();
+  if (first) return first;
+  const second = preferred === "intelligence" ? await semanticWork() : await intelligenceWork();
+  if (second) return second;
+  return null;
+}
+
+async function handle(run: boolean, preferred?: IntakeWork["stage"]) {
   try {
     const supabase = await createClient();
     const { data: { user }, error } = await supabase.auth.getUser();
@@ -19,9 +53,26 @@ async function handle(run: boolean) {
       // Keep pending durable, spend no attempts and resume after server configuration.
       return json({ ready: false, waitMs: 0, stopped: true });
     }
-    const work = await findAnalysisWork(supabase, user.id);
+    const work = await findWork(supabase, user.id, preferred);
     let changed = false;
-    if (run && work.photo) {
+    let visionCalled = false;
+    let analysisReused = work?.reusedCount ?? 0;
+    let analysisFailed = false;
+    if (run && work) {
+      if (work.stage === "intelligence") {
+        const result = await analyzePhotoIntelligence(work.photo.pet_id, work.photo.id, false, {
+          allowLargeImageDegrade: true,
+        });
+        changed = result.ok;
+        visionCalled = result.visionCalled;
+        analysisReused += result.fromCache ? 1 : 0;
+        analysisFailed = !result.ok || result.visionFailed;
+        if (changed) {
+          revalidatePath(`/pets/${work.photo.pet_id}`);
+          revalidatePath(`/pets/${work.photo.pet_id}/album`);
+          revalidatePath("/home");
+        }
+      } else {
       // Materialize legacy work as pending without ever overwriting an existing result.
       const { error: enqueueError } = await supabase.from("photo_ai_analyses").upsert(
         { photo_id: work.photo.id, status: "pending" },
@@ -41,9 +92,28 @@ async function handle(run: boolean) {
         // A rejected claim must not create a tight loop on the same queue entry.
         return json({ stopped: true, changed: false });
       }
+      analysisFailed = after.data?.status === "failed";
+      }
     }
-    const next = run && work.photo ? await findAnalysisWork(supabase, user.id) : work;
-    return json({ ready: !!next.photo, waitMs: next.waitMs, changed });
+    const next = run && work ? await findWork(supabase, user.id) : work;
+    if (run && process.env.NODE_ENV !== "production") {
+      console.info("Photo intake analysis", {
+        stage: work?.stage ?? null,
+        analysisReused,
+        visionCalled,
+        analysisFailed,
+        nextReady: Boolean(next),
+      });
+    }
+    return json({
+      ready: Boolean(next),
+      waitMs: next?.waitMs ?? 0,
+      changed,
+      stage: work?.stage ?? null,
+      analysisReused,
+      visionCalled,
+      analysisFailed,
+    });
   } catch {
     // Queue lookup failed. Stop this visit instead of answering 503.
     // No raw SDK errors, keys or private image data leave the server.
@@ -66,5 +136,6 @@ export async function POST(request: Request) {
   if (!sameOrigin || request.headers.get("x-uchinoco-runner") !== "1") {
     return json({ stopped: true }, 403);
   }
-  return handle(true);
+  const preferred = request.headers.get("x-uchinoco-intake-stage");
+  return handle(true, preferred === "intelligence" ? "intelligence" : "semantic");
 }

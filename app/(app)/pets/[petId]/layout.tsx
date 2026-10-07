@@ -30,7 +30,6 @@ export default async function PetAuthorizationLayout({
     .from("pets")
     .select("id")
     .eq("id", petId)
-    .eq("owner_user_id", user.id)
     .maybeSingle();
 
   if (petError || !pet) {

@@ -1,5 +1,5 @@
 import { BEST_SHOT_VERSION } from "./config.ts";
-import type { BestShotResult } from "./types.ts";
+import type { BestShotCandidate, BestShotResult } from "./types.ts";
 
 const TTL_MS = 30 * 60 * 1000;
 
@@ -23,6 +23,38 @@ export function getBestShotCache(key: string): BestShotResult | null {
     return null;
   }
   return hit.result;
+}
+
+export function getBestShotCacheByPhotoIds(photoIds: string[]) {
+  const requested = new Set(photoIds);
+  const matches = new Map<
+    string,
+    {
+      candidate: BestShotCandidate;
+      confidence: BestShotResult["confidence"];
+      storedAt: number;
+    }
+  >();
+  const now = Date.now();
+
+  for (const [key, entry] of store) {
+    if (now - entry.storedAt > TTL_MS) {
+      store.delete(key);
+      continue;
+    }
+    for (const candidate of entry.result.ranking) {
+      if (!requested.has(candidate.photoId)) continue;
+      const previous = matches.get(candidate.photoId);
+      if (previous && previous.storedAt >= entry.storedAt) continue;
+      matches.set(candidate.photoId, {
+        candidate,
+        confidence: entry.result.confidence,
+        storedAt: entry.storedAt,
+      });
+    }
+  }
+
+  return new Map([...matches].map(([photoId, match]) => [photoId, { candidate: match.candidate, confidence: match.confidence }]));
 }
 
 export function setBestShotCache(key: string, result: BestShotResult) {

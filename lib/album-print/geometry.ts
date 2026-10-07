@@ -2,6 +2,7 @@ import { ALBUM_DRAFT_CONFIG } from "../album-draft/config.ts";
 import { bookPrintMetrics } from "../album-draft/pages.ts";
 import { mmToPoints } from "../print/layout/units.ts";
 import { ALBUM_PRINT_CONFIG } from "./config.ts";
+import { ALBUM_PRINT_SPEC } from "./print-spec.ts";
 import type { PrintGeometry, PrintLength, PrintRect } from "./types.ts";
 
 function length(px: number, mmPerPx: number): PrintLength {
@@ -34,11 +35,11 @@ function rectFromPx(
 export function buildPrintGeometry(): PrintGeometry {
   const metrics = bookPrintMetrics();
   const book = ALBUM_DRAFT_CONFIG.book;
-  const widthMm = ALBUM_PRINT_CONFIG.pageMm * 2;
-  const heightMm = widthMm * (metrics.canvas.height / metrics.canvas.width);
+  const widthMm = ALBUM_PRINT_SPEC.trimWidthMm * 2;
+  const heightMm = ALBUM_PRINT_SPEC.trimHeightMm;
   const mmPerPx = widthMm / metrics.canvas.width;
-  const coverWidthMm = ALBUM_PRINT_CONFIG.pageMm;
-  const coverHeightMm = coverWidthMm / ALBUM_PRINT_CONFIG.coverAspect;
+  const coverWidthMm = ALBUM_PRINT_SPEC.pdfWidthMm;
+  const coverHeightMm = ALBUM_PRINT_SPEC.pdfHeightMm;
   return {
     canvas: metrics.canvas,
     spread: {
@@ -53,6 +54,14 @@ export function buildPrintGeometry(): PrintGeometry {
       widthPt: mmToPoints(coverWidthMm),
       heightPt: mmToPoints(coverHeightMm),
     },
+    page: {
+      widthMm: ALBUM_PRINT_SPEC.pdfWidthMm,
+      heightMm: ALBUM_PRINT_SPEC.pdfHeightMm,
+      widthPt: mmToPoints(ALBUM_PRINT_SPEC.pdfWidthMm),
+      heightPt: mmToPoints(ALBUM_PRINT_SPEC.pdfHeightMm),
+      trimWidthMm: ALBUM_PRINT_SPEC.trimWidthMm,
+      trimHeightMm: ALBUM_PRINT_SPEC.trimHeightMm,
+    },
     bleed: length(metrics.bleed, mmPerPx),
     trim: length(book.trim, mmPerPx),
     gutter: {
@@ -63,7 +72,7 @@ export function buildPrintGeometry(): PrintGeometry {
       left: rectFromPx(metrics.safeArea.left, metrics.canvas, mmPerPx),
       right: rectFromPx(metrics.safeArea.right, metrics.canvas, mmPerPx),
     },
-    pageMm: ALBUM_PRINT_CONFIG.pageMm,
+    pageMm: ALBUM_PRINT_SPEC.trimWidthMm,
   };
 }
 

@@ -1,24 +1,31 @@
 /** Task050 — Smart Layout Selection types. */
 
-import type {
-  FrameMatchResult,
-  SmartCropFrame,
-  SmartCropPhotoAnalysis,
-  SmartCropQuality,
-  SmartCropTransform,
-} from "../smart-crop/types.ts";
+import type { FrameMatchResult, SmartCropFrame, SmartCropPhotoAnalysis, SmartCropQuality, SmartCropTransform } from "../smart-crop/types.ts";
+import type { BestShotCandidate, BestShotResult } from "../best-shot/types.ts";
+import type { PhotoIntelligence } from "../photo-intelligence/types.ts";
+
+export type LayoutPhotoIntelligence = Pick<PhotoIntelligence, "overallScore" | "composition" | "technicalQuality" | "petVisibility" | "expression" | "memoryValue" | "status">;
+
+/** Existing Best Shot candidate axes plus its result-level confidence. */
+export type LayoutBestShot = {
+  candidate: Pick<BestShotCandidate, "role"> & {
+    scores: Pick<BestShotCandidate["scores"], "overall" | "sceneRepresentativeness">;
+  };
+  confidence: BestShotResult["confidence"];
+};
 
 export type AlbumSlotRole = "hero" | "primary" | "secondary" | "detail";
 
-export type LayoutPurpose =
-  | "hero"
-  | "story"
-  | "sequence"
-  | "collage"
-  | "detail";
+export type LayoutPurpose = "hero" | "story" | "sequence" | "collage" | "detail";
 
 /** Crop shape key shared with SMART_CROP_FRAMES. */
 export type CropShapeId = "landscape" | "portrait" | "square" | "circle";
+export type TemplateScope = "page" | "spread";
+export type TemplateComposition = "hero" | "equal" | "story" | "grid" | "editorial" | "quiet" | "fullBleed";
+export type TemplateOrientation = "portrait" | "landscape" | "square" | "mixed" | "any";
+export type TemplateDensity = "quiet" | "light" | "balanced" | "dense";
+export type WhitespaceIntent = "none" | "balanced" | "editorial" | "quiet";
+export type CropTolerance = "low" | "medium" | "high";
 
 /**
  * Layout slot = Frame Matching shape + page role + preview rect.
@@ -32,6 +39,8 @@ export type AlbumFrameDefinition = {
   importance: number;
   /** Normalized page rect for preview (0–1). */
   rect: { x: number; y: number; w: number; h: number };
+  preferredOrientation?: TemplateOrientation;
+  cropTolerance?: CropTolerance;
 };
 
 /** Optional polish slots. Scoring ignores these. */
@@ -61,6 +70,17 @@ export type AlbumLayoutDefinition = {
   };
   textSlots?: LayoutTextSlot[];
   decorationSlots?: LayoutDecorationSlot[];
+  grammarId?: string;
+  scope?: TemplateScope;
+  composition?: TemplateComposition;
+  orientationAffinity?: TemplateOrientation[];
+  heroAffinity?: "required" | "preferred" | "neutral" | "avoid";
+  density?: TemplateDensity;
+  whitespaceIntent?: WhitespaceIntent;
+  captionSupport?: "none" | "optional" | "prominent";
+  decorationSafeZones?: LayoutDecorationSlot[];
+  printSafe?: boolean;
+  legacyStatus?: "KEEP" | "REDESIGN" | "LEGACY";
 };
 
 export type LayoutPhotoInput = {
@@ -70,11 +90,17 @@ export type LayoutPhotoInput = {
   /** Thumbnail-preferred URL for layout preview rendering. */
   previewUrl: string;
   analysis: SmartCropPhotoAnalysis;
+  /** Optional PI values; omitted callers keep existing Smart Layout behavior. */
+  photoIntelligence?: LayoutPhotoIntelligence;
+  /** Optional Best Shot candidate and its result-level confidence. */
+  bestShot?: LayoutBestShot;
   /**
    * Optional album role from Story Spread.
    * Omitted callers keep Task050 scoring unchanged.
    */
   storyRole?: "primary" | "secondary";
+  /** True when the surrounding story has user-visible copy to place. */
+  captionAvailable?: boolean;
 };
 
 export type LayoutAssignment = {
@@ -87,6 +113,9 @@ export type LayoutAssignment = {
   crop: SmartCropTransform;
   quality: SmartCropQuality;
   cropFrame: SmartCropFrame;
+  photoIntelligence?: LayoutPhotoIntelligence;
+  bestShot?: LayoutBestShot;
+  heroSuitability: number;
 };
 
 export type LayoutScores = {
@@ -95,10 +124,25 @@ export type LayoutScores = {
   balance: number;
   variety: number;
   cropQuality: number;
+  orientationAffinity: number;
+  hierarchyFit: number;
+  hierarchyNeed: number;
   overall: number;
 };
 
 export type LayoutMatchTier = "strict" | "fallback" | "unusable";
+
+export type SmartLayoutV2Debug = {
+  family: TemplateComposition;
+  orientationFit: number;
+  heroFit: number;
+  captionFit: number;
+  storyFit: number;
+  cropFit: number;
+  spreadSafety: number;
+  templateAffinity: number;
+  finalScore: number;
+};
 
 export type LayoutMatchResult = {
   layoutId: string;
@@ -106,8 +150,13 @@ export type LayoutMatchResult = {
   assignments: LayoutAssignment[];
   scores: LayoutScores;
   tier: LayoutMatchTier;
+  invalid: boolean;
+  /** 0–1 confidence for a clear hero in the input photo set. */
+  heroConfidence: number;
   needsAdjustment: boolean;
   warnings: string[];
+  /** Explainable, additive v2 signals. The Task050 engine score remains intact. */
+  v2?: SmartLayoutV2Debug;
 };
 
 export type LayoutSelectionResult = {

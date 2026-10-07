@@ -1,17 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import {
-  applyCoverColor,
-  applyCoverPhoto,
-  applyCoverSubtitle,
-  applyCoverTemplate,
-  applyCoverTitle,
-  mergeServerCover,
-  resolveEffectiveCover,
-  toCoverEditor,
-} from "../lib/album-persistence/cover.ts";
+import { applyCoverColor, applyCoverPhoto, applyCoverSubtitle, applyCoverTemplate, applyCoverTitle, mergeServerCover, resolveEffectiveCover, toCoverEditor } from "../lib/album-persistence/cover.ts";
 import { decideWrite } from "../lib/album-persistence/resolve.ts";
+import { formatAlbumPeriodLabels } from "../lib/album-cover-title.ts";
 
 const migration = await readFile("./supabase/migrations/20260928150000_album_draft_covers.sql", "utf8");
 const page = await readFile("./app/(app)/pets/[petId]/album/[albumId]/cover/edit/page.tsx", "utf8");
@@ -166,9 +158,9 @@ test("cover writes do not change page draft frames", () => {
   assert.doesNotMatch(oldDraft, /album_draft_covers/);
 });
 
-test("editor open does not call Vision and signs original photos", () => {
-  assert.match(page, /signedUrls/);
-  assert.match(service, /signedUrls/);
+test("cover editor uses cached preview photos without calling Vision", () => {
+  assert.match(page, /signedPreviewUrls/);
+  assert.match(service, /signedPreviewUrls/);
   assert.match(screen, /c\.thumb \|\| c\.src/);
   assert.match(screen, /imagePath=\{originalSignedObjectPath/);
   assert.match(book, /data-image-kind/);
@@ -194,4 +186,15 @@ test("empty title is a user override and null is the AI title", () => {
   assert.equal(cleared.title, "");
   assert.equal(cleared.titleOverridden, true);
   assert.equal(resolveEffectiveCover(row({ userTitle: null })).title, "9月の思い出");
+});
+
+test("cover period labels include the full album period in Tokyo time", () => {
+  assert.deepEqual(formatAlbumPeriodLabels("2026-07-02T00:00:00.000Z", "2026-10-02T00:00:00.000Z"), {
+    monthLabel: "7〜10月",
+    coverDateLabel: "2026.07-10",
+  });
+  assert.deepEqual(formatAlbumPeriodLabels("2025-12-15T00:00:00.000Z", "2026-02-15T00:00:00.000Z"), {
+    monthLabel: "2025年12月〜2026年2月",
+    coverDateLabel: "2025.12-2026.02",
+  });
 });

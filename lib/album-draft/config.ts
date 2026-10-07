@@ -1,5 +1,7 @@
+import { ALBUM_PRINT_SPEC } from "../album-print/print-spec.ts";
+
 /** Task056 — rank story spreads onto existing layouts. */
-export const ALBUM_DRAFT_VERSION = "album-draft-v1";
+export const ALBUM_DRAFT_VERSION = "album-draft-v3";
 
 export const ALBUM_DRAFT_CONFIG = {
   /** Ranking bonuses only. Photo count still comes from the layout catalog. */
@@ -28,12 +30,12 @@ export const ALBUM_DRAFT_CONFIG = {
   },
   book: {
     canvas: { width: 1076, height: 1264 },
-    left: { x: 115, y: 210, w: 414, h: 816 },
-    right: { x: 548, y: 210, w: 414, h: 816 },
-    /** Future print metrics. Not a PDF export. */
-    bleed: 18,
-    trim: 16,
-    /** Keep frames off the spine. */
-    gutterInset: 22,
+    left: { x: 115, y: (1264 - 414 / ALBUM_PRINT_SPEC.pageAspectRatio) / 2, w: 414, h: 414 / ALBUM_PRINT_SPEC.pageAspectRatio },
+    right: { x: 548, y: (1264 - 414 / ALBUM_PRINT_SPEC.pageAspectRatio) / 2, w: 414, h: 414 / ALBUM_PRINT_SPEC.pageAspectRatio },
+    /** Display units derived from the physical A5 trim width. */
+    bleed: (414 * ALBUM_PRINT_SPEC.bleedMm) / ALBUM_PRINT_SPEC.trimWidthMm,
+    trim: (414 * ALBUM_PRINT_SPEC.safeInsetMm) / ALBUM_PRINT_SPEC.trimWidthMm,
+    /** Extra binding gutter is not confirmed; use the common safe inset only. */
+    gutterInset: (414 * ALBUM_PRINT_SPEC.safeInsetMm) / ALBUM_PRINT_SPEC.trimWidthMm,
   },
 } as const;

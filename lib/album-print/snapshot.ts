@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ALBUM_DRAFT_CONFIG } from "../album-draft/config.ts";
 import { getCoverColor, getCoverTemplate } from "../album-cover-templates.ts";
 import { bookPrintMetrics } from "../album-draft/pages.ts";
 import { textStylePreset, visibleDecorationLayers, visibleTextLayers } from "../album-polish/catalog.ts";
@@ -8,6 +9,8 @@ import { toPreviewSpread } from "../album-persistence/preview.ts";
 import { resolveEffectiveFrame, resolveEffectiveSpread } from "../album-persistence/resolve.ts";
 import type { DraftFrameRow, DraftSpreadRow } from "../album-persistence/types.ts";
 import { sanitizeCropTransform } from "../smart-crop/transform.ts";
+import type { PageBackgroundState, PageElement, PageSide } from "../album-elements/model.ts";
+import type { AlbumCompositionPlan } from "../album-draft/composition.ts";
 import { ALBUM_PRINT_SCHEMA_VERSION } from "./config.ts";
 import { buildPrintGeometry, normRect } from "./geometry.ts";
 import { acceptOriginalPath } from "./images.ts";
@@ -19,6 +22,8 @@ export type PrintSpreadInput = {
   frames: DraftFrameRow[];
   texts: DraftTextElement[];
   decorations: DraftDecoration[];
+  elements?: PageElement[];
+  backgrounds?: Record<PageSide, PageBackgroundState>;
 };
 
 export type PrintSnapshotInput = {
@@ -31,6 +36,7 @@ export type PrintSnapshotInput = {
   dateLabel?: string;
   cover: DraftCoverRow | null;
   spreads: PrintSpreadInput[];
+  compositionPlan?: AlbumCompositionPlan | null;
   originals: Record<string, { storagePath: string | null }>;
 };
 
@@ -67,8 +73,8 @@ function coverRect(norm: { x: number; y: number; w: number; h: number }, geometr
     yMm: norm.y * page.heightMm,
     wMm: norm.w * page.widthMm,
     hMm: norm.h * page.heightMm,
-    xPt: (norm.x * page.widthPt),
-    yPt: (norm.y * page.heightPt),
+    xPt: norm.x * page.widthPt,
+    yPt: norm.y * page.heightPt,
     wPt: norm.w * page.widthPt,
     hPt: norm.h * page.heightPt,
   };
@@ -119,11 +125,7 @@ export function buildAlbumPrintSnapshot(input: PrintSnapshotInput): AlbumPrintSn
         .map((frame, index) => {
           const shown = resolveEffectiveFrame(frame);
           const placement = preview.assignments[index]?.placement;
-          const rect = normRect(
-            placement?.norm ?? { x: 0, y: 0, w: 0, h: 0 },
-            geometry.canvas,
-            scale,
-          );
+          const rect = normRect(placement?.norm ?? { x: 0, y: 0, w: 0, h: 0 }, geometry.canvas, scale);
           return {
             id: frame.id,
             frameId: frame.frameId,
@@ -161,14 +163,35 @@ export function buildAlbumPrintSnapshot(input: PrintSnapshotInput): AlbumPrintSn
           rect: normRect(layer.rect, geometry.canvas, scale),
         };
       });
+      const backgrounds = (["left", "right"] as const).flatMap((pageSide) => {
+        const backgroundId = spread.backgrounds?.[pageSide]?.backgroundId;
+        if (!backgroundId) return [];
+        const page = ALBUM_DRAFT_CONFIG.book[pageSide];
+        return [
+          {
+            pageSide,
+            backgroundId,
+            rect: normRect({ x: page.x / geometry.canvas.width, y: page.y / geometry.canvas.height, w: page.w / geometry.canvas.width, h: page.h / geometry.canvas.height }, geometry.canvas, scale),
+          },
+        ];
+      });
+      const elements = (spread.elements ?? [])
+        .filter((element) => element.printTarget === "print")
+        .map((element) => ({
+          ...element,
+          rect: normRect({ x: element.x, y: element.y, w: element.width, h: element.height }, geometry.canvas, scale),
+        }));
       return {
         id: spread.source.id,
+        storySpreadId: spread.source.storySpreadId,
         position: spread.source.position,
         revision: spread.source.revision,
         layoutId: layout.layoutId,
         frames,
         texts,
         decorations,
+        backgrounds,
+        elements,
       };
     });
 
@@ -181,12 +204,14 @@ export function buildAlbumPrintSnapshot(input: PrintSnapshotInput): AlbumPrintSn
       frames: spread.frames.map((frame) => ({ id: frame.id, revision: frame.revision })),
       texts: spread.texts.map((text) => ({ id: text.id, revision: text.revision })),
       decorations: spread.decorations.map((item) => ({ id: item.id, revision: item.revision })),
+      elements: (spread.elements ?? []).map(({ id, revision, clientSeq }) => ({ id, revision, clientSeq })),
+      backgrounds: spread.backgrounds ?? { left: { backgroundId: null, revision: 0, clientSeq: 0 }, right: { backgroundId: null, revision: 0, clientSeq: 0 } },
     })),
   };
   const revisionDigest = printFingerprint(revisions);
   const fingerprint = printFingerprint({
     schemaVersion: ALBUM_PRINT_SCHEMA_VERSION,
-    rendererRevision: "4",
+    rendererRevision: "6",
     draftVersionId: input.draftVersionId,
     sourceRevision: input.draftRevision,
     revisionDigest,
@@ -219,7 +244,10 @@ export function buildAlbumPrintSnapshot(input: PrintSnapshotInput): AlbumPrintSn
         decorationId: item.decorationId,
         scale: item.scale,
       })),
+      backgrounds: spread.backgrounds,
+      elements: spread.elements,
     })),
+    compositionPlan: input.compositionPlan ?? null,
   });
 
   return {
@@ -227,6 +255,7 @@ export function buildAlbumPrintSnapshot(input: PrintSnapshotInput): AlbumPrintSn
     draftVersionId: input.draftVersionId,
     cover,
     spreads,
+    compositionPlan: input.compositionPlan ?? null,
     generatedAt: input.generatedAt,
     sourceRevision: input.draftRevision,
     schemaVersion: ALBUM_PRINT_SCHEMA_VERSION,
@@ -237,10 +266,7 @@ export function buildAlbumPrintSnapshot(input: PrintSnapshotInput): AlbumPrintSn
   };
 }
 
-export function draftPrintIsStale(
-  saved: Pick<AlbumPrintSnapshot, "fingerprint">,
-  current: Pick<AlbumPrintSnapshot, "fingerprint">,
-) {
+export function draftPrintIsStale(saved: Pick<AlbumPrintSnapshot, "fingerprint">, current: Pick<AlbumPrintSnapshot, "fingerprint">) {
   return saved.fingerprint !== current.fingerprint;
 }
 

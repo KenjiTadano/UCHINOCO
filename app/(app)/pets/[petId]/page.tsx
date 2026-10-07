@@ -1,24 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import {
-  CalendarDays,
-  ChevronDown,
-  MapPin,
-  MoreHorizontal,
-  Search,
-} from "lucide-react";
+import { CalendarDays, ChevronDown, MapPin, MoreHorizontal, Search, Users } from "lucide-react";
 import { memoryDayCopy } from "@/lib/memory-day-copy";
-import {
-  groupPhotosByTokyoDate,
-  photoTimestamp,
-  tokyoMonthKey,
-} from "@/lib/photo-timeline";
-import {
-  getMemoryPhotoPage,
-  nextPhotoCursor,
-  paginationHref,
-  parsePhotoCursor,
-} from "@/lib/photo-pagination";
+import { groupPhotosByTokyoDate, photoTimestamp, tokyoMonthKey } from "@/lib/photo-timeline";
+import { getMemoryPhotoPage, nextPhotoCursor, paginationHref, parsePhotoCursor } from "@/lib/photo-pagination";
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
 import { createClient } from "@/lib/supabase/server";
 import { EmptyState } from "@/app/_components/ui";
@@ -33,30 +18,9 @@ type PetDetailPageProps = {
   searchParams: Promise<{ message?: string; before?: string; beforeId?: string }>;
 };
 
-const MONTH_EN = [
-  "JANUARY",
-  "FEBRUARY",
-  "MARCH",
-  "APRIL",
-  "MAY",
-  "JUNE",
-  "JULY",
-  "AUGUST",
-  "SEPTEMBER",
-  "OCTOBER",
-  "NOVEMBER",
-  "DECEMBER",
-] as const;
+const MONTH_EN = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"] as const;
 
-const WEEKDAY_JA = [
-  "日曜日",
-  "月曜日",
-  "火曜日",
-  "水曜日",
-  "木曜日",
-  "金曜日",
-  "土曜日",
-] as const;
+const WEEKDAY_JA = ["日曜日", "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日"] as const;
 
 function parseDateKey(dateKey: string) {
   const [y, m, d] = dateKey.split("-").map(Number);
@@ -70,14 +34,8 @@ function weekdayLabel(dateKey: string) {
   return WEEKDAY_JA[new Date(utc).getUTCDay()];
 }
 
-export default async function PetDetailPage({
-  params,
-  searchParams,
-}: PetDetailPageProps) {
-  const [{ petId }, { message, before, beforeId }] = await Promise.all([
-    params,
-    searchParams,
-  ]);
+export default async function PetDetailPage({ params, searchParams }: PetDetailPageProps) {
+  const [{ petId }, { message, before, beforeId }] = await Promise.all([params, searchParams]);
   const supabase = await createClient();
   const {
     data: { user },
@@ -88,42 +46,16 @@ export default async function PetDetailPage({
     redirect("/login");
   }
 
-  const { data: pet, error: petError } = await supabase
-    .from("pets")
-    .select("id, owner_user_id, name, species, breed, birthday, avatar_url")
-    .eq("id", petId)
-    .eq("owner_user_id", user.id)
-    .maybeSingle();
+  const { data: pet, error: petError } = await supabase.from("pets").select("id, owner_user_id, name, species, breed, birthday, avatar_url").eq("id", petId).maybeSingle();
 
-  if (petError || !pet || pet.owner_user_id !== user.id) {
+  if (petError || !pet) {
     notFound();
   }
 
-  const [
-    { photos, hasMore, error: photosError },
-    backfillCountResult,
-    hashBackfillCountResult,
-    ownerPetsResult,
-  ] = await Promise.all([
-    getMemoryPhotoPage(
-      supabase,
-      pet.id,
-      30,
-      parsePhotoCursor(before, beforeId),
-    ),
-    supabase
-      .from("photos")
-      .select("id", { count: "exact", head: true })
-      .eq("pet_id", pet.id)
-      .eq("uploader_user_id", user.id)
-      .is("thumbnail_path", null),
-    supabase
-      .from("photos")
-      .select("id", { count: "exact", head: true })
-      .eq("pet_id", pet.id)
-      .eq("uploader_user_id", user.id)
-      .is("content_hash", null)
-      .is("content_hash_backfilled_at", null),
+  const [{ photos, hasMore, error: photosError }, backfillCountResult, hashBackfillCountResult, ownerPetsResult] = await Promise.all([
+    getMemoryPhotoPage(supabase, pet.id, 30, parsePhotoCursor(before, beforeId)),
+    supabase.from("photos").select("id", { count: "exact", head: true }).eq("pet_id", pet.id),
+    supabase.from("photos").select("id", { count: "exact", head: true }).eq("pet_id", pet.id).eq("uploader_user_id", user.id).is("content_hash", null).is("content_hash_backfilled_at", null),
     loadOwnerPetsForSwitcher(supabase, user.id),
   ]);
 
@@ -156,10 +88,7 @@ export default async function PetDetailPage({
 
   const dayGroups = groupPhotosByTokyoDate(photos);
   const monthSections = (() => {
-    const map = new Map<
-      string,
-      { monthKey: string; year: number; monthName: string; days: typeof dayGroups }
-    >();
+    const map = new Map<string, { monthKey: string; year: number; monthName: string; days: typeof dayGroups }>();
     for (const day of dayGroups) {
       const sample = photoTimestamp(day.photos[0]);
       const monthKey = tokyoMonthKey(sample);
@@ -193,11 +122,10 @@ export default async function PetDetailPage({
           <p className="mem-subtitle">うちの子との、かけがえのない時間。</p>
         </div>
         <div className="mem-header-actions">
-          <Link
-            href={`/pets/${pet.id}/search`}
-            aria-label="写真を探す"
-            className="mem-icon-btn ds-focus"
-          >
+          <Link href={`/pets/${pet.id}/family`} aria-label="家族との共有" className="mem-icon-btn ds-focus">
+            <Users size={17} strokeWidth={1.7} aria-hidden="true" />
+          </Link>
+          <Link href={`/pets/${pet.id}/search`} aria-label="写真を探す" className="mem-icon-btn ds-focus">
             <Search size={17} strokeWidth={1.7} aria-hidden="true" />
           </Link>
           <span className="mem-icon-btn" aria-hidden="true">
@@ -212,17 +140,10 @@ export default async function PetDetailPage({
         hrefForPet={(id) => `/pets/${id}`}
         trailing={
           <nav aria-label="表示切り替え" className="mem-segments">
-            <Link
-              href={`/pets/${pet.id}`}
-              aria-current="page"
-              className="mem-segment is-active ds-focus"
-            >
+            <Link href={`/pets/${pet.id}`} aria-current="page" className="mem-segment is-active ds-focus">
               すべて
             </Link>
-            <Link
-              href={`/pets/${pet.id}/favorites`}
-              className="mem-segment ds-focus"
-            >
+            <Link href={`/pets/${pet.id}/favorites`} className="mem-segment ds-focus">
               お気に入り
             </Link>
           </nav>
@@ -242,21 +163,13 @@ export default async function PetDetailPage({
       ) : monthSections.length > 0 ? (
         <div className="mem-timeline">
           {monthSections.map((section, sectionIndex) => (
-            <section
-              key={section.monthKey}
-              aria-labelledby={`month-${section.monthKey}`}
-              className="mem-month"
-            >
+            <section key={section.monthKey} aria-labelledby={`month-${section.monthKey}`} className="mem-month">
               <header className="mem-month-header">
                 <h2 id={`month-${section.monthKey}`} className="mem-month-title">
                   <span className="mem-month-year">{section.year}</span>
                   <span className="mem-month-name">
                     {section.monthName}
-                    <ChevronDown
-                      className="mem-month-chevron"
-                      strokeWidth={1.8}
-                      aria-hidden="true"
-                    />
+                    <ChevronDown className="mem-month-chevron" strokeWidth={1.8} aria-hidden="true" />
                   </span>
                 </h2>
                 {sectionIndex === 0 ? (
@@ -277,11 +190,7 @@ export default async function PetDetailPage({
                         scene: null,
                       },
                   );
-                  const copy = memoryDayCopy(
-                    pet.name,
-                    group.photos,
-                    dayAnalyses,
-                  );
+                  const copy = memoryDayCopy(pet.name, group.photos, dayAnalyses);
                   const gridPhotos = group.photos.flatMap((photo, index) => {
                     const src = signedUrlByPath.get(listImagePath(photo));
                     if (!src) return [];
@@ -299,21 +208,12 @@ export default async function PetDetailPage({
                   const firstHref = gridPhotos[0]?.href;
 
                   return (
-                    <article
-                      key={group.dateKey}
-                      className="mem-day"
-                      aria-labelledby={`date-${group.dateKey}`}
-                    >
+                    <article key={group.dateKey} className="mem-day" aria-labelledby={`date-${group.dateKey}`}>
                       <div className="mem-day-date">
-                        <p
-                          id={`date-${group.dateKey}`}
-                          className="mem-day-num"
-                        >
+                        <p id={`date-${group.dateKey}`} className="mem-day-num">
                           {day}
                         </p>
-                        <p className="mem-day-weekday">
-                          {weekdayLabel(group.dateKey)}
-                        </p>
+                        <p className="mem-day-weekday">{weekdayLabel(group.dateKey)}</p>
                       </div>
                       <div className="mem-day-rule" aria-hidden="true" />
 
@@ -321,30 +221,15 @@ export default async function PetDetailPage({
                         <div className="mem-day-heading">
                           <h3 className="mem-day-title">{copy.title}</h3>
                           {firstHref ? (
-                            <Link
-                              href={firstHref}
-                              aria-label="この日の詳細"
-                              className="mem-more ds-focus"
-                            >
-                              <MoreHorizontal
-                                size={15}
-                                strokeWidth={1.8}
-                                aria-hidden="true"
-                              />
+                            <Link href={firstHref} aria-label="この日の詳細" className="mem-more ds-focus">
+                              <MoreHorizontal size={15} strokeWidth={1.8} aria-hidden="true" />
                             </Link>
                           ) : null}
                         </div>
-                        {copy.body ? (
-                          <p className="mem-day-text">{copy.body}</p>
-                        ) : null}
+                        {copy.body ? <p className="mem-day-text">{copy.body}</p> : null}
                         {copy.place ? (
                           <p className="mem-day-place">
-                            <MapPin
-                              size={10}
-                              fill="currentColor"
-                              stroke="none"
-                              aria-hidden="true"
-                            />
+                            <MapPin size={10} fill="currentColor" stroke="none" aria-hidden="true" />
                             {copy.place}
                           </p>
                         ) : null}
@@ -362,10 +247,7 @@ export default async function PetDetailPage({
           ))}
 
           {hasMore ? (
-            <Link
-              className="mem-more-link ds-focus"
-              href={paginationHref(`/pets/${pet.id}`, nextPhotoCursor(photos))}
-            >
+            <Link className="mem-more-link ds-focus" href={paginationHref(`/pets/${pet.id}`, nextPhotoCursor(photos))}>
               さらに見る
             </Link>
           ) : null}
@@ -374,28 +256,15 @@ export default async function PetDetailPage({
         <EmptyState
           title="まだ思い出がありません"
           action={
-            <Link
-              className="app-button-primary"
-              href={`/pets/${pet.id}/photos/new`}
-            >
+            <Link className="app-button-primary" href={`/pets/${pet.id}/photos/new`}>
               最初の写真を追加する
             </Link>
           }
         />
       )}
 
-      <PhotoThumbnailBackfill
-        petId={pet.id}
-        initialPendingCount={
-          backfillCountResult.error ? null : (backfillCountResult.count ?? 0)
-        }
-      />
-      {!hashBackfillCountResult.error ? (
-        <ContentHashBackfill
-          petId={pet.id}
-          initialPendingCount={hashBackfillCountResult.count ?? 0}
-        />
-      ) : null}
+      <PhotoThumbnailBackfill petId={pet.id} initialPendingCount={backfillCountResult.error ? null : (backfillCountResult.count ?? 0)} />
+      {!hashBackfillCountResult.error ? <ContentHashBackfill petId={pet.id} initialPendingCount={hashBackfillCountResult.count ?? 0} /> : null}
     </main>
   );
 }

@@ -1,12 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { PHOTO_INTELLIGENCE_CONFIG } from "@/lib/photo-intelligence/config";
 import type { PhotoIntelligence, TechnicalParts } from "@/lib/photo-intelligence/types";
-import {
-  analyzePhotoIntelligence,
-  type PhotoIntelligenceAnalyzeResult,
-} from "./actions";
+import { analyzePhotoIntelligence, type PhotoIntelligenceAnalyzeResult } from "./actions";
 
 export type PhotoIntelligenceOption = {
   id: string;
@@ -28,15 +25,7 @@ type BatchRow = PhotoIntelligenceAnalyzeResult & {
 };
 
 const AXES: Array<{
-  key: keyof Pick<
-    PhotoIntelligence,
-    | "technicalQuality"
-    | "petVisibility"
-    | "expression"
-    | "composition"
-    | "uniqueness"
-    | "memoryValue"
-  >;
+  key: keyof Pick<PhotoIntelligence, "technicalQuality" | "petVisibility" | "expression" | "composition" | "uniqueness" | "memoryValue">;
   label: string;
   weight: number;
 }> = [
@@ -77,15 +66,14 @@ function formatWhen(value: string | null) {
 
 export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: Props) {
   const [petId, setPetId] = useState(initialPetId ?? photos[0]?.petId ?? "");
-  const [photoId, setPhotoId] = useState(
-    initialPhotoId ?? photos.find((photo) => photo.petId === (initialPetId ?? photos[0]?.petId))?.id ?? "",
-  );
+  const [photoId, setPhotoId] = useState(initialPhotoId ?? photos.find((photo) => photo.petId === (initialPetId ?? photos[0]?.petId))?.id ?? "");
   const [result, setResult] = useState<PhotoIntelligenceAnalyzeResult | null>(null);
   const [rows, setRows] = useState<BatchRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
-  const [loadState, setLoadState] = useState<"loading" | "loaded" | "error">("loading");
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
 
   const petOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -93,17 +81,12 @@ export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: P
     return Array.from(map.entries());
   }, [photos]);
 
-  const filteredPhotos = useMemo(
-    () => photos.filter((photo) => photo.petId === petId),
-    [photos, petId],
-  );
+  const filteredPhotos = useMemo(() => photos.filter((photo) => photo.petId === petId), [photos, petId]);
 
   const active = result?.intelligence;
-  const previewSrc = result?.imageUrl ?? result?.previewUrl;
+  const previewSrc = result?.previewUrl ?? result?.imageUrl;
 
-  useEffect(() => {
-    setLoadState("loading");
-  }, [previewSrc]);
+  const loadState = !previewSrc ? "loading" : failedSrc === previewSrc ? "error" : loadedSrc === previewSrc ? "loaded" : "loading";
 
   async function runOne(nextPetId: string, nextPhotoId: string, force: boolean) {
     if (!nextPetId || !nextPhotoId) return;
@@ -121,7 +104,7 @@ export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: P
       setRows((current) => {
         const row: BatchRow = {
           ...res,
-          thumbUrl: option?.thumbUrl ?? res.previewUrl,
+          thumbUrl: option?.thumbUrl ?? res.thumbnailUrl ?? res.previewUrl,
           takenAt: option?.takenAt ?? null,
         };
         const without = current.filter((item) => item.photoId !== res.photoId);
@@ -145,7 +128,7 @@ export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: P
         const res = await analyzePhotoIntelligence(photo.petId, photo.id, false);
         const row: BatchRow = {
           ...res,
-          thumbUrl: photo.thumbUrl ?? res.previewUrl,
+          thumbUrl: photo.thumbUrl ?? res.thumbnailUrl ?? res.previewUrl,
           takenAt: photo.takenAt,
         };
         setRows((current) => {
@@ -163,14 +146,9 @@ export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: P
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 pb-28 text-[#332f2b]">
       <header className="mb-6">
-        <p className="m-0 text-[12px] font-semibold tracking-wide text-[#b36048]">
-          Task051 · Dev
-        </p>
+        <p className="m-0 text-[12px] font-semibold tracking-wide text-[#b36048]">Task051 · Dev</p>
         <h1 className="mt-1 text-[24px] font-bold">Photo Intelligence Lab</h1>
-        <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-[#6a5c54]">
-          1枚ごとの撮れ高です。画質だけでなく、見え方・表情・構図・珍しさ・思い出の残りやすさを分けて見ます。
-          似た写真のグループ分けやベストショット選定はまだしません。
-        </p>
+        <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-[#6a5c54]">1枚ごとの撮れ高です。画質だけでなく、見え方・表情・構図・珍しさ・思い出の残りやすさを分けて見ます。 似た写真のグループ分けやベストショット選定はまだしません。</p>
       </header>
 
       <section className="mb-4 grid gap-3 rounded-2xl border border-[#eadfd8] bg-white p-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
@@ -212,29 +190,13 @@ export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: P
           </select>
         </label>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="rounded-xl bg-[#b36048] px-4 py-2.5 text-[14px] font-semibold text-white disabled:opacity-50"
-            disabled={pending || !petId || !photoId}
-            onClick={() => runOne(petId, photoId, false)}
-          >
+          <button type="button" className="rounded-xl bg-[#b36048] px-4 py-2.5 text-[14px] font-semibold text-white disabled:opacity-50" disabled={pending || !petId || !photoId} onClick={() => runOne(petId, photoId, false)}>
             {pending && !progress ? "評価中…" : "評価する"}
           </button>
-          <button
-            type="button"
-            className="rounded-xl border border-[#eadfd8] bg-white px-4 py-2.5 text-[14px] font-semibold disabled:opacity-50"
-            disabled={pending || !petId || !photoId}
-            onClick={() => runOne(petId, photoId, true)}
-          >
+          <button type="button" className="rounded-xl border border-[#eadfd8] bg-white px-4 py-2.5 text-[14px] font-semibold disabled:opacity-50" disabled={pending || !petId || !photoId} onClick={() => runOne(petId, photoId, true)}>
             再解析
           </button>
-          <button
-            type="button"
-            data-testid="pi-batch"
-            className="rounded-xl border border-[#eadfd8] bg-[#fcfaf7] px-4 py-2.5 text-[14px] font-semibold disabled:opacity-50"
-            disabled={pending || filteredPhotos.length === 0}
-            onClick={() => void runBatch()}
-          >
+          <button type="button" data-testid="pi-batch" className="rounded-xl border border-[#eadfd8] bg-[#fcfaf7] px-4 py-2.5 text-[14px] font-semibold disabled:opacity-50" disabled={pending || filteredPhotos.length === 0} onClick={() => void runBatch()}>
             {progress ? `連続評価 ${progress}` : "このペットを16枚評価"}
           </button>
         </div>
@@ -261,6 +223,7 @@ export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: P
               }}
             >
               {photo.thumbUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img src={photo.thumbUrl} alt="" className="h-full w-full object-cover" />
               ) : null}
             </button>
@@ -268,34 +231,28 @@ export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: P
         })}
       </div>
 
-      {error ? (
-        <p className="mb-4 rounded-xl bg-[#fdecea] px-4 py-3 text-[14px] text-[#a24129]">{error}</p>
-      ) : null}
+      {error ? <p className="mb-4 rounded-xl bg-[#fdecea] px-4 py-3 text-[14px] text-[#a24129]">{error}</p> : null}
 
       {active && result ? (
         <section className="grid gap-4 lg:grid-cols-[minmax(0,340px)_1fr]">
           <div>
-            <h2 className="mb-2 text-[13px] font-semibold tracking-wide text-[#8a7368]">Original</h2>
-            <div
-              className="relative overflow-hidden rounded-2xl bg-[#2a2420]"
-              data-load-state={loadState}
-              style={{ aspectRatio: "4 / 5" }}
-            >
+            <h2 className="mb-2 text-[13px] font-semibold tracking-wide text-[#8a7368]">Preview</h2>
+            <div className="relative overflow-hidden rounded-2xl bg-[#2a2420]" data-load-state={loadState} style={{ aspectRatio: "4 / 5" }}>
               {previewSrc && loadState !== "error" ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={previewSrc}
                   alt="評価中の写真"
                   className="h-full w-full object-contain"
                   style={{ opacity: loadState === "loaded" ? 1 : 0 }}
-                  onLoad={() => setLoadState("loaded")}
-                  onError={() => setLoadState("error")}
+                  onLoad={() => {
+                    setLoadedSrc(previewSrc);
+                    setFailedSrc(null);
+                  }}
+                  onError={() => setFailedSrc(previewSrc)}
                 />
               ) : null}
-              {loadState === "loading" ? (
-                <p className="absolute inset-0 flex items-center justify-center text-[12px] font-semibold tracking-wide text-[#d9cfc6]">
-                  LOADING
-                </p>
-              ) : null}
+              {loadState === "loading" ? <p className="absolute inset-0 flex items-center justify-center text-[12px] font-semibold tracking-wide text-[#d9cfc6]">LOADING</p> : null}
               {loadState === "error" ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-4 text-center text-[12px] text-[#f3e7df]">
                   <p className="m-0 font-bold tracking-wide">IMAGE LOAD ERROR</p>
@@ -307,9 +264,7 @@ export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: P
             <p className="mt-2 text-[12px] leading-relaxed text-[#8a7368]">
               {result.photoId}
               <br />
-              {result.signals
-                ? `${result.signals.width}×${result.signals.height} · pixels ${result.signals.pixelsKnown ? "measured" : "neutral"} · lap ${result.signals.laplacianVar.toFixed(5)}`
-                : null}
+              {result.signals ? `${result.signals.width}×${result.signals.height} · pixels ${result.signals.pixelsKnown ? "measured" : "neutral"} · lap ${result.signals.laplacianVar.toFixed(5)}` : null}
             </p>
           </div>
 
@@ -349,10 +304,7 @@ export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: P
                       </span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-[#f3ebe4]">
-                      <div
-                        className="h-full rounded-full bg-[#b36048]"
-                        style={{ width: `${value}%` }}
-                      />
+                      <div className="h-full rounded-full bg-[#b36048]" style={{ width: `${value}%` }} />
                     </div>
                   </div>
                 );
@@ -366,10 +318,7 @@ export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: P
                   <span className="text-[13px] text-[#8a7368]">タグなし</span>
                 ) : (
                   active.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-full bg-[#f6efe8] px-2.5 py-1 text-[12px] font-semibold text-[#6a5348]"
-                    >
+                    <span key={tag} className="rounded-full bg-[#f6efe8] px-2.5 py-1 text-[12px] font-semibold text-[#6a5348]">
                       {TAG_LABELS[tag] ?? tag}
                     </span>
                   ))
@@ -386,11 +335,7 @@ export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: P
               </ul>
             </div>
 
-            {active.warnings.length > 0 ? (
-              <p className="mt-4 text-[12px] leading-relaxed text-[#a24129]">
-                {active.warnings.join(" · ")}
-              </p>
-            ) : null}
+            {active.warnings.length > 0 ? <p className="mt-4 text-[12px] leading-relaxed text-[#a24129]">{active.warnings.join(" · ")}</p> : null}
 
             {result.parts ? <TechnicalDetails parts={result.parts} /> : null}
           </div>
@@ -450,6 +395,7 @@ export function PhotoIntelligenceLab({ photos, initialPetId, initialPhotoId }: P
                       <td className="px-3 py-2">
                         <span className="flex items-center gap-2">
                           {row.thumbUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
                             <img src={row.thumbUrl} alt="" className="h-12 w-12 rounded-lg object-cover" />
                           ) : (
                             <span className="inline-block h-12 w-12 rounded-lg bg-[#f3ebe4]" />
@@ -494,9 +440,7 @@ function TechnicalDetails({ parts }: { parts: TechnicalParts }) {
   return (
     <details className="mt-4 text-[12px] text-[#6a5c54]">
       <summary className="cursor-pointer font-semibold">Technical breakdown</summary>
-      <p className="mt-2 m-0">
-        {items.map(([label, value]) => `${label} ${value}`).join(" · ")}
-      </p>
+      <p className="mt-2 m-0">{items.map(([label, value]) => `${label} ${value}`).join(" · ")}</p>
     </details>
   );
 }

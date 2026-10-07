@@ -5,22 +5,22 @@ import {
   ArrowRight,
   ArrowUpDown,
   BookOpen,
-  Cake,
-  CalendarDays,
-  ChevronRight,
   Heart,
-  House,
   Image as ImageIcon,
   Images,
   Plus,
-  TreePine,
 } from "lucide-react";
 import { PetSwitcher } from "@/app/(app)/_components/pet-switcher";
 import { loadOwnerPetsForSwitcher } from "@/lib/owner-pets";
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
 import type { SearchFacets } from "@/lib/search-state";
 import { createClient } from "@/lib/supabase/server";
+import { traceAlbumLoad } from "@/lib/album-load-trace";
 import { AlbumListFilters } from "./_components/album-list-filters";
+import { preparePassiveCandidate } from "@/lib/passive-album-candidate-server";
+import { currentTokyoMonth, deriveMonthlyAlbumLifecycle, monthlyStateLabel, previousTokyoMonth } from "@/lib/album-monthly-lifecycle";
+import { ANNUAL_ALBUM_VERSION, annualCandidateYear } from "@/lib/annual-album";
+import { preparePassiveAnnualCandidate } from "@/lib/passive-annual-candidate-server";
 
 const ICON = { size: 16, strokeWidth: 1.7, "aria-hidden": true as const };
 
@@ -85,36 +85,6 @@ function tokyoParts(d = new Date()) {
   return { year: get("year"), month: get("month"), day: get("day") };
 }
 
-function daysUntilNextMd(monthDay: string | null | undefined): number | null {
-  if (!monthDay || !/^\d{4}-\d{2}-\d{2}/.test(monthDay)) return null;
-  const md = monthDay.slice(5, 10);
-  const { year, month, day } = tokyoParts();
-  const [mm, dd] = md.split("-").map(Number);
-  if (!mm || !dd) return null;
-  const todayIdx = month * 100 + day;
-  const targetIdx = mm * 100 + dd;
-  let targetYear = year;
-  if (targetIdx < todayIdx) targetYear += 1;
-  const todayUtc = Date.UTC(year, month - 1, day);
-  const targetUtc = Date.UTC(targetYear, mm - 1, dd);
-  return Math.round((targetUtc - todayUtc) / 86400000);
-}
-
-function ageYears(birthday: string | null | undefined): number | null {
-  if (!birthday || !/^\d{4}-\d{2}-\d{2}/.test(birthday)) return null;
-  const by = Number(birthday.slice(0, 4));
-  const bm = Number(birthday.slice(5, 7));
-  const bd = Number(birthday.slice(8, 10));
-  const { year, month, day } = tokyoParts();
-  let age = year - by;
-  if (month < bm || (month === bm && day < bd)) age -= 1;
-  return age >= 0 ? age : null;
-}
-
-function yearsTogether(adoption: string | null | undefined): number | null {
-  return ageYears(adoption);
-}
-
 function monthKeyFromIso(iso: string | null | undefined, fallback: string): string {
   const d = new Date(iso ?? fallback);
   return d.toLocaleDateString("en-CA", {
@@ -135,19 +105,21 @@ export default async function PetAlbumPage({ params }: Props) {
 
   const { data: pet, error: petError } = await supabase
     .from("pets")
-    .select("id, name, owner_user_id, birthday, adoption_date, avatar_url")
+    .select("id, name, owner_user_id, avatar_url")
     .eq("id", petId)
-    .eq("owner_user_id", user.id)
     .maybeSingle();
 
-  if (petError || !pet || pet.owner_user_id !== user.id) notFound();
+  if (petError || !pet) notFound();
+  const isOwner = pet.owner_user_id === user.id;
 
   const { year: nowY, month: nowM } = tokyoParts();
+  const currentMonth = currentTokyoMonth();
+  const previousMonth = previousTokyoMonth();
   const monthStart = `${nowY}-${String(nowM).padStart(2, "0")}-01T00:00:00+09:00`;
   const nextM = nowM === 12 ? 1 : nowM + 1;
   const nextY = nowM === 12 ? nowY + 1 : nowY;
   const monthEnd = `${nextY}-${String(nextM).padStart(2, "0")}-01T00:00:00+09:00`;
-  const createHref = `/pets/${pet.id}/album/new`;
+  const createHref = isOwner ? `/pets/${pet.id}/album/new` : `/pets/${pet.id}`;
 
   const [
     ownerPetsResult,
@@ -157,34 +129,29 @@ export default async function PetAlbumPage({ params }: Props) {
     monthPhotosResult,
     albumsResult,
     recentPhotosResult,
-    yearPhotosResult,
     favoritePhotosResult,
     facetResult,
-  ] = await Promise.all([
+  ] = await traceAlbumLoad("list.initial-queries", () => Promise.all([
     loadOwnerPetsForSwitcher(supabase, user.id),
     supabase
       .from("photos")
       .select("id", { count: "exact", head: true })
-      .eq("pet_id", pet.id)
-      .eq("uploader_user_id", user.id),
+      .eq("pet_id", pet.id),
     supabase
       .from("photos")
       .select("id", { count: "exact", head: true })
       .eq("pet_id", pet.id)
-      .eq("uploader_user_id", user.id)
       .eq("favorite", true),
     supabase
       .from("photos")
       .select("id", { count: "exact", head: true })
       .eq("pet_id", pet.id)
-      .eq("uploader_user_id", user.id)
       .gte("timeline_at", monthStart)
       .lt("timeline_at", monthEnd),
     supabase
       .from("photos")
       .select("id, pet_id, storage_path, thumbnail_path, taken_at, created_at")
       .eq("pet_id", pet.id)
-      .eq("uploader_user_id", user.id)
       .gte("timeline_at", monthStart)
       .lt("timeline_at", monthEnd)
       .order("timeline_at", { ascending: false })
@@ -193,37 +160,83 @@ export default async function PetAlbumPage({ params }: Props) {
       .from("albums")
       .select("id, title, status, period_from, period_to, cover_photo_id, created_at")
       .eq("pet_id", pet.id)
-      .eq("owner_user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(40),
     supabase
       .from("photos")
       .select("id, pet_id, storage_path, thumbnail_path, taken_at, created_at")
       .eq("pet_id", pet.id)
-      .eq("uploader_user_id", user.id)
       .order("timeline_at", { ascending: false })
       .limit(8),
     supabase
       .from("photos")
-      .select("id, pet_id, storage_path, thumbnail_path, taken_at, created_at, timeline_at")
-      .eq("pet_id", pet.id)
-      .eq("uploader_user_id", user.id)
-      .gte("timeline_at", `${nowY}-01-01T00:00:00+09:00`)
-      .order("timeline_at", { ascending: false })
-      .limit(300),
-    supabase
-      .from("photos")
       .select("id, pet_id, storage_path, thumbnail_path, taken_at, created_at")
       .eq("pet_id", pet.id)
-      .eq("uploader_user_id", user.id)
       .eq("favorite", true)
       .order("timeline_at", { ascending: false })
       .limit(1),
     supabase.rpc("get_search_facets", { p_pet_id: pet.id }),
-  ]);
+  ]));
+
+  const shelfMonthResults = await traceAlbumLoad("list.shelf-months", () =>
+    Promise.all(
+      Array.from({ length: 8 }, (_, index) => {
+        const month = index + 1;
+        const nextMonth = month + 1;
+        const start = `${nowY}-${String(month).padStart(2, "0")}-01T00:00:00+09:00`;
+        const end = `${nowY}-${String(nextMonth).padStart(2, "0")}-01T00:00:00+09:00`;
+        return supabase
+          .from("photos")
+          .select("id, pet_id, storage_path, thumbnail_path, taken_at, created_at, timeline_at")
+          .eq("pet_id", pet.id)
+          .gte("timeline_at", start)
+          .lt("timeline_at", end)
+          .order("timeline_at", { ascending: false })
+          .limit(1);
+      }),
+    ),
+  );
 
   const albumList = (albumsResult.data ?? []) as AlbumRow[];
   const albumIds = albumList.map((a) => a.id);
+  const activeDraftResult = albumIds.length
+    ? await supabase
+        .from("album_draft_versions")
+        .select("album_id, status, generation_metadata")
+        .in("album_id", albumIds)
+        .eq("is_active", true)
+        .in("status", ["ready", "editing"])
+    : { data: [], error: null };
+  const activeDraftAlbumIds = new Set((activeDraftResult.data ?? []).map((draft) => draft.album_id));
+  const annualAlbumIds = new Set((activeDraftResult.data ?? []).filter((draft) => {
+    const metadata = draft.generation_metadata as Record<string, unknown> | null;
+    return metadata?.annual_candidate_version === ANNUAL_ALBUM_VERSION;
+  }).map((draft) => draft.album_id));
+  const candidateAlbum = albumList.find((album) => activeDraftAlbumIds.has(album.id) && monthKeyFromIso(album.period_from, album.created_at) === currentMonth.key);
+  const passiveCandidate = isOwner && !candidateAlbum
+    ? await preparePassiveCandidate({ supabase, userId: user.id, petId: pet.id, petName: pet.name, monthKey: currentMonth.key })
+    : null;
+  const previousMonthHasAlbum = albumList.some((album) => monthKeyFromIso(album.period_from, album.created_at) === previousMonth.key);
+  const previousPassiveCandidate = isOwner && !previousMonthHasAlbum
+    ? await preparePassiveCandidate({ supabase, userId: user.id, petId: pet.id, petName: pet.name, monthKey: previousMonth.key })
+    : null;
+  const visibleAnnualYear = annualCandidateYear();
+  const existingAnnualForVisibleYear = visibleAnnualYear
+    ? albumList.some((album) => annualAlbumIds.has(album.id) && monthKeyFromIso(album.period_from, album.created_at).startsWith(String(visibleAnnualYear)))
+    : false;
+  const annualCandidate = isOwner && visibleAnnualYear && !existingAnnualForVisibleYear
+    ? await preparePassiveAnnualCandidate({ supabase, userId: user.id, petId: pet.id, petName: pet.name, year: visibleAnnualYear })
+    : null;
+  const [acceptedResult, finalizedResult, orderResult] = albumIds.length
+    ? await Promise.all([
+        supabase.from("album_analytics_events").select("album_id").in("album_id", albumIds).eq("event_type", "album_accepted"),
+        supabase.from("album_print_snapshots").select("album_id").in("album_id", albumIds).not("finalized_at", "is", null),
+        supabase.from("orders").select("album_id, status").in("album_id", albumIds).in("status", ["pending", "paid"]),
+      ])
+    : [{ data: [] }, { data: [] }, { data: [] }];
+  const acceptedAlbumIds = new Set((acceptedResult.data ?? []).map((row) => row.album_id));
+  const finalizedAlbumIds = new Set((finalizedResult.data ?? []).map((row) => row.album_id));
+  const orderedAlbumIds = new Set((orderResult.data ?? []).map((row) => row.album_id));
   const albumPhotoRows = albumIds.length
     ? (
         await supabase
@@ -263,17 +276,17 @@ export default async function PetAlbumPage({ params }: Props) {
 
   const monthPhotos = (monthPhotosResult.data ?? []) as PhotoRow[];
   const recentPhotos = (recentPhotosResult.data ?? []) as PhotoRow[];
-  const yearPhotos = (yearPhotosResult.data ?? []) as PhotoRow[];
+  const yearPhotos = shelfMonthResults.flatMap((result) => (result.data ?? []) as PhotoRow[]);
   const favoritePhotos = (favoritePhotosResult.data ?? []) as PhotoRow[];
   const coverPhotos = (coverPhotosResult.data ?? []) as PhotoRow[];
 
-  const images = await createListImageUrls(supabase, [
+  const images = await traceAlbumLoad("list.image-urls", () => createListImageUrls(supabase, [
     ...monthPhotos,
     ...recentPhotos,
     ...yearPhotos,
     ...favoritePhotos,
     ...coverPhotos,
-  ]);
+  ]));
 
   const urlOf = (photo: PhotoRow | null | undefined) =>
     photo ? images.signedUrlByPath.get(listImagePath(photo)) ?? null : null;
@@ -284,7 +297,10 @@ export default async function PetAlbumPage({ params }: Props) {
     if (url) coverUrlByPhotoId.set(photo.id, url);
   }
 
-  const heroCoverUrl = urlOf(monthPhotos[0] ?? recentPhotos[0] ?? null);
+  const candidateCoverId = candidateAlbum
+    ? candidateAlbum.cover_photo_id ?? firstPhotoByAlbum.get(candidateAlbum.id) ?? null
+    : null;
+  const heroCoverUrl = (candidateCoverId ? coverUrlByPhotoId.get(candidateCoverId) : null) ?? urlOf(monthPhotos[0] ?? recentPhotos[0] ?? null);
   const photoByMonth = new Map<string, PhotoRow>();
   for (const photo of yearPhotos) {
     const key = monthKeyFromIso(photo.timeline_at, photo.created_at);
@@ -313,13 +329,9 @@ export default async function PetAlbumPage({ params }: Props) {
   const photoCount = photoCountResult.count ?? 0;
   const favoriteCount = favoriteCountResult.count ?? 0;
   const monthCount = monthCountResult.count ?? 0;
+  const candidatePhotoCount = candidateAlbum ? photoCountByAlbum.get(candidateAlbum.id) ?? 0 : 0;
+  const heroPhotoCount = candidateAlbum ? candidatePhotoCount : monthCount;
   const ownerPets = ownerPetsResult.pets;
-  const birthdayDays = daysUntilNextMd(pet.birthday);
-  const adoptionDays = daysUntilNextMd(pet.adoption_date);
-  const age = ageYears(pet.birthday);
-  const together = yearsTogether(pet.adoption_date);
-  const monthName = `${nowM}月`;
-  const displayCount = monthCount > 0 ? monthCount : photoCount;
 
   const facets =
     facetResult.error || !facetResult.data
@@ -332,10 +344,64 @@ export default async function PetAlbumPage({ params }: Props) {
     count: number;
     href: string;
     src: string | null;
+    statusLabel?: string;
     filterKeys: string[];
+    monthKey?: string;
   };
 
   const listCards: ListCard[] = [];
+  if (annualCandidate) {
+    listCards.push({
+      key: `annual:${annualCandidate.fingerprint}`,
+      label: `${annualCandidate.year} · YEAR IN REVIEW`,
+      count: annualCandidate.selectedPhotoIds.length,
+      href: `/pets/${pet.id}/album/year/${annualCandidate.year}`,
+      src: null,
+      statusLabel: "AIがまとめました · 未確認",
+      filterKeys: ["すべて"],
+      monthKey: `${annualCandidate.year}-99`,
+    });
+  }
+  if (passiveCandidate) {
+    listCards.push({
+      key: `passive:${passiveCandidate.fingerprint}`,
+      label: passiveCandidate.title,
+      count: passiveCandidate.photoCount,
+      href: `/pets/${pet.id}/album/candidate?month=${currentMonth.key}`,
+      src: urlOf(monthPhotos[0] ?? null),
+      statusLabel: "AIがまとめました · 未確認",
+      filterKeys: ["すべて"],
+      monthKey: currentMonth.key,
+    });
+  }
+  if (previousPassiveCandidate) {
+    listCards.push({
+      key: `passive:${previousPassiveCandidate.fingerprint}`,
+      label: previousPassiveCandidate.title,
+      count: previousPassiveCandidate.photoCount,
+      href: `/pets/${pet.id}/album/candidate?month=${previousMonth.key}`,
+      src: null,
+      statusLabel: "AIがまとめました · 未確認",
+      filterKeys: ["すべて"],
+      monthKey: previousMonth.key,
+    });
+  }
+  if (!candidateAlbum && !passiveCandidate && monthCount > 0) {
+    const lifecycle = deriveMonthlyAlbumLifecycle({ photoCount: monthCount });
+    listCards.push({
+      key: `collecting:${currentMonth.key}`,
+      label: `${nowY}年${nowM}月`,
+      count: monthCount,
+      href: `/pets/${pet.id}/photos/new`,
+      src: urlOf(monthPhotos[0] ?? null),
+      statusLabel:
+        lifecycle.remaining > 0
+          ? `あと${lifecycle.remaining}枚`
+          : "写真を整理しています",
+      filterKeys: ["すべて"],
+      monthKey: currentMonth.key,
+    });
+  }
   if (favoriteCount > 0) {
     listCards.push({
       key: "favorites",
@@ -349,15 +415,27 @@ export default async function PetAlbumPage({ params }: Props) {
   for (const album of albumList) {
     const coverId =
       album.cover_photo_id ?? firstPhotoByAlbum.get(album.id) ?? null;
+    const lifecycle = deriveMonthlyAlbumLifecycle({
+      photoCount: photoCountByAlbum.get(album.id) ?? 0,
+      hasDraft: activeDraftAlbumIds.has(album.id),
+      accepted: acceptedAlbumIds.has(album.id) || album.status === "ready",
+      ordered: orderedAlbumIds.has(album.id) || album.status === "ordered",
+      finalized: finalizedAlbumIds.has(album.id),
+    });
     listCards.push({
       key: `album:${album.id}`,
-      label: album.title || "アルバム",
+      label: annualAlbumIds.has(album.id) ? `${monthKeyFromIso(album.period_from, album.created_at).slice(0, 4)} · YEAR IN REVIEW` : album.title || "アルバム",
       count: photoCountByAlbum.get(album.id) ?? 0,
-      href: `/pets/${pet.id}/album/${album.id}`,
+      href: activeDraftAlbumIds.has(album.id)
+        ? `/pets/${pet.id}/album/${album.id}?view=complete`
+        : `/pets/${pet.id}/album/${album.id}`,
       src: coverId ? coverUrlByPhotoId.get(coverId) ?? null : null,
+      statusLabel: annualAlbumIds.has(album.id) ? `年間アルバム · ${monthlyStateLabel(lifecycle.state)}` : monthlyStateLabel(lifecycle.state),
       filterKeys: ["すべて"],
+      monthKey: annualAlbumIds.has(album.id) ? `${monthKeyFromIso(album.period_from, album.created_at).slice(0, 4)}-98` : monthKeyFromIso(album.period_from, album.created_at),
     });
   }
+  listCards.sort((left, right) => (right.monthKey ?? "0000-00").localeCompare(left.monthKey ?? "0000-00"));
   const facetCards = (facets?.words ?? [])
     .slice()
     .sort((a, b) => b.count - a.count)
@@ -461,103 +539,36 @@ export default async function PetAlbumPage({ params }: Props) {
             <div className="album-hero-copy">
               <p className="album-hero-brand">UCHINOCO</p>
               <h2 id="album-hero-heading" className="album-hero-title">
-                {monthName}の思い出を
-                <br />
-                一冊にしませんか？
+                {candidateAlbum ? `${pet.name}のアルバムができました` : passiveCandidate ? "今月のアルバム、できています" : "思い出をAIが一冊にまとめます"}
               </h2>
               <p className="album-hero-text">
-                今月は <em>{displayCount.toLocaleString()}枚</em> の写真が集まりました。
+                {candidateAlbum
+                  ? `AIが${candidatePhotoCount.toLocaleString()}枚を選びました。確認して、そのまま楽しめます。`
+                  : passiveCandidate
+                    ? `AIが${passiveCandidate.photoCount.toLocaleString()}枚を整理しました。開くまでは正式Draftを作りません。`
+                  : `今月は <em>${monthCount.toLocaleString()}枚</em> の写真が集まりました。`}
               </p>
               <ul className="album-hero-stats">
                 <li>
                   <ImageIcon {...ICON} />
-                  <span>{displayCount.toLocaleString()}枚の写真</span>
+                  <span>{heroPhotoCount.toLocaleString()}枚{candidateAlbum ? "の写真" : "の今月の写真"}</span>
                 </li>
                 <li>
                   <Heart {...ICON} />
                   <span>お気に入り {favoriteCount.toLocaleString()}枚</span>
                 </li>
               </ul>
-              <Link href={createHref} className="album-hero-cta ds-focus">
+              <Link href={candidateAlbum ? `/pets/${pet.id}/album/${candidateAlbum.id}?view=complete` : passiveCandidate ? `/pets/${pet.id}/album/candidate?month=${currentMonth.key}` : createHref} className="album-hero-cta ds-focus">
                 <BookOpen {...ICON} />
-                AIで今月のアルバムを作る
+                {candidateAlbum ? "AIアルバムを確認する" : passiveCandidate ? "アルバムを見る" : "AIにおまかせで作る"}
                 <ArrowRight {...ICON} />
               </Link>
             </div>
             <span className="album-hero-badge">
-              今月の
+              {candidateAlbum ? "AIの" : passiveCandidate ? "AIが" : "今月の"}
               <br />
-              おすすめ
+              {candidateAlbum ? "初稿" : passiveCandidate ? "まとめました" : "おすすめ"}
             </span>
-          </section>
-
-          <section aria-labelledby="album-propose-heading" className="album-section">
-            <h2 id="album-propose-heading" className="album-section-title">
-              <span className="album-section-icon">
-                <CalendarDays {...ICON} />
-              </span>
-              次の特別なアルバムのご提案
-            </h2>
-            <ul className="album-proposals">
-              <li>
-                <Link href={createHref} className="album-proposal ds-focus">
-                  <span className="album-proposal-icon">
-                    <Cake {...ICON} size={18} />
-                  </span>
-                  <span className="album-proposal-body">
-                    <span className="album-proposal-title">
-                      {pet.name}の誕生日まで あと <em>{birthdayDays ?? "—"}</em> 日
-                    </span>
-                    <span className="album-proposal-sub">
-                      {age !== null
-                        ? `${age}歳の1年を振り返りませんか？`
-                        : "特別な一冊を残しませんか？"}
-                    </span>
-                  </span>
-                  <span className="album-proposal-chevron" aria-hidden="true">
-                    <ChevronRight size={16} strokeWidth={1.8} />
-                  </span>
-                </Link>
-              </li>
-              <li>
-                <Link href={createHref} className="album-proposal ds-focus">
-                  <span className="album-proposal-icon">
-                    <House {...ICON} size={18} />
-                  </span>
-                  <span className="album-proposal-body">
-                    <span className="album-proposal-title">
-                      お迎え記念日まで あと <em>{adoptionDays ?? "—"}</em> 日
-                    </span>
-                    <span className="album-proposal-sub">
-                      {together !== null && together > 0
-                        ? `家族になって${together}年。特別な一冊を。`
-                        : "家族になった日を、一冊に。"}
-                    </span>
-                  </span>
-                  <span className="album-proposal-chevron" aria-hidden="true">
-                    <ChevronRight size={16} strokeWidth={1.8} />
-                  </span>
-                </Link>
-              </li>
-              <li>
-                <Link href={createHref} className="album-proposal ds-focus">
-                  <span className="album-proposal-icon">
-                    <TreePine {...ICON} size={18} />
-                  </span>
-                  <span className="album-proposal-body">
-                    <span className="album-proposal-title">
-                      {nowY}年の年間アルバム
-                    </span>
-                    <span className="album-proposal-sub">
-                      今年の思い出をまとめて残しましょう。
-                    </span>
-                  </span>
-                  <span className="album-proposal-chevron" aria-hidden="true">
-                    <ChevronRight size={16} strokeWidth={1.8} />
-                  </span>
-                </Link>
-              </li>
-            </ul>
           </section>
 
           <section aria-labelledby="album-shelf-heading" className="album-section">

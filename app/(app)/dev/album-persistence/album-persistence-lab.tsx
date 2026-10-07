@@ -56,6 +56,8 @@ function toPersistable(result: AlbumGenerationResult): PersistableSpread[] {
       importance: spread.story.importance,
       coherenceScore: spread.story.coherenceScore,
     },
+    selectedLayout: spread.selectedLayout,
+    alternatives: spread.alternatives,
     assignments: spread.assignments.map((item) => ({
       frameId: item.frameId,
       role: item.role,

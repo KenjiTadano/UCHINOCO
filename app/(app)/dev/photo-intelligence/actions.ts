@@ -2,43 +2,31 @@
 
 import OpenAI from "openai";
 import { createClient } from "@/lib/supabase/server";
-import {
-  getPhotoIntelligenceCache,
-  photoIntelligenceCacheKey,
-  setPhotoIntelligenceCache,
-} from "@/lib/photo-intelligence/cache";
+import { getPhotoIntelligenceCache, photoIntelligenceCacheKey, setPhotoIntelligenceCache } from "@/lib/photo-intelligence/cache";
 import { PHOTO_INTELLIGENCE_VERSION } from "@/lib/photo-intelligence/config";
-import { PHOTO_INTELLIGENCE_SEMANTIC } from "@/lib/photo-analysis/constants";
+import { PHOTO_INTELLIGENCE_SEMANTIC, SUBJECT_GEOMETRY, SUBJECT_GEOMETRY_VERSION } from "@/lib/photo-analysis/constants";
 import { sourceFingerprint } from "@/lib/photo-analysis/fingerprint";
 import { analysisReadPlan, reusableAnalysis } from "@/lib/photo-analysis/policy";
 import { readAnalysis, saveAnalysis } from "@/lib/photo-analysis/repository";
-import { parseStoredSemantic } from "@/lib/photo-analysis/stored";
+import { parseStoredGeometry, parseStoredSemantic } from "@/lib/photo-analysis/stored";
 import { noteAnalysisTrace, noteVisionCall } from "@/lib/photo-analysis/trace";
 import type { Json } from "@/lib/supabase/database.types";
 import type { ResultStatus } from "@/lib/photo-analysis/constants";
 import { buildPhotoIntelligence } from "@/lib/photo-intelligence/score";
 import { measureTechnicalQuality } from "@/lib/photo-intelligence/technical";
-import type {
-  PhotoIntelligence,
-  PhotoIntelligenceVision,
-  TechnicalParts,
-  TechnicalSignals,
-} from "@/lib/photo-intelligence/types";
-import {
-  parsePhotoIntelligenceVision,
-  PHOTO_INTELLIGENCE_VISION_PROMPT,
-  PHOTO_INTELLIGENCE_VISION_SCHEMA,
-} from "@/lib/photo-intelligence/vision-parse";
+import type { PhotoIntelligence, PhotoIntelligenceVision, TechnicalParts, TechnicalSignals } from "@/lib/photo-intelligence/types";
+import { parsePhotoIntelligenceVision, PHOTO_INTELLIGENCE_VISION_PROMPT, PHOTO_INTELLIGENCE_VISION_SCHEMA } from "@/lib/photo-intelligence/vision-parse";
 import { geometryMemoryKey } from "@/lib/photo-analysis/keys";
 import { getSmartCropCache } from "@/lib/smart-crop/cache";
 import type { SmartCropPhotoAnalysis } from "@/lib/smart-crop/types";
 import { analyzeSmartCropPhoto } from "../smart-crop/actions";
+import { createCachedSignedImageUrls, createPhotoPreviewUrls, ORIGINAL_PHOTO_BUCKET, PHOTO_IMAGE_BUCKET } from "@/lib/photo-image-delivery";
 
 const DEFAULT_VISION_MODEL = "gpt-4o";
+const MAX_AI_IMAGE_SIZE = 5 * 1024 * 1024;
 const SUCCESS_TTL_MS = 30 * 60 * 1000;
 const FAILURE_TTL_MS = 2 * 60 * 1000;
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export type PhotoIntelligenceAnalyzeResult = {
@@ -49,12 +37,10 @@ export type PhotoIntelligenceAnalyzeResult = {
   storagePath: string | null;
   imageUrl: string | null;
   previewUrl: string | null;
+  thumbnailUrl: string | null;
   intelligence: PhotoIntelligence | null;
   parts: TechnicalParts | null;
-  signals: Pick<
-    TechnicalSignals,
-    "width" | "height" | "pixelsKnown" | "meanLuma" | "lumaStd" | "laplacianVar"
-  > | null;
+  signals: Pick<TechnicalSignals, "width" | "height" | "pixelsKnown" | "meanLuma" | "lumaStd" | "laplacianVar"> | null;
   fromCache: boolean;
   cropFromCache: boolean;
   visionCalled: boolean;
@@ -71,6 +57,7 @@ function emptyResult(message: string): PhotoIntelligenceAnalyzeResult {
     storagePath: null,
     imageUrl: null,
     previewUrl: null,
+    thumbnailUrl: null,
     intelligence: null,
     parts: null,
     signals: null,
@@ -82,8 +69,10 @@ function emptyResult(message: string): PhotoIntelligenceAnalyzeResult {
   };
 }
 
-function semanticJson(vision: PhotoIntelligenceVision): Json {
-  return JSON.parse(JSON.stringify(vision)) as Json;
+function semanticJson(vision: PhotoIntelligenceVision, overallScore: number): Json {
+  // Keep the validated semantic payload reusable while exposing the derived,
+  // deterministic score to UCHINOCO NOW without another Vision request.
+  return JSON.parse(JSON.stringify({ ...vision, overallScore })) as Json;
 }
 
 function hasExpectedImageSignature(mimeType: string, bytes: Uint8Array) {
@@ -95,10 +84,7 @@ function hasExpectedImageSignature(mimeType: string, bytes: Uint8Array) {
     return signature.every((byte, index) => bytes[index] === byte);
   }
   if (mimeType === "image/webp") {
-    return (
-      String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
-      String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
-    );
+    return String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
   }
   return false;
 }
@@ -131,11 +117,7 @@ function signalSnapshot(signals: TechnicalSignals) {
  * Task051 — on-demand keeper score.
  * Semantic Vision results are reused from memory, then the database, then the model.
  */
-export async function analyzePhotoIntelligence(
-  petId: string,
-  photoId: string,
-  force = false,
-): Promise<PhotoIntelligenceAnalyzeResult> {
+export async function analyzePhotoIntelligence(petId: string, photoId: string, force = false, options?: { storedOnly?: boolean; allowLargeImageDegrade?: boolean }): Promise<PhotoIntelligenceAnalyzeResult> {
   if (!UUID_PATTERN.test(petId) || !UUID_PATTERN.test(photoId)) {
     return emptyResult("不正なIDです。");
   }
@@ -148,97 +130,63 @@ export async function analyzePhotoIntelligence(
   if (userError || !user) return emptyResult("ログインが必要です。");
 
   const [petResult, photoResult] = await Promise.all([
-    supabase
-      .from("pets")
-      .select("id, owner_user_id")
-      .eq("id", petId)
-      .eq("owner_user_id", user.id)
-      .maybeSingle(),
-    supabase
-      .from("photos")
-      .select("id, pet_id, uploader_user_id, storage_path, thumbnail_path, updated_at, content_hash")
-      .eq("id", photoId)
-      .eq("pet_id", petId)
-      .eq("uploader_user_id", user.id)
-      .maybeSingle(),
+    supabase.from("pets").select("id, owner_user_id").eq("id", petId).eq("owner_user_id", user.id).maybeSingle(),
+    supabase.from("photos").select("id, pet_id, uploader_user_id, storage_path, thumbnail_path, updated_at, content_hash").eq("id", photoId).eq("pet_id", petId).eq("uploader_user_id", user.id).maybeSingle(),
   ]);
 
   const pet = petResult.data;
   const photo = photoResult.data;
-  if (
-    petResult.error ||
-    photoResult.error ||
-    !pet ||
-    !photo ||
-    pet.owner_user_id !== user.id ||
-    photo.uploader_user_id !== user.id
-  ) {
+  if (petResult.error || photoResult.error || !pet || !photo || pet.owner_user_id !== user.id || photo.uploader_user_id !== user.id) {
     return emptyResult("写真を読み込めませんでした。");
   }
 
-  const { data: signed, error: signError } = await supabase.storage
-    .from("pet-photos")
-    .createSignedUrl(photo.storage_path, 3600);
-  if (signError || !signed?.signedUrl) {
+  const signed = await createCachedSignedImageUrls(supabase, user.id, ORIGINAL_PHOTO_BUCKET, [photo.storage_path]);
+  const originalUrl = signed.urls.get(photo.storage_path);
+  if (!originalUrl) {
     return emptyResult("写真URLの発行に失敗しました。");
   }
+  const aiInputUrl: string = originalUrl;
 
-  let previewUrl = signed.signedUrl;
-  if (photo.thumbnail_path) {
-    const { data: thumb } = await supabase.storage
-      .from("pet-photo-thumbnails")
-      .createSignedUrl(photo.thumbnail_path, 3600);
-    if (thumb?.signedUrl) previewUrl = thumb.signedUrl;
-  }
+  const [thumbnailResult, previewUrls] = await Promise.all([photo.thumbnail_path ? createCachedSignedImageUrls(supabase, user.id, PHOTO_IMAGE_BUCKET, [photo.thumbnail_path]) : Promise.resolve({ urls: new Map<string, string>(), error: null }), createPhotoPreviewUrls(supabase, [photo], true, false, user.id)]);
+  const thumbnailUrl = photo.thumbnail_path ? (thumbnailResult.urls.get(photo.thumbnail_path) ?? null) : null;
+  const previewUrl = previewUrls.get(photo.id) ?? originalUrl;
 
   const fingerprint = sourceFingerprint(photo);
-  const cacheKey = photoIntelligenceCacheKey(
-    photo.id,
-    photo.storage_path,
-    PHOTO_INTELLIGENCE_VERSION,
-    fingerprint,
-  );
+  const cacheKey = photoIntelligenceCacheKey(photo.id, photo.storage_path, PHOTO_INTELLIGENCE_VERSION, fingerprint);
   const cached = force ? null : getPhotoIntelligenceCache(cacheKey);
   if (analysisReadPlan({ force, memoryHit: Boolean(cached), dbHit: false }) === "memory" && cached) {
-      const failed = cached.intelligence.warnings.includes("VISION_ANALYSIS_FAILED");
-      noteAnalysisTrace({
-        photoId: photo.id,
-        analysisType: PHOTO_INTELLIGENCE_SEMANTIC,
-        version: PHOTO_INTELLIGENCE_VERSION,
-        fingerprint,
-        cacheSource: "memory",
-        status: failed ? "fallback" : "success",
-        visionCalled: false,
-        createdAt: null,
-      });
-      return {
-        ok: true,
-        message: null,
-        photoId: photo.id,
-        petId: pet.id,
-        storagePath: photo.storage_path,
-        imageUrl: signed.signedUrl,
-        previewUrl,
-        intelligence: cached.intelligence,
-        parts: cached.parts,
-        signals: cached.signals,
-        fromCache: true,
-        cropFromCache: Boolean(getSmartCropCache(geometryMemoryKey(photo))),
-        visionCalled: false,
-        visionFailed: failed,
-        cacheSource: "memory",
-      };
+    const failed = cached.intelligence.warnings.includes("VISION_ANALYSIS_FAILED");
+    noteAnalysisTrace({
+      photoId: photo.id,
+      analysisType: PHOTO_INTELLIGENCE_SEMANTIC,
+      version: PHOTO_INTELLIGENCE_VERSION,
+      fingerprint,
+      cacheSource: "memory",
+      status: failed ? "fallback" : "success",
+      visionCalled: false,
+      createdAt: null,
+    });
+    return {
+      ok: true,
+      message: null,
+      photoId: photo.id,
+      petId: pet.id,
+      storagePath: photo.storage_path,
+      imageUrl: originalUrl,
+      previewUrl,
+      thumbnailUrl,
+      intelligence: cached.intelligence,
+      parts: cached.parts,
+      signals: cached.signals,
+      fromCache: true,
+      cropFromCache: Boolean(getSmartCropCache(geometryMemoryKey(photo))),
+      visionCalled: false,
+      visionFailed: failed,
+      cacheSource: "memory",
+    };
   }
 
-  const stored = force
-    ? null
-    : await readAnalysis(
-        supabase,
-        photo.id,
-        PHOTO_INTELLIGENCE_SEMANTIC,
-        PHOTO_INTELLIGENCE_VERSION,
-        fingerprint,
-      );
+  const stored = force ? null : await readAnalysis(supabase, photo.id, PHOTO_INTELLIGENCE_SEMANTIC, PHOTO_INTELLIGENCE_VERSION, fingerprint);
   const reusable = reusableAnalysis(
     stored
       ? {
@@ -251,10 +199,11 @@ export async function analyzePhotoIntelligence(
     { analysisVersion: PHOTO_INTELLIGENCE_VERSION, sourceFingerprint: fingerprint },
   );
   const storedVision = reusable ? parseStoredSemantic(reusable.result) : null;
+  if (options?.storedOnly && !storedVision) {
+    return emptyResult("保存済みの撮れ高評価がありません。");
+  }
 
-  const { data: blob, error: downloadError } = await supabase.storage
-    .from("pet-photos")
-    .download(photo.storage_path);
+  const { data: blob, error: downloadError } = await supabase.storage.from("pet-photos").download(photo.storage_path);
   if (downloadError || !blob || blob.size <= 0) {
     return emptyResult("写真をダウンロードできませんでした。");
   }
@@ -273,12 +222,31 @@ export async function analyzePhotoIntelligence(
   }
 
   const technical = measureTechnicalQuality(imageBytes, blob.type);
-  const unusable =
-    technical.flags.includes("BLACK_IMAGE") || technical.flags.includes("CORRUPT_IMAGE");
-
-  const originalUrl = signed.signedUrl;
+  const unusable = technical.flags.includes("BLACK_IMAGE") || technical.flags.includes("CORRUPT_IMAGE");
 
   const cachedCrop = getSmartCropCache(geometryMemoryKey(photo));
+  let storedGeometry: SmartCropPhotoAnalysis | null = null;
+  if (options?.storedOnly && !cachedCrop) {
+    const geometry = await readAnalysis(supabase, photo.id, SUBJECT_GEOMETRY, SUBJECT_GEOMETRY_VERSION, fingerprint);
+    const reusableGeometry = reusableAnalysis(
+      geometry
+        ? {
+            analysisVersion: geometry.analysisVersion,
+            sourceFingerprint: geometry.sourceFingerprint,
+            resultStatus: geometry.resultStatus,
+            result: geometry.result,
+          }
+        : null,
+      {
+        analysisVersion: SUBJECT_GEOMETRY_VERSION,
+        sourceFingerprint: fingerprint,
+      },
+    );
+    storedGeometry = reusableGeometry ? parseStoredGeometry(reusableGeometry.result) : null;
+    if (!storedGeometry) {
+      return emptyResult("保存済みの被写体解析がありません。");
+    }
+  }
 
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   const model = process.env.OPENAI_VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
@@ -339,7 +307,7 @@ export async function analyzePhotoIntelligence(
     }
     visionCalled = true;
     try {
-      const parsed = await requestVision(originalUrl);
+      const parsed = await requestVision(aiInputUrl);
       if (parsed) return parsed;
       visionFailed = true;
       return null;
@@ -352,7 +320,7 @@ export async function analyzePhotoIntelligence(
       });
       if (downloadTimeout) {
         try {
-          const parsed = await requestVision(originalUrl);
+          const parsed = await requestVision(aiInputUrl);
           if (parsed) return parsed;
         } catch (retryError) {
           console.error("Photo Intelligence vision retry failed", {
@@ -367,16 +335,54 @@ export async function analyzePhotoIntelligence(
 
   const cropPromise = cachedCrop
     ? Promise.resolve(cachedCrop)
-    : analyzeSmartCropPhoto(petId, photoId, { forceReanalyze: force }).then(
-        (result) =>
-          result.analysis ??
-          centerAnalysis(technical.signals.width || 1000, technical.signals.height || 1000),
-      );
+    : options?.storedOnly
+      ? Promise.resolve(storedGeometry)
+      : analyzeSmartCropPhoto(petId, photoId, {
+          forceReanalyze: force,
+          allowLargeImageDegrade: options?.allowLargeImageDegrade,
+        }).then((result) => result.analysis ?? centerAnalysis(technical.signals.width || 1000, technical.signals.height || 1000));
+
+  if (blob.size > MAX_AI_IMAGE_SIZE && options?.allowLargeImageDegrade) {
+    const cropAnalysis = await cropPromise;
+    const analysis = cropAnalysis ?? centerAnalysis(technical.signals.width || 1000, technical.signals.height || 1000);
+    const baseIntelligence = buildPhotoIntelligence({
+      photoId: photo.id,
+      analysis,
+      technical,
+      vision: null,
+      visionFailed: false,
+    });
+    const intelligence = {
+      ...baseIntelligence,
+      warnings: [...baseIntelligence.warnings, "LARGE_IMAGE_SKIPPED"],
+    };
+    setPhotoIntelligenceCache(cacheKey, { intelligence, parts: technical.parts, signals: signalSnapshot(technical.signals) }, FAILURE_TTL_MS);
+    return {
+      ok: true,
+      message: "画像が5MBを超えるため意味解析をスキップしました。",
+      photoId: photo.id,
+      petId: pet.id,
+      storagePath: photo.storage_path,
+      imageUrl: originalUrl,
+      previewUrl,
+      thumbnailUrl,
+      intelligence,
+      parts: technical.parts,
+      signals: signalSnapshot(technical.signals),
+      fromCache: false,
+      cropFromCache: Boolean(cachedCrop),
+      visionCalled: false,
+      visionFailed: false,
+      cacheSource: null,
+    };
+  }
 
   if (analysisReadPlan({ force, memoryHit: false, dbHit: Boolean(storedVision) }) === "db" && storedVision && stored) {
     const cropAnalysis = await cropPromise;
-    const analysis =
-      cropAnalysis ?? centerAnalysis(technical.signals.width || 1000, technical.signals.height || 1000);
+    if (!cropAnalysis) {
+      return emptyResult("保存済みの被写体解析がありません。");
+    }
+    const analysis = cropAnalysis ?? centerAnalysis(technical.signals.width || 1000, technical.signals.height || 1000);
     const intelligence = buildPhotoIntelligence({
       photoId: photo.id,
       analysis,
@@ -384,11 +390,7 @@ export async function analyzePhotoIntelligence(
       vision: storedVision,
       visionFailed: false,
     });
-    setPhotoIntelligenceCache(
-      cacheKey,
-      { intelligence, parts: technical.parts, signals: signalSnapshot(technical.signals) },
-      SUCCESS_TTL_MS,
-    );
+    setPhotoIntelligenceCache(cacheKey, { intelligence, parts: technical.parts, signals: signalSnapshot(technical.signals) }, SUCCESS_TTL_MS);
     noteAnalysisTrace({
       photoId: photo.id,
       analysisType: PHOTO_INTELLIGENCE_SEMANTIC,
@@ -405,8 +407,9 @@ export async function analyzePhotoIntelligence(
       photoId: photo.id,
       petId: pet.id,
       storagePath: photo.storage_path,
-      imageUrl: signed.signedUrl,
+      imageUrl: originalUrl,
       previewUrl,
+      thumbnailUrl,
       intelligence,
       parts: technical.parts,
       signals: signalSnapshot(technical.signals),
@@ -421,9 +424,7 @@ export async function analyzePhotoIntelligence(
   const [cropAnalysis, visionResult] = await Promise.all([cropPromise, loadVision()]);
   vision = visionResult;
 
-  const analysis =
-    cropAnalysis ??
-    centerAnalysis(technical.signals.width || 1000, technical.signals.height || 1000);
+  const analysis = cropAnalysis ?? centerAnalysis(technical.signals.width || 1000, technical.signals.height || 1000);
 
   const intelligence = buildPhotoIntelligence({
     photoId: photo.id,
@@ -440,7 +441,7 @@ export async function analyzePhotoIntelligence(
     analysisVersion: PHOTO_INTELLIGENCE_VERSION,
     sourceFingerprint: fingerprint,
     resultStatus: status,
-    result: vision ? semanticJson(vision) : { reason: visionFailed ? "vision_failed" : "vision_skipped" },
+    result: vision ? semanticJson(vision, intelligence.overallScore) : { reason: visionFailed ? "vision_failed" : "vision_skipped" },
     existingStatus: stored?.resultStatus ?? null,
   });
   if (!(force && saved.reason === "success_immutable")) {
@@ -471,8 +472,9 @@ export async function analyzePhotoIntelligence(
     photoId: photo.id,
     petId: pet.id,
     storagePath: photo.storage_path,
-    imageUrl: signed.signedUrl,
+    imageUrl: originalUrl,
     previewUrl,
+    thumbnailUrl,
     intelligence,
     parts: technical.parts,
     signals: signalSnapshot(technical.signals),

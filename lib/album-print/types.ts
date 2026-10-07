@@ -1,5 +1,7 @@
 import type { CoverColorId, CoverTemplateId } from "../album-cover-templates.ts";
 import type { DecorationId, TextKind, TextStyleId } from "../album-polish/types.ts";
+import type { ElementBackgroundId, PageElement, PageSide } from "../album-elements/model.ts";
+import type { AlbumCompositionPlan } from "../album-draft/composition.ts";
 
 export type PrintLength = { px: number; mm: number; pt: number };
 
@@ -22,6 +24,7 @@ export type PrintGeometry = {
   canvas: { width: number; height: number };
   spread: { widthMm: number; heightMm: number; widthPt: number; heightPt: number };
   cover: { widthMm: number; heightMm: number; widthPt: number; heightPt: number };
+  page: { widthMm: number; heightMm: number; widthPt: number; heightPt: number; trimWidthMm: number; trimHeightMm: number };
   bleed: PrintLength;
   trim: PrintLength;
   gutter: { x: PrintLength; width: PrintLength };
@@ -64,14 +67,25 @@ export type PrintDecoration = {
   rect: PrintRect;
 };
 
+export type PrintPageBackground = {
+  pageSide: PageSide;
+  backgroundId: ElementBackgroundId;
+  rect: PrintRect;
+};
+
+export type PrintEditableElement = PageElement & { rect: PrintRect };
+
 export type PrintSpread = {
   id: string;
+  storySpreadId: string;
   position: number;
   revision: number;
   layoutId: string;
   frames: PrintFrame[];
   texts: PrintText[];
   decorations: PrintDecoration[];
+  backgrounds: PrintPageBackground[];
+  elements: PrintEditableElement[];
 };
 
 export type PrintCover = {
@@ -98,6 +112,8 @@ export type PrintRevisionRecord = {
     frames: Array<{ id: string; revision: number }>;
     texts: Array<{ id: string; revision: number }>;
     decorations: Array<{ id: string; revision: number }>;
+    elements: Array<{ id: string; revision: number; clientSeq: number }>;
+    backgrounds: Record<PageSide, { backgroundId: ElementBackgroundId | null; revision: number; clientSeq: number }>;
   }>;
 };
 
@@ -106,6 +122,7 @@ export type AlbumPrintSnapshot = {
   draftVersionId: string;
   cover: PrintCover;
   spreads: PrintSpread[];
+  compositionPlan: AlbumCompositionPlan | null;
   generatedAt: string;
   sourceRevision: number;
   schemaVersion: string;
@@ -121,6 +138,9 @@ export type PrintIssueCode =
   | "FONT_MISSING"
   | "FONT_FALLBACK"
   | "TEXT_OVERFLOW"
+  | "MIN_FONT_SIZE"
+  | "TEXT_PHOTO_COLLISION"
+  | "TEXT_DECORATION_COLLISION"
   | "INVALID_PRINT_GEOMETRY"
   | "GUTTER_VIOLATION"
   | "SAFE_AREA_VIOLATION"

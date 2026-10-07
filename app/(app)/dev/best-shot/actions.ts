@@ -11,8 +11,7 @@ import { intelligenceMemoryKey } from "@/lib/photo-analysis/keys";
 import { createClient } from "@/lib/supabase/server";
 import type { GroupingGroupView } from "../photo-grouping/actions";
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type BestShotGroupView = {
   group: GroupingGroupView;
@@ -35,9 +34,9 @@ function emptyRun(message: string): BestShotRunResult {
 }
 
 /** Rank each scene group. Reuses Task052 groups and does not write a database row. */
-export async function selectPetBestShots(petId: string): Promise<BestShotRunResult> {
+export async function selectPetBestShots(petId: string, options?: { storedOnly?: boolean; allowLargeImageDegrade?: boolean; dateRange?: { start: string; end: string }; allowedPhotoIds?: string[] }): Promise<BestShotRunResult> {
   if (!UUID_PATTERN.test(petId)) return emptyRun("不正なIDです。");
-  const grouped = await groupPetPhotos(petId);
+  const grouped = await groupPetPhotos(petId, options);
   if (!grouped.ok) return emptyRun(grouped.message ?? "グループ化に失敗しました。");
 
   const supabase = await createClient();
@@ -46,12 +45,7 @@ export async function selectPetBestShots(petId: string): Promise<BestShotRunResu
   } = await supabase.auth.getUser();
   if (!user) return emptyRun("ログインが必要です。");
 
-  const { data: rows } = await supabase
-    .from("photos")
-    .select("id, storage_path, updated_at, content_hash")
-    .eq("pet_id", petId)
-    .eq("uploader_user_id", user.id)
-    .limit(40);
+  const { data: rows } = await supabase.from("photos").select("id, storage_path, updated_at, content_hash").eq("pet_id", petId).eq("uploader_user_id", user.id).limit(40);
 
   const byId = new Map<string, { sharpness: number; intelligence: BestShotPhoto["intelligence"] }>();
   for (const row of rows ?? []) {

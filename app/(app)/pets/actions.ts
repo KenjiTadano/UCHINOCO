@@ -1,7 +1,9 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { loadUserEntitlements } from "@/lib/entitlements-server";
 import { createClient } from "@/lib/supabase/server";
 
 export type PetFormValues = {
@@ -337,6 +339,22 @@ export async function createPet(
 
   if (userError || !user) {
     redirect("/login");
+  }
+
+  const [{ count: ownedPetCount }, entitlements] = await Promise.all([
+    supabase
+      .from("pets")
+      .select("id", { count: "exact", head: true })
+      .eq("owner_user_id", user.id),
+    loadUserEntitlements(supabase as unknown as SupabaseClient, user.id),
+  ]);
+  if (!entitlements.canUseMultiplePets && (ownedPetCount ?? 0) >= 1) {
+    return errorState(
+      previousState,
+      values,
+      {},
+      "2匹目以降の登録はUCHINOCO PLUSで利用できます。既に登録済みのうちの子は引き続き閲覧できます。",
+    );
   }
 
   const { data: pet, error } = await supabase

@@ -1,7 +1,8 @@
 import type { AlbumCandidatePeriod } from "../album-candidates/types.ts";
 import type { StorySpread } from "../album-story/types.ts";
 import type { SmartCropFrame } from "../smart-crop/types.ts";
-import type { LayoutPhotoInput } from "../smart-layout/types.ts";
+import type { LayoutPhotoInput, TemplateComposition } from "../smart-layout/types.ts";
+import type { LayoutRhythmContext, LayoutRhythmDebug } from "./rhythm.ts";
 
 export type DraftMatchTier = "STRICT" | "FALLBACK" | "UNUSABLE";
 
@@ -49,8 +50,22 @@ export type SpreadQuality = {
 
 export type LayoutAlternative = {
   layoutId: string;
+  score: number;
   layoutScore: number;
+  finalScore: number;
+  tier: DraftMatchTier;
   matchTier: DraftMatchTier;
+  composition: TemplateComposition;
+  orientationFit: number | null;
+  heroFit: number | null;
+  captionFit: number | null;
+  storyFit: number | null;
+  debugReasons: string[];
+};
+
+export type SpreadLayoutRanking = {
+  selectedLayout: LayoutAlternative | null;
+  alternatives: LayoutAlternative[];
 };
 
 export type BookPrintMetrics = {
@@ -69,6 +84,7 @@ export type AlbumSpreadDraft = {
   layoutId: string;
   layoutScore: number;
   engineScore: number;
+  selectedLayout: LayoutAlternative | null;
   assignments: SpreadFrameAssignment[];
   quality: SpreadQuality;
   alternatives: LayoutAlternative[];
@@ -76,16 +92,9 @@ export type AlbumSpreadDraft = {
   warnings: string[];
   analysisVersion: string;
   print: BookPrintMetrics;
-  story: Pick<
-    StorySpread,
-    | "storyType"
-    | "recommendedDensity"
-    | "importance"
-    | "coherenceScore"
-    | "primaryPhotoIds"
-    | "secondaryPhotoIds"
-    | "startedAt"
-  >;
+  story: Pick<StorySpread, "storyType" | "recommendedDensity" | "importance" | "coherenceScore" | "primaryPhotoIds" | "secondaryPhotoIds" | "startedAt">;
+  rhythm?: LayoutRhythmDebug;
+  heroConfidence?: number;
 };
 
 export type AlbumDraftResult = {
@@ -99,4 +108,5 @@ export type AlbumDraftRequest = {
   period: AlbumCandidatePeriod;
   spreads: StorySpread[];
   photos: LayoutPhotoInput[];
+  rhythmContext?: LayoutRhythmContext;
 };

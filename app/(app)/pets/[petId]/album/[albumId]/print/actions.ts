@@ -11,6 +11,7 @@ import { loadPrintFont } from "@/lib/album-print/fonts";
 import { orientedPixelSize } from "@/lib/album-print/crop";
 import { acceptOriginalPath, probeRaster } from "@/lib/album-print/images";
 import { assessPrintQuality, printQualityBlocks } from "@/lib/album-print/quality";
+import { persistPrintPdf, type PrintPersistenceError, type PrintPersistenceStage } from "@/lib/album-print/persist";
 import { renderDraftPrintPdf } from "@/lib/album-print/render-pdf";
 import { buildAlbumPrintSnapshot, draftPrintIsStale, type PrintSnapshotInput } from "@/lib/album-print/snapshot";
 import { selectPrintSource } from "@/lib/album-print/source";
@@ -34,6 +35,30 @@ export type AlbumPrintResult = {
   snapshotId: string | null;
 };
 
+function storageError(error: unknown): PrintPersistenceError {
+  if (!error || typeof error !== "object") return { code: "UNKNOWN_PRINT_ERROR", message: "Unknown print persistence error" };
+  const value = error as { code?: unknown; message?: unknown; status?: unknown; statusCode?: unknown };
+  const rawStatus = value.status ?? value.statusCode;
+  const status = typeof rawStatus === "number" ? rawStatus : typeof rawStatus === "string" ? Number.parseInt(rawStatus, 10) : undefined;
+  return {
+    code: typeof value.code === "string" ? value.code : undefined,
+    message: typeof value.message === "string" ? value.message : undefined,
+    status: Number.isFinite(status) ? status : undefined,
+  };
+}
+
+function logPrintFailure(input: { stage: PrintPersistenceStage | "pdf_render"; error: PrintPersistenceError; pdfBytes: number; uploadTargetPath: string }) {
+  if (process.env.NODE_ENV === "production") return;
+  console.error("Album print persistence failed", {
+    stage: input.stage,
+    code: input.error.code,
+    message: input.error.message,
+    storageStatus: input.error.status,
+    generatedPdfByteSize: input.pdfBytes,
+    uploadTargetPath: input.uploadTargetPath,
+  });
+}
+
 function monthLabel(iso: string | null) {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo", month: "long" });
@@ -46,21 +71,9 @@ async function ownedAlbum(albumId: string, petId: string) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data: album } = await supabase
-    .from("albums")
-    .select("id, status, title, period_from, period_to, pet_id, owner_user_id")
-    .eq("id", albumId)
-    .eq("pet_id", petId)
-    .eq("owner_user_id", user.id)
-    .maybeSingle();
+  const { data: album } = await supabase.from("albums").select("id, status, title, period_from, period_to, pet_id, owner_user_id").eq("id", albumId).eq("pet_id", petId).eq("owner_user_id", user.id).maybeSingle();
   if (!album) return null;
-  const { data: paid } = await supabase
-    .from("orders")
-    .select("id")
-    .eq("album_id", albumId)
-    .eq("owner_user_id", user.id)
-    .eq("status", "paid")
-    .limit(1);
+  const { data: paid } = await supabase.from("orders").select("id").eq("album_id", albumId).eq("owner_user_id", user.id).eq("status", "paid").limit(1);
   return { supabase, album, hasPaidOrder: (paid ?? []).length > 0 };
 }
 
@@ -95,15 +108,10 @@ export async function inspectAlbumPrint(petId: string, albumId: string): Promise
   }
   const snapshot = buildAlbumPrintSnapshot(built.input);
   const images = await imageFacts(built.input);
-  const styles = [...new Set(snapshot.spreads.flatMap((spread) => spread.texts.map((text) => text.styleId))), "handwritten" as const];
+  const hasCompositionText = snapshot.compositionPlan?.items.some((item) => item.kind === "title" || item.kind === "event") ?? false;
+  const styles = [...new Set([...snapshot.spreads.flatMap((spread) => spread.texts.map((text) => text.styleId)), ...snapshot.spreads.flatMap((spread) => spread.elements.filter((element) => element.type === "text").map((element) => element.fontId)), ...(hasCompositionText ? ["editorial" as const] : []), "handwritten" as const])];
   const issues = assessPrintQuality(snapshot, images.facts, { fontsReady: await fontReadyMap(styles) });
-  const { data: previous } = await owned.supabase
-    .from("album_print_snapshots")
-    .select("id, fingerprint")
-    .eq("album_id", albumId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data: previous } = await owned.supabase.from("album_print_snapshots").select("id, fingerprint").eq("album_id", albumId).order("created_at", { ascending: false }).limit(1).maybeSingle();
   const stale = previous ? draftPrintIsStale({ fingerprint: previous.fingerprint }, snapshot) : false;
   return {
     ok: true,
@@ -132,45 +140,31 @@ export async function generateAlbumPrint(petId: string, albumId: string): Promis
   return takePrintFlight(albumId, snapshot.fingerprint, async () => {
     const cached = recallPrintPdf(albumId, snapshot.fingerprint);
     if (cached) {
-      const { data: row } = await owned.supabase
-        .from("album_print_snapshots")
-        .select("id")
-        .eq("album_id", albumId)
-        .eq("fingerprint", snapshot.fingerprint)
-        .maybeSingle();
-      return {
-        ok: true,
-        message: null,
-        issues: [],
-        fingerprint: snapshot.fingerprint,
-        href: fileHref(petId, albumId, snapshot.fingerprint),
-        contentHash: null,
-        ordered: false,
-        stale: false,
-        snapshotId: row?.id ?? null,
-      };
+      const { data: row } = await owned.supabase.from("album_print_snapshots").select("id, pdf_path, content_hash").eq("album_id", albumId).eq("fingerprint", snapshot.fingerprint).maybeSingle();
+      if (row?.id && row.pdf_path && row.content_hash) {
+        return {
+          ok: true,
+          message: null,
+          issues: [],
+          fingerprint: snapshot.fingerprint,
+          href: fileHref(petId, albumId, snapshot.fingerprint),
+          contentHash: row.content_hash,
+          ordered: false,
+          stale: false,
+          snapshotId: row.id,
+        };
+      }
     }
     const images = await imageFacts(built.input!);
-    const styles = [...new Set(snapshot.spreads.flatMap((spread) => spread.texts.map((text) => text.styleId))), "handwritten" as const];
+    const hasCompositionText = snapshot.compositionPlan?.items.some((item) => item.kind === "title" || item.kind === "event") ?? false;
+    const styles = [...new Set([...snapshot.spreads.flatMap((spread) => spread.texts.map((text) => text.styleId)), ...snapshot.spreads.flatMap((spread) => spread.elements.filter((element) => element.type === "text").map((element) => element.fontId)), ...(hasCompositionText ? ["editorial" as const] : []), "handwritten" as const])];
     const issues = assessPrintQuality(snapshot, images.facts, { fontsReady: await fontReadyMap(styles) });
     if (printQualityBlocks(issues)) {
       return { ok: false, message: "印刷できない項目があります。", issues, fingerprint: snapshot.fingerprint, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
     }
-    const { data: saved, error: saveError } = await owned.supabase.rpc("save_album_print_snapshot", {
-      p_album_id: albumId,
-      p_draft_version_id: snapshot.draftVersionId,
-      p_schema_version: snapshot.schemaVersion,
-      p_source_revision: snapshot.sourceRevision,
-      p_fingerprint: snapshot.fingerprint,
-      p_revision_digest: snapshot.revisionDigest,
-      p_snapshot: snapshot as unknown as Json,
-    });
-    if (saveError) {
-      return { ok: false, message: "印刷スナップショットを保存できません。", issues, fingerprint: snapshot.fingerprint, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
-    }
-    const savedRow = saved as { id?: string; pdf_path?: string | null; content_hash?: string | null } | null;
-    if (savedRow?.pdf_path && savedRow.content_hash) {
-      const existing = await downloadPrintFile(savedRow.pdf_path);
+    const { data: existingRow } = await owned.supabase.from("album_print_snapshots").select("id, pdf_path, content_hash").eq("album_id", albumId).eq("fingerprint", snapshot.fingerprint).maybeSingle();
+    if (existingRow?.pdf_path && existingRow.content_hash) {
+      const existing = await downloadPrintFile(existingRow.pdf_path);
       if (existing) {
         rememberPrintPdf(albumId, snapshot.fingerprint, existing);
         return {
@@ -179,34 +173,62 @@ export async function generateAlbumPrint(petId: string, albumId: string): Promis
           issues,
           fingerprint: snapshot.fingerprint,
           href: fileHref(petId, albumId, snapshot.fingerprint),
-          contentHash: savedRow.content_hash,
+          contentHash: existingRow.content_hash,
           ordered: false,
           stale: false,
-          snapshotId: savedRow.id ?? null,
+          snapshotId: existingRow.id ?? null,
         };
       }
     }
     const overlayName = snapshot.cover.templateId === "simple" ? "simple-overlay.png" : `${snapshot.cover.templateId}-overlay.png`;
-    const rendered = await renderDraftPrintPdf(snapshot, images.bytes, {
-      spreadBackground: await publicAsset("album/06_3_album_preview_blank_spread_taller.png"),
-      coverBackground: await publicAsset("album/monthly_book_blank_cover.png"),
-      coverOverlay: await publicAsset(`album/cover-overlays/${overlayName}`),
-    });
     const pdfPath = `drafts/${albumId}/${snapshot.fingerprint}.pdf`;
-    const admin = createAdminClient();
-    const uploaded = await admin.storage.from("print-files").upload(pdfPath, rendered.bytes, {
-      contentType: "application/pdf",
-      upsert: true,
-    });
-    if (uploaded.error) {
-      return { ok: false, message: "PDFを保存できません。", issues, fingerprint: snapshot.fingerprint, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
-    }
-    if (savedRow?.id) {
-      await owned.supabase.rpc("attach_album_print_pdf", {
-        p_snapshot_id: savedRow.id,
-        p_pdf_path: pdfPath,
-        p_content_hash: rendered.contentHash,
+    let rendered: Awaited<ReturnType<typeof renderDraftPrintPdf>>;
+    try {
+      rendered = await renderDraftPrintPdf(snapshot, images.bytes, {
+        spreadBackground: await publicAsset("album/06_3_album_preview_blank_spread_taller.png"),
+        coverBackground: await publicAsset("album/monthly_book_blank_cover.png"),
+        coverOverlay: await publicAsset(`album/cover-overlays/${overlayName}`),
       });
+    } catch (error) {
+      const safe = storageError(error);
+      logPrintFailure({ stage: "pdf_render", error: safe, pdfBytes: 0, uploadTargetPath: pdfPath });
+      return { ok: false, message: "PDFを作成できません。", issues, fingerprint: snapshot.fingerprint, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
+    }
+    const admin = createAdminClient();
+    const persisted = await persistPrintPdf(
+      { byteSize: rendered.bytes.byteLength, pdfPath, contentHash: rendered.contentHash },
+      {
+        upload: async () => {
+          const { data, error } = await admin.storage.from("print-files").upload(pdfPath, rendered.bytes, { contentType: "application/pdf", cacheControl: "3600", upsert: true });
+          return { data, error: error ? storageError(error) : null };
+        },
+        saveSnapshot: async () => {
+          const { data, error } = await owned.supabase.rpc("save_album_print_snapshot", {
+            p_album_id: albumId,
+            p_draft_version_id: snapshot.draftVersionId,
+            p_schema_version: snapshot.schemaVersion,
+            p_source_revision: snapshot.sourceRevision,
+            p_fingerprint: snapshot.fingerprint,
+            p_revision_digest: snapshot.revisionDigest,
+            p_snapshot: snapshot as unknown as Json,
+          });
+          return { data: data as { id?: string } | null, error: error ? storageError(error) : null };
+        },
+        attachPdf: async (snapshotId) => {
+          const { data, error } = await owned.supabase.rpc("attach_album_print_pdf", { p_snapshot_id: snapshotId, p_pdf_path: pdfPath, p_content_hash: rendered.contentHash });
+          return { data: data as { pdf_path?: string | null; content_hash?: string | null } | null, error: error ? storageError(error) : null };
+        },
+        removeObject: async () => {
+          await admin.storage.from("print-files").remove([pdfPath]);
+        },
+        removeSnapshot: async (snapshotId) => {
+          await admin.from("album_print_snapshots").delete().eq("id", snapshotId).is("pdf_path", null);
+        },
+      },
+    );
+    if (!persisted.ok) {
+      logPrintFailure({ stage: persisted.stage, error: persisted.error, pdfBytes: rendered.bytes.byteLength, uploadTargetPath: pdfPath });
+      return { ok: false, message: "PDFを保存できません。", issues, fingerprint: snapshot.fingerprint, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
     }
     rememberPrintPdf(albumId, snapshot.fingerprint, rendered.bytes);
     if (process.env.NODE_ENV !== "production") {
@@ -221,7 +243,7 @@ export async function generateAlbumPrint(petId: string, albumId: string): Promis
       contentHash: rendered.contentHash,
       ordered: false,
       stale: false,
-      snapshotId: savedRow?.id ?? null,
+      snapshotId: persisted.snapshotId,
     };
   });
 }
@@ -237,25 +259,17 @@ async function downloadPrintFile(pdfPath: string) {
   return new Uint8Array(await data.arrayBuffer());
 }
 
-async function loadPrintInput(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  album: { id: string; status: string; period_to: string | null; period_from: string | null },
-  hasPaidOrder: boolean,
-): Promise<{ ok: boolean; message: string | null; input: PrintSnapshotInput | null }> {
+async function loadPrintInput(supabase: Awaited<ReturnType<typeof createClient>>, album: { id: string; status: string; period_to: string | null; period_from: string | null }, hasPaidOrder: boolean): Promise<{ ok: boolean; message: string | null; input: PrintSnapshotInput | null }> {
   const loaded = await loadActiveDraft(album.id);
   if (!loaded.view) return { ok: false, message: loaded.message ?? "保存された初稿がありません。", input: null };
-  const { data: coverRow } = await supabase
-    .from("album_draft_covers")
-    .select("*")
-    .eq("draft_version_id", loaded.view.versionId)
-    .maybeSingle();
-  const photoIds = [
-    ...loaded.view.spreads.flatMap((spread) => spread.sourceFrames.map((frame) => frame.aiPhotoId)),
-    ...loaded.view.spreads.flatMap((spread) => spread.sourceFrames.map((frame) => frame.userPhotoId).filter((id): id is string => Boolean(id))),
-  ];
+  const { data: coverRow } = await supabase.from("album_draft_covers").select("*").eq("draft_version_id", loaded.view.versionId).maybeSingle();
+  const photoIds = [...loaded.view.spreads.flatMap((spread) => spread.sourceFrames.map((frame) => frame.aiPhotoId)), ...loaded.view.spreads.flatMap((spread) => spread.sourceFrames.map((frame) => frame.userPhotoId).filter((id): id is string => Boolean(id)))];
   if (coverRow?.ai_photo_id) photoIds.push(coverRow.ai_photo_id);
   if (coverRow?.user_photo_id) photoIds.push(coverRow.user_photo_id);
-  const { data: photos } = await supabase.from("photos").select("id, storage_path").in("id", [...new Set(photoIds)]);
+  const { data: photos } = await supabase
+    .from("photos")
+    .select("id, storage_path")
+    .in("id", [...new Set(photoIds)]);
   const originals: PrintSnapshotInput["originals"] = {};
   for (const photo of photos ?? []) originals[photo.id] = { storagePath: photo.storage_path };
   return {
@@ -270,11 +284,14 @@ async function loadPrintInput(
       generatedAt: new Date().toISOString(),
       dateLabel: monthLabel(album.period_to ?? album.period_from),
       cover: coverRow ? mapDraftCoverRow(coverRow as unknown as Record<string, unknown>) : null,
+      compositionPlan: loaded.view.compositionPlan,
       spreads: loaded.view.spreads.map((spread) => ({
         source: spread.source,
         frames: spread.sourceFrames,
         texts: spread.texts,
         decorations: spread.decorations,
+        elements: spread.elements,
+        backgrounds: spread.backgrounds,
       })),
       originals,
     },
@@ -331,12 +348,7 @@ export async function startAlbumCheckout(petId: string, albumId: string): Promis
   const images = await imageFacts(built.input);
   const styles = [...new Set(snapshot.spreads.flatMap((spread) => spread.texts.map((text) => text.styleId))), "handwritten" as const];
   const issues = assessPrintQuality(snapshot, images.facts, { fontsReady: await fontReadyMap(styles) });
-  const { data: row } = await owned.supabase
-    .from("album_print_snapshots")
-    .select("id, album_id, draft_version_id, fingerprint, finalized_at, pdf_path")
-    .eq("album_id", albumId)
-    .eq("fingerprint", snapshot.fingerprint)
-    .maybeSingle();
+  const { data: row } = await owned.supabase.from("album_print_snapshots").select("id, album_id, draft_version_id, fingerprint, finalized_at, pdf_path").eq("album_id", albumId).eq("fingerprint", snapshot.fingerprint).maybeSingle();
   const decision = decideFinalize({
     actorId: owned.album.owner_user_id,
     albumId,
@@ -359,14 +371,12 @@ export async function startAlbumCheckout(petId: string, albumId: string): Promis
       : null,
   });
   if (!decision.ok) {
-    const message = decision.code === "STALE" || decision.code === "MISSING_SNAPSHOT"
-      ? FINALIZE_STALE_MESSAGE
-      : decision.code === "BLOCKING"
-        ? "印刷できない項目があるため、この内容では注文できません。"
-        : "この内容では注文できません。";
+    const message = decision.code === "STALE" || decision.code === "MISSING_SNAPSHOT" ? FINALIZE_STALE_MESSAGE : decision.code === "BLOCKING" ? "印刷できない項目があるため、この内容では注文できません。" : "この内容では注文できません。";
     return { ok: false, message, href: null };
   }
   const { error } = await owned.supabase.rpc("finalize_album_print_snapshot", { p_snapshot_id: row!.id });
   if (error) return { ok: false, message: "注文内容を確定できません。", href: null };
+  const { recordAlbumAnalyticsEvent } = await import("@/lib/album-analytics-server");
+  await recordAlbumAnalyticsEvent({ supabase: owned.supabase, userId: owned.album.owner_user_id, albumId, draftVersionId: snapshot.draftVersionId, eventType: "checkout_started", eventKey: row!.id });
   return { ok: true, message: null, href: `/pets/${petId}/album/${albumId}/product?snapshot=${row!.id}` };
 }

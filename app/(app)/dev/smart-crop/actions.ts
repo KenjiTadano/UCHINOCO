@@ -2,11 +2,7 @@
 
 import OpenAI from "openai";
 import { createClient } from "@/lib/supabase/server";
-import {
-  getSmartCropCache,
-  setSmartCropCache,
-  smartCropCacheKey,
-} from "@/lib/smart-crop/cache";
+import { getSmartCropCache, setSmartCropCache, smartCropCacheKey } from "@/lib/smart-crop/cache";
 import { SUBJECT_GEOMETRY, SUBJECT_GEOMETRY_VERSION } from "@/lib/photo-analysis/constants";
 import { sourceFingerprint } from "@/lib/photo-analysis/fingerprint";
 import { analysisReadPlan, reusableAnalysis } from "@/lib/photo-analysis/policy";
@@ -15,24 +11,16 @@ import { parseStoredGeometry } from "@/lib/photo-analysis/stored";
 import { noteAnalysisTrace, noteVisionCall } from "@/lib/photo-analysis/trace";
 import type { Json } from "@/lib/supabase/database.types";
 import type { ResultStatus } from "@/lib/photo-analysis/constants";
+import { createCachedSignedImageUrls, createPhotoPreviewUrls, ORIGINAL_PHOTO_BUCKET, PHOTO_IMAGE_BUCKET } from "@/lib/photo-image-delivery";
 import { buildSmartCropFrameResults } from "@/lib/smart-crop/compute";
 import { rankFramesFromCropResults } from "@/lib/smart-crop/frame-match";
 import { readImageDimensions } from "@/lib/smart-crop/image-size";
-import type {
-  FrameMatchRanking,
-  SmartCropFrameResult,
-  SmartCropPhotoAnalysis,
-} from "@/lib/smart-crop/types";
-import {
-  parseSmartCropVisionOutput,
-  SMART_CROP_VISION_PROMPT,
-  SMART_CROP_VISION_SCHEMA,
-} from "@/lib/smart-crop/vision-parse";
+import type { FrameMatchRanking, SmartCropFrameResult, SmartCropPhotoAnalysis } from "@/lib/smart-crop/types";
+import { parseSmartCropVisionOutput, SMART_CROP_VISION_PROMPT, SMART_CROP_VISION_SCHEMA } from "@/lib/smart-crop/vision-parse";
 
 const DEFAULT_VISION_MODEL = "gpt-4o";
 const MAX_AI_IMAGE_SIZE = 5 * 1024 * 1024;
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export type SmartCropAnalyzeResult = {
@@ -43,8 +31,10 @@ export type SmartCropAnalyzeResult = {
   petId: string | null;
   /** Full original (Vision / analysis). */
   imageUrl: string | null;
-  /** Prefer thumbnail for UI preview (falls back to imageUrl). */
+  /** Full-frame, storage-backed UI preview (normally <=1600px). */
   previewUrl: string | null;
+  /** Compact square grid image (normally 400px). */
+  thumbnailUrl: string | null;
   analysis: SmartCropPhotoAnalysis | null;
   frames: SmartCropFrameResult[];
   /** Task049 — Photo × Frame Matching ranking */
@@ -62,6 +52,7 @@ function emptyResult(message: string): SmartCropAnalyzeResult {
     petId: null,
     imageUrl: null,
     previewUrl: null,
+    thumbnailUrl: null,
     analysis: null,
     frames: [],
     frameMatch: null,
@@ -72,11 +63,7 @@ function emptyResult(message: string): SmartCropAnalyzeResult {
 
 function geometryStatus(analysis: SmartCropPhotoAnalysis): ResultStatus {
   const warning = analysis.warning ?? "";
-  if (
-    warning.startsWith("OPENAI_API_KEY") ||
-    warning.startsWith("解析結果を解釈") ||
-    warning.startsWith("解析に失敗")
-  ) {
+  if (warning.startsWith("OPENAI_API_KEY") || warning.startsWith("解析結果を解釈") || warning.startsWith("解析に失敗")) {
     return "fallback";
   }
   return "success";
@@ -95,24 +82,16 @@ function hasExpectedImageSignature(mimeType: string, bytes: Uint8Array) {
     return signature.every((byte, index) => bytes[index] === byte);
   }
   if (mimeType === "image/webp") {
-    return (
-      String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
-      String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
-    );
+    return String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
   }
   return false;
 }
 
-function buildFrameResults(
-  analysis: SmartCropPhotoAnalysis,
-): SmartCropFrameResult[] {
+function buildFrameResults(analysis: SmartCropPhotoAnalysis): SmartCropFrameResult[] {
   return buildSmartCropFrameResults(analysis);
 }
 
-function buildMatch(
-  analysis: SmartCropPhotoAnalysis,
-  frames: SmartCropFrameResult[],
-): FrameMatchRanking {
+function buildMatch(analysis: SmartCropPhotoAnalysis, frames: SmartCropFrameResult[]): FrameMatchRanking {
   return rankFramesFromCropResults(analysis, frames);
 }
 
@@ -124,19 +103,14 @@ function withFramesAndMatch(analysis: SmartCropPhotoAnalysis): {
   return { frames, frameMatch: buildMatch(analysis, frames) };
 }
 
-function centerFallbackAnalysis(
-  width: number,
-  height: number,
-  warning: string,
-): SmartCropPhotoAnalysis {
+function centerFallbackAnalysis(width: number, height: number, warning: string): SmartCropPhotoAnalysis {
   const ratio = height > 0 ? width / height : 1;
   return {
     width,
     height,
     pets: [],
     focalPoint: { x: 0.5, y: 0.5 },
-    orientation:
-      ratio > 1.08 ? "landscape" : ratio < 0.92 ? "portrait" : "square",
+    orientation: ratio > 1.08 ? "landscape" : ratio < 0.92 ? "portrait" : "square",
     warning,
   };
 }
@@ -144,11 +118,7 @@ function centerFallbackAnalysis(
 /**
  * Task048 — on-demand Smart Crop analysis (not the durable photo_ai_analyses queue).
  */
-export async function analyzeSmartCropPhoto(
-  petId: string,
-  photoId: string,
-  options?: { forceReanalyze?: boolean },
-): Promise<SmartCropAnalyzeResult> {
+export async function analyzeSmartCropPhoto(petId: string, photoId: string, options?: { forceReanalyze?: boolean; storedOnly?: boolean; allowLargeImageDegrade?: boolean }): Promise<SmartCropAnalyzeResult> {
   if (!UUID_PATTERN.test(petId) || !UUID_PATTERN.test(photoId)) {
     return emptyResult("不正なIDです。");
   }
@@ -163,84 +133,60 @@ export async function analyzeSmartCropPhoto(
   }
 
   const [petResult, photoResult] = await Promise.all([
-    supabase
-      .from("pets")
-      .select("id, owner_user_id")
-      .eq("id", petId)
-      .eq("owner_user_id", user.id)
-      .maybeSingle(),
-    supabase
-      .from("photos")
-      .select("id, pet_id, uploader_user_id, storage_path, thumbnail_path, updated_at, content_hash")
-      .eq("id", photoId)
-      .eq("pet_id", petId)
-      .eq("uploader_user_id", user.id)
-      .maybeSingle(),
+    supabase.from("pets").select("id, owner_user_id").eq("id", petId).eq("owner_user_id", user.id).maybeSingle(),
+    supabase.from("photos").select("id, pet_id, uploader_user_id, storage_path, thumbnail_path, updated_at, content_hash").eq("id", photoId).eq("pet_id", petId).eq("uploader_user_id", user.id).maybeSingle(),
   ]);
 
   const pet = petResult.data;
   const photo = photoResult.data;
-  if (
-    petResult.error ||
-    photoResult.error ||
-    !pet ||
-    !photo ||
-    pet.owner_user_id !== user.id ||
-    photo.uploader_user_id !== user.id
-  ) {
+  if (petResult.error || photoResult.error || !pet || !photo || pet.owner_user_id !== user.id || photo.uploader_user_id !== user.id) {
     return emptyResult("写真を読み込めませんでした。");
   }
 
-  const { data: signed, error: signError } = await supabase.storage
-    .from("pet-photos")
-    .createSignedUrl(photo.storage_path, 3600);
-  if (signError || !signed?.signedUrl) {
+  const signed = await createCachedSignedImageUrls(supabase, user.id, ORIGINAL_PHOTO_BUCKET, [photo.storage_path]);
+  const originalUrl = signed.urls.get(photo.storage_path);
+  if (!originalUrl) {
     return emptyResult("写真URLの発行に失敗しました。");
   }
 
-  let previewUrl = signed.signedUrl;
-  if (photo.thumbnail_path) {
-    const { data: thumb } = await supabase.storage
-      .from("pet-photo-thumbnails")
-      .createSignedUrl(photo.thumbnail_path, 3600);
-    if (thumb?.signedUrl) previewUrl = thumb.signedUrl;
-  }
+  const [thumbnailResult, previewUrls] = await Promise.all([photo.thumbnail_path ? createCachedSignedImageUrls(supabase, user.id, PHOTO_IMAGE_BUCKET, [photo.thumbnail_path]) : Promise.resolve({ urls: new Map<string, string>(), error: null }), createPhotoPreviewUrls(supabase, [photo], true, false, user.id)]);
+  const thumbnailUrl = photo.thumbnail_path ? (thumbnailResult.urls.get(photo.thumbnail_path) ?? null) : null;
+  const previewUrl = previewUrls.get(photo.id) ?? originalUrl;
 
   const fingerprint = sourceFingerprint(photo);
   const cacheKey = smartCropCacheKey(photo.id, photo.storage_path, fingerprint, SUBJECT_GEOMETRY_VERSION);
   const force = options?.forceReanalyze === true;
   const cached = force ? null : getSmartCropCache(cacheKey);
   if (analysisReadPlan({ force, memoryHit: Boolean(cached), dbHit: false }) === "memory" && cached) {
-      noteAnalysisTrace({
-        photoId: photo.id,
-        analysisType: SUBJECT_GEOMETRY,
-        version: SUBJECT_GEOMETRY_VERSION,
-        fingerprint,
-        cacheSource: "memory",
-        status: geometryStatus(cached),
-        visionCalled: false,
-        createdAt: null,
-      });
-      const matched = withFramesAndMatch(cached);
-      return {
-        ok: true,
-        message: null,
-        warning: cached.warning ?? null,
-        photoId: photo.id,
-        petId: pet.id,
-        imageUrl: signed.signedUrl,
-        previewUrl,
-        analysis: cached,
-        frames: matched.frames,
-        frameMatch: matched.frameMatch,
-        fromCache: true,
-        cacheSource: "memory",
-      };
+    noteAnalysisTrace({
+      photoId: photo.id,
+      analysisType: SUBJECT_GEOMETRY,
+      version: SUBJECT_GEOMETRY_VERSION,
+      fingerprint,
+      cacheSource: "memory",
+      status: geometryStatus(cached),
+      visionCalled: false,
+      createdAt: null,
+    });
+    const matched = withFramesAndMatch(cached);
+    return {
+      ok: true,
+      message: null,
+      warning: cached.warning ?? null,
+      photoId: photo.id,
+      petId: pet.id,
+      imageUrl: originalUrl,
+      previewUrl,
+      thumbnailUrl,
+      analysis: cached,
+      frames: matched.frames,
+      frameMatch: matched.frameMatch,
+      fromCache: true,
+      cacheSource: "memory",
+    };
   }
 
-  const stored = force
-    ? null
-    : await readAnalysis(supabase, photo.id, SUBJECT_GEOMETRY, SUBJECT_GEOMETRY_VERSION, fingerprint);
+  const stored = force ? null : await readAnalysis(supabase, photo.id, SUBJECT_GEOMETRY, SUBJECT_GEOMETRY_VERSION, fingerprint);
   const reusable = reusableAnalysis(
     stored
       ? {
@@ -272,8 +218,9 @@ export async function analyzeSmartCropPhoto(
       warning: storedGeometry.warning ?? null,
       photoId: photo.id,
       petId: pet.id,
-      imageUrl: signed.signedUrl,
+      imageUrl: originalUrl,
       previewUrl,
+      thumbnailUrl,
       analysis: storedGeometry,
       frames,
       frameMatch,
@@ -282,20 +229,21 @@ export async function analyzeSmartCropPhoto(
     };
   }
 
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  const model =
-    process.env.OPENAI_VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
+  if (options?.storedOnly) {
+    return emptyResult("保存済みの被写体解析がありません。");
+  }
 
-  const { data: blob, error: downloadError } = await supabase.storage
-    .from("pet-photos")
-    .download(photo.storage_path);
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  const model = process.env.OPENAI_VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
+
+  const { data: blob, error: downloadError } = await supabase.storage.from("pet-photos").download(photo.storage_path);
   if (downloadError || !blob || blob.size <= 0) {
     return emptyResult("写真をダウンロードできませんでした。");
   }
   if (!ALLOWED_MIME.has(blob.type)) {
     return emptyResult("この画像形式は対応していません。");
   }
-  if (blob.size > MAX_AI_IMAGE_SIZE) {
+  if (blob.size > MAX_AI_IMAGE_SIZE && !options?.allowLargeImageDegrade) {
     return emptyResult("AI解析できる画像サイズは5MBまでです。");
   }
 
@@ -309,18 +257,33 @@ export async function analyzeSmartCropPhoto(
     return emptyResult("画像の内容を確認できませんでした。");
   }
 
-  const dims =
-    readImageDimensions(imageBytes, blob.type) ?? { width: 1000, height: 1000 };
+  const dims = readImageDimensions(imageBytes, blob.type) ?? { width: 1000, height: 1000 };
+
+  if (blob.size > MAX_AI_IMAGE_SIZE && options?.allowLargeImageDegrade) {
+    const analysis = centerFallbackAnalysis(dims.width, dims.height, "画像が5MBを超えるためAI解析をスキップし、中央基準で表示しています。");
+    const matched = withFramesAndMatch(analysis);
+    return {
+      ok: true,
+      message: "画像が5MBを超えるためAI解析をスキップしました。",
+      warning: analysis.warning ?? null,
+      photoId: photo.id,
+      petId: pet.id,
+      imageUrl: originalUrl,
+      previewUrl,
+      thumbnailUrl,
+      analysis,
+      frames: matched.frames,
+      frameMatch: matched.frameMatch,
+      fromCache: false,
+      cacheSource: null,
+    };
+  }
 
   const ownedPhotoId = photo.id;
   const ownedPetId = pet.id;
-  const imageUrl = signed.signedUrl;
+  const imageUrl = originalUrl;
 
-  async function finishAi(
-    analysis: SmartCropPhotoAnalysis,
-    visionCalled: boolean,
-    persistMemory: boolean,
-  ): Promise<SmartCropAnalyzeResult> {
+  async function finishAi(analysis: SmartCropPhotoAnalysis, visionCalled: boolean, persistMemory: boolean): Promise<SmartCropAnalyzeResult> {
     const status = geometryStatus(analysis);
     const saved = await saveAnalysis(supabase, {
       photoId: ownedPhotoId,
@@ -352,6 +315,7 @@ export async function analyzeSmartCropPhoto(
       petId: ownedPetId,
       imageUrl,
       previewUrl,
+      thumbnailUrl,
       analysis,
       ...withFramesAndMatch(analysis),
       fromCache: false,
@@ -360,11 +324,7 @@ export async function analyzeSmartCropPhoto(
   }
 
   if (!apiKey) {
-    const analysis = centerFallbackAnalysis(
-      dims.width,
-      dims.height,
-      "OPENAI_API_KEY が未設定のため、中央基準で表示しています。",
-    );
+    const analysis = centerFallbackAnalysis(dims.width, dims.height, "OPENAI_API_KEY が未設定のため、中央基準で表示しています。");
     return finishAi(analysis, false, true);
   }
 
@@ -391,7 +351,7 @@ export async function analyzeSmartCropPhoto(
             },
             {
               type: "input_image",
-              image_url: signed.signedUrl,
+              image_url: originalUrl,
               detail: "high",
             },
           ],
@@ -408,21 +368,13 @@ export async function analyzeSmartCropPhoto(
       },
     });
 
-    let analysis = parseSmartCropVisionOutput(
-      response.output_text,
-      dims.width,
-      dims.height,
-    );
+    let analysis = parseSmartCropVisionOutput(response.output_text, dims.width, dims.height);
 
     if (!analysis) {
       console.error("Smart Crop parse failed", {
         outputPreview: (response.output_text ?? "").slice(0, 400),
       });
-      analysis = centerFallbackAnalysis(
-        dims.width,
-        dims.height,
-        "解析結果を解釈できませんでした。中央基準で表示しています。",
-      );
+      analysis = centerFallbackAnalysis(dims.width, dims.height, "解析結果を解釈できませんでした。中央基準で表示しています。");
       return finishAi(analysis, true, false);
     }
     if (analysis.pets.length === 0) {
@@ -437,11 +389,7 @@ export async function analyzeSmartCropPhoto(
       status: error instanceof OpenAI.APIError ? error.status : null,
       message: error instanceof Error ? error.message : String(error),
     });
-    const analysis = centerFallbackAnalysis(
-      dims.width,
-      dims.height,
-      "解析に失敗しました。中央基準で表示しています。",
-    );
+    const analysis = centerFallbackAnalysis(dims.width, dims.height, "解析に失敗しました。中央基準で表示しています。");
     return finishAi(analysis, true, false);
   }
 }

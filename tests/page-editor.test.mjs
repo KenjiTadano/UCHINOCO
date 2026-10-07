@@ -1,23 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import {
-  applyFrameCrop,
-  applyFramePhoto,
-  applySpreadLayout,
-  assembleEditorSpread,
-  clientSeqOf,
-  editorIsReadonly,
-  editorPhotoIds,
-  EDITOR_MISSING_DRAFT_MESSAGE,
-  EDITOR_ORDERED_MESSAGE,
-  layoutChoices,
-  mergeServerDraft,
-  originalSignedObjectPath,
-  presentSaveError,
-  toAlbumEditorSpread,
-} from "../lib/album-persistence/editor.ts";
+import { applyFrameCrop, applyFramePhoto, applyPreviewUrls, applySpreadLayout, assembleEditorSpread, clientSeqOf, editorIsReadonly, editorPhotoIds, EDITOR_MISSING_DRAFT_MESSAGE, EDITOR_ORDERED_MESSAGE, layoutChoices, mergeServerDraft, originalSignedObjectPath, presentSaveError, toAlbumEditorSpread } from "../lib/album-persistence/editor.ts";
 import { decideWrite } from "../lib/album-persistence/resolve.ts";
+import { digitalFrameRect, digitalSpreadGeometry } from "../lib/album-draft/pages.ts";
+import { ALBUM_DRAFT_CONFIG } from "../lib/album-draft/config.ts";
+import { ALBUM_PRINT_SPEC } from "../lib/album-print/print-spec.ts";
 
 const migration = await readFile("./supabase/migrations/20260927120000_album_draft_persistence.sql", "utf8");
 const page = await readFile("./app/(app)/pets/[petId]/album/[albumId]/pages/edit/page.tsx", "utf8");
@@ -27,43 +15,57 @@ const service = await readFile("./app/(app)/album-draft-service.ts", "utf8");
 const reader = await readFile("./lib/album-persistence/read-draft.ts", "utf8");
 const editorSource = await readFile("./lib/album-persistence/editor.ts", "utf8");
 const viewSource = await readFile("./app/(app)/pets/[petId]/album/_components/draft-spread-view.tsx", "utf8");
+const printPreviewSource = await readFile("./app/(app)/pets/[petId]/album/[albumId]/print/print-preview-screen.tsx", "utf8");
+
+test("digital spread geometry uses the existing page rectangles and print aspect ratio", () => {
+  const geometry = digitalSpreadGeometry();
+  const left = digitalFrameRect(ALBUM_DRAFT_CONFIG.book.left);
+  const right = digitalFrameRect(ALBUM_DRAFT_CONFIG.book.right);
+  assert.equal(left.x, 0);
+  assert.equal(left.y, 0);
+  assert.equal(left.w + right.w < 1, true);
+  assert.equal(right.x > left.x + left.w, true);
+  assert.equal(geometry.aspectRatio, geometry.width / geometry.height);
+  assert.ok(Math.abs(ALBUM_DRAFT_CONFIG.book.left.w / ALBUM_DRAFT_CONFIG.book.left.h - ALBUM_PRINT_SPEC.pageAspectRatio) < 1e-9);
+  assert.ok(Math.abs(ALBUM_DRAFT_CONFIG.book.right.w / ALBUM_DRAFT_CONFIG.book.right.h - ALBUM_PRINT_SPEC.pageAspectRatio) < 1e-9);
+});
 
 const spread = (id, position, layoutId) => ({
-    id,
-    draftVersionId: "version-1",
-    storySpreadId: `story-${position}`,
-    position,
-    storyType: "single",
-    recommendedDensity: "light",
-    importance: 70,
-    coherence: 80,
-    aiLayoutId: layoutId,
-    userLayoutId: null,
-    warnings: [],
-    revision: 1,
-    clientSeq: 0,
-  });
+  id,
+  draftVersionId: "version-1",
+  storySpreadId: `story-${position}`,
+  position,
+  storyType: "single",
+  recommendedDensity: "light",
+  importance: 70,
+  coherence: 80,
+  aiLayoutId: layoutId,
+  userLayoutId: null,
+  warnings: [],
+  revision: 1,
+  clientSeq: 0,
+});
 
 const frame = (id, spreadId, position, frameId, role, photoId, crop) => ({
-    id,
-    draftSpreadId: spreadId,
-    frameId,
-    role,
-    position,
-    aiPhotoId: photoId,
-    aiCropX: crop.x,
-    aiCropY: crop.y,
-    aiCropScale: crop.scale,
-    userPhotoId: null,
-    userCropX: null,
-    userCropY: null,
-    userCropScale: null,
-    matchTier: "STRICT",
-    cropQuality: 100,
-    warnings: [],
-    revision: 1,
-    clientSeq: 0,
-  });
+  id,
+  draftSpreadId: spreadId,
+  frameId,
+  role,
+  position,
+  aiPhotoId: photoId,
+  aiCropX: crop.x,
+  aiCropY: crop.y,
+  aiCropScale: crop.scale,
+  userPhotoId: null,
+  userCropX: null,
+  userCropY: null,
+  userCropScale: null,
+  matchTier: "STRICT",
+  cropQuality: 100,
+  warnings: [],
+  revision: 1,
+  clientSeq: 0,
+});
 
 function view() {
   const urls = new Map([
@@ -83,17 +85,9 @@ function view() {
     signature: "sig",
     previewUrls: Object.fromEntries(urls),
     spreads: [
-      assembleEditorSpread(first, [
-        frame("frame-1", first.id, 0, "L02-a", "primary", "photo-a", { x: 0.43, y: 0.43, scale: 1.15 }),
-        frame("frame-2", first.id, 1, "L02-b", "secondary", "photo-b", { x: 0.45, y: 0.46, scale: 1.1 }),
-      ], urls),
-      assembleEditorSpread(second, [
-        frame("frame-3", second.id, 0, "L02-a", "primary", "photo-c", { x: 0.45, y: 0.45, scale: 1.1 }),
-        frame("frame-4", second.id, 1, "L02-b", "hero", "photo-d", { x: 0.49, y: 0.45, scale: 1.1 }),
-      ], urls),
-      assembleEditorSpread(third, [
-        frame("frame-5", third.id, 0, "L01-hero", "hero", "photo-a", { x: 0.5, y: 0.37, scale: 1 }),
-      ], urls),
+      assembleEditorSpread(first, [frame("frame-1", first.id, 0, "L02-a", "primary", "photo-a", { x: 0.43, y: 0.43, scale: 1.15 }), frame("frame-2", first.id, 1, "L02-b", "secondary", "photo-b", { x: 0.45, y: 0.46, scale: 1.1 })], urls),
+      assembleEditorSpread(second, [frame("frame-3", second.id, 0, "L02-a", "primary", "photo-c", { x: 0.45, y: 0.45, scale: 1.1 }), frame("frame-4", second.id, 1, "L02-b", "hero", "photo-d", { x: 0.49, y: 0.45, scale: 1.1 })], urls),
+      assembleEditorSpread(third, [frame("frame-5", third.id, 0, "L01-hero", "hero", "photo-a", { x: 0.5, y: 0.37, scale: 1 })], urls),
     ],
   };
 }
@@ -103,13 +97,10 @@ test("1. load active draft reads the saved version and does not create one", () 
   assert.match(reader, /is_active/);
   assert.match(reader, /order\("position"/);
   assert.match(service, /loadActiveDraft/);
-  const loadActive = service.slice(
-    service.indexOf("export async function loadActiveDraft"),
-    service.indexOf("export async function refreshDraftPhotoUrls"),
-  );
+  const loadActive = service.slice(service.indexOf("export async function loadActiveDraft"), service.indexOf("export async function refreshDraftPhotoUrls"));
   assert.equal(loadActive.includes("save_album_draft_version"), false);
   assert.equal(loadActive.includes(".insert("), false);
-  assert.match(page, /loadActiveDraft\(albumId\)/);
+  assert.match(page, /readDraft\(supabase, albumId\)/);
   assert.equal(page.includes("buildAlbumEditSpreads"), false);
 });
 
@@ -123,8 +114,14 @@ test("2. effective layout comes from the resolver", () => {
 
 test("3. effective photo comes from the resolver", () => {
   const editor = toAlbumEditorSpread(view().spreads[0], view().previewUrls);
-  assert.deepEqual(editor.frames.map((item) => item.photoId), ["photo-a", "photo-b"]);
-  assert.equal(editor.frames.every((item) => item.photoOverridden === false), true);
+  assert.deepEqual(
+    editor.frames.map((item) => item.photoId),
+    ["photo-a", "photo-b"],
+  );
+  assert.equal(
+    editor.frames.every((item) => item.photoOverridden === false),
+    true,
+  );
   assert.match(editorSource, /resolveEffectiveFrame/);
 });
 
@@ -141,7 +138,89 @@ test("5. layout override keeps the AI layout and shows the user layout", () => {
   assert.equal(editor.layoutOverridden, true);
   assert.equal(next.spreads[2].source.aiLayoutId, "L01");
   assert.equal(next.spreads[2].preview.layoutId, "L01b");
-  assert.deepEqual(layoutChoices(1, "L01").map((item) => item.id), ["L01", "L01b"]);
+  assert.deepEqual(
+    layoutChoices(1, "L01").map((item) => item.id),
+    ["L01", "L01b", "P1_FULL_BLEED", "P1_CENTER_LANDSCAPE", "P1_CAPTION_BOTTOM", "P1_SIDE_TEXT"],
+  );
+});
+
+test("ranked picker shows the scored AI top four before the full catalog", () => {
+  const catalog = layoutChoices(5, "L13").map((item) => item.id);
+  const rankedIds = [catalog[2], catalog[0], catalog[3], catalog[1]];
+  const candidate = (layoutId, score) => ({
+    layoutId,
+    score,
+    layoutScore: score,
+    finalScore: score - 2,
+    tier: "STRICT",
+    matchTier: "STRICT",
+    composition: "hero",
+    orientationFit: 3,
+    heroFit: 2,
+    captionFit: 1,
+    storyFit: 3,
+    debugReasons: [],
+  });
+  const choices = layoutChoices(5, "L13", {
+    selectedLayout: candidate(rankedIds[0], 91),
+    alternatives: [candidate(rankedIds[1], 84), candidate(rankedIds[2], 72), candidate(rankedIds[3], 63)],
+  });
+  assert.deepEqual(
+    choices.slice(0, 4).map((item) => item.id),
+    rankedIds,
+  );
+  assert.deepEqual(
+    choices.slice(0, 4).map((item) => item.aiScore),
+    [91, 84, 72, 63],
+  );
+  assert.deepEqual(
+    choices.slice(0, 4).map((item) => item.aiRank),
+    [0, 1, 2, 3],
+  );
+  assert.equal(choices[0].recommended, true);
+  assert.equal(choices[0].id === "L13", false);
+  assert.ok(choices.length > 4);
+  assert.match(screen, /AIおすすめ/);
+  assert.match(screen, /AI次点候補/);
+  assert.match(screen, /AI次々点/);
+  assert.match(screen, /AI第4候補/);
+});
+
+test("picker contains draft-only same-count hierarchy layouts for two-photo spreads", () => {
+  const legacy = layoutChoices(2, "L02").map((item) => item.id);
+  assert.ok(legacy.includes("L12"));
+  assert.ok(legacy.includes("L12b"));
+  const ranked = layoutChoices(2, "L02", {
+    selectedLayout: { layoutId: "L12", score: 90, layoutScore: 90, finalScore: 86, tier: "STRICT", matchTier: "STRICT", composition: "story", orientationFit: 3, heroFit: 3, captionFit: 0, storyFit: 3, debugReasons: [] },
+    alternatives: [{ layoutId: "L12b", score: 82, layoutScore: 82, finalScore: 80, tier: "STRICT", matchTier: "STRICT", composition: "story", orientationFit: 1, heroFit: 3, captionFit: 0, storyFit: 3, debugReasons: [] }],
+  });
+  assert.deepEqual(
+    ranked.slice(0, 2).map((item) => item.id),
+    ["L12", "L12b"],
+  );
+});
+
+test("legacy picker has no fabricated AI scores and keeps current layout first", () => {
+  const stable = layoutChoices(5, "missing").map((item) => item.id);
+  const legacy = layoutChoices(5, "L14");
+  assert.deepEqual(
+    legacy.map((item) => item.id),
+    ["L14", ...stable.filter((id) => id !== "L14")],
+  );
+  assert.equal(legacy[0].aiRank, null);
+  assert.equal(legacy[0].aiScore, null);
+  assert.equal(legacy[0].recommended, false);
+});
+
+test("picker does not promote a next-best candidate when the AI best is unavailable", () => {
+  const ranking = {
+    selectedLayout: { layoutId: "removed-template", score: 91, layoutScore: 91, finalScore: 88, tier: "STRICT", matchTier: "STRICT", composition: "hero", orientationFit: 3, heroFit: 3, captionFit: 0, storyFit: 3, debugReasons: [] },
+    alternatives: [{ layoutId: "L14", score: 84, layoutScore: 84, finalScore: 82, tier: "STRICT", matchTier: "STRICT", composition: "grid", orientationFit: 1, heroFit: 0, captionFit: 0, storyFit: 1, debugReasons: [] }],
+  };
+  const choices = layoutChoices(5, "L13", ranking);
+  assert.equal(choices[0].id, "L13");
+  assert.equal(choices[0].aiRank, null);
+  assert.equal(choices.find((item) => item.id === "L14")?.recommended, false);
 });
 
 test("6. layout reset returns the AI layout", () => {
@@ -260,8 +339,8 @@ test("17. AI state stays unchanged by an editor override", () => {
 test("18. editor load does not call Vision or regenerate the album", () => {
   const sources = [page, screen, hook, service, reader, editorSource, viewSource].join("\n");
   assert.equal(/openai|analyzePhotoIntelligence|generatePetAlbum|prepareGroupingPhoto|responses\.create/.test(sources), false);
-  assert.match(reader, /from\("pet-photos"\)/);
-  assert.match(reader, /originalUrlCache/);
+  assert.match(reader, /createPhotoPreviewUrls/);
+  assert.doesNotMatch(reader, /from\("pet-photos"\)/);
   assert.match(service, /refreshDraftPhotoUrls/);
 });
 
@@ -271,6 +350,110 @@ test("19. frame preview uses the original object and the picker uses the thumbna
   assert.equal(originalSignedObjectPath("https://example.supabase.co/storage/v1/object/sign/pet-photo-thumbnails/pets/a.jpg?token=abc"), "");
   assert.match(screen, /knownOriginal \|\| candidate\.src/);
   assert.match(screen, /src=\{candidate\.thumb\}/);
-  assert.match(viewSource, /data-image-kind="original"/);
+  assert.match(viewSource, /data-image-kind=\{originalPath \? "original" : "preview"\}/);
+  assert.match(viewSource, /originalSignedObjectPath\(src\)/);
   assert.match(service, /pet-photo-thumbnails|createListImageUrls/);
+});
+
+test("20. Digital Editor uses page surfaces and the existing crop history", () => {
+  assert.match(screen, /digital/);
+  assert.match(screen, /selectedFrameId/);
+  assert.match(screen, /setSelectedFrameId\(frameId\)/);
+  assert.match(screen, /page-edit-crop-toolbar/);
+  assert.match(screen, /draft\.setCrop\(selectedFrame\.id/);
+  assert.match(screen, /draft\.resetCrop\(selectedFrame\.id\)/);
+  assert.match(screen, /<EditorHistoryControls/);
+  assert.match(screen, /draft\.beginCrop\(selectedFrame\.id\)/);
+  assert.match(screen, /onPointerUp=\{draft\.endCrop\}/);
+  assert.match(viewSource, /digital \? \(/);
+  assert.match(viewSource, /page-edit-digital-page/);
+  assert.match(viewSource, /page-edit-draft-blank/);
+  assert.match(viewSource, /data-selected=/);
+});
+
+test("21. crop drag keeps pointer events captured by its frame", () => {
+  assert.match(viewSource, /pointerId: number/);
+  assert.match(viewSource, /hit\.slot\.setPointerCapture\(event\.pointerId\)/);
+  assert.match(viewSource, /drag\.pointerId !== event\.pointerId/);
+});
+
+test("22. free page elements share editor history, selection, manipulation, and draft persistence", async () => {
+  const elementMigration = await readFile("./supabase/migrations/20261001120000_album_draft_page_elements.sql", "utf8");
+  assert.match(screen, /data-testid="page-edit-add-text"/);
+  assert.match(screen, /data-testid="page-edit-add-stamp"/);
+  assert.match(screen, /data-testid="page-edit-add-decoration"/);
+  assert.match(screen, /data-testid="page-edit-change-background"/);
+  assert.match(screen, /data-testid="page-edit-element-duplicate"/);
+  assert.match(screen, /data-testid="page-edit-element-delete"/);
+  assert.match(screen, /draft\.beginPageElementGesture/);
+  assert.match(screen, /draft\.setPageElement/);
+  assert.match(screen, /suggestSpreadCaption/);
+  assert.match(viewSource, /data-page-element-id/);
+  assert.match(viewSource, /data-element-handle="resize"/);
+  assert.match(viewSource, /data-element-handle="rotate"/);
+  assert.match(viewSource, /snapPageElement/);
+  assert.match(hook, /field: "element"/);
+  assert.match(hook, /field: "background"/);
+  assert.match(hook, /overridePageElement/);
+  assert.match(hook, /overrideSpreadBackground/);
+  assert.match(reader, /album_draft_page_elements/);
+  assert.match(reader, /album_draft_spread_backgrounds/);
+  assert.match(elementMigration, /is_deleted boolean not null/);
+  assert.match(printPreviewSource, /elements=\{spread\.elements\}/);
+  assert.match(printPreviewSource, /backgrounds=\{spread\.backgrounds\}/);
+  assert.match(printPreviewSource, /digital/);
+});
+
+test("Task059 recommendations preview first, preserve user elements, and share Undo/Redo", () => {
+  assert.match(screen, /data-testid="page-edit-decoration-recommendation"/);
+  assert.match(screen, /data-testid="page-edit-decoration-recommendations"/);
+  assert.match(screen, /data-testid="page-edit-recommendation-keep"/);
+  assert.match(screen, /data-testid="page-edit-recommendation-apply"/);
+  assert.match(screen, /data-testid="page-edit-clear-ai-decorations"/);
+  assert.ok(screen.includes('interactive={!readonly && addPanel !== "recommendation"}'));
+  assert.ok(screen.includes('interactiveElements={!readonly && addPanel !== "recommendation"}'));
+  assert.match(screen, /draft\.applyDecorationRecommendation/);
+  assert.match(screen, /draft\.clearAIRecommendations/);
+  assert.match(hook, /userElements\.length > 0 \|\| hasUserPolish \|\| hasManualBackground/);
+  assert.match(hook, /field: "recommendation"/);
+  assert.match(hook, /recommendationBackgroundsBefore/);
+  assert.match(hook, /recommendationId: undefined/);
+});
+
+test("23. first, middle, and last spread elements survive every derived spread rebuild", () => {
+  const base = view();
+  const types = ["text", "stamp", "decoration"];
+  const populated = {
+    ...base,
+    spreads: base.spreads.map((spreadView, index) => {
+      const common = { x: index === 1 ? 0.58 : 0.12, y: 0.16, width: 0.22, height: 0.08, rotation: 0, zIndex: index, printTarget: "print", revision: 2, clientSeq: 3, colorId: "ink" };
+      const type = types[index];
+      const element = type === "text" ? { ...common, id: `element-${index}`, type, text: `spread ${index}`, fontId: "minimal", fontSize: 16, bold: false, align: "left" } : type === "stamp" ? { ...common, id: `element-${index}`, type, stampId: "paw" } : { ...common, id: `element-${index}`, type, decorationId: "line" };
+      const extra = index === 1 ? [{ ...common, id: "element-middle-extra", type: "text", text: "middle extra", fontId: "warm", fontSize: 14, bold: false, align: "right" }] : [];
+      return assembleEditorSpread(spreadView.source, spreadView.sourceFrames, new Map(Object.entries(base.previewUrls)), spreadView.texts, spreadView.decorations, [element, ...extra], { left: { backgroundId: "sage", revision: 1, clientSeq: 1 }, right: { backgroundId: "rose", revision: 1, clientSeq: 1 } });
+    }),
+  };
+
+  const assertPreserved = (candidate) => {
+    assert.deepEqual(
+      candidate.spreads.map((item) => item.elements.map((element) => element.id)),
+      [["element-0"], ["element-1", "element-middle-extra"], ["element-2"]],
+    );
+    assert.equal(
+      candidate.spreads.every((item) => item.backgrounds.left.backgroundId === "sage" && item.backgrounds.right.backgroundId === "rose"),
+      true,
+    );
+  };
+
+  assertPreserved(populated);
+  assertPreserved(applyPreviewUrls(populated, { "photo-c": "https://example.test/c-refreshed.jpg" }));
+  assertPreserved(applySpreadLayout(populated, "spread-1", "P2_MIXED_PAIR", 4));
+  assertPreserved(applyFrameCrop(populated, "frame-3", { x: 0.4, y: 0.6, scale: 1.2 }, 4));
+  assertPreserved(applyFramePhoto(populated, "frame-5", "photo-b", 4));
+
+  const reloaded = {
+    ...populated,
+    spreads: populated.spreads.map((item) => assembleEditorSpread(item.source, item.sourceFrames, new Map(Object.entries(populated.previewUrls)), item.texts, item.decorations, item.elements, item.backgrounds)),
+  };
+  assertPreserved(reloaded);
 });

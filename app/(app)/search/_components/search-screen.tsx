@@ -1,17 +1,20 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ChevronRight, CircleHelp } from "lucide-react";
+import { BookOpen, Cake, ChevronRight, CircleHelp, Sparkles } from "lucide-react";
 import { PetSwitcher } from "@/app/(app)/_components/pet-switcher";
+import { PlusUpsell } from "@/app/(app)/_components/plus-upsell";
 import { EmptyState } from "@/app/_components/ui";
+import { freeSearchSelection, isAdvancedSearchSelection } from "@/lib/entitlements";
+import { loadUserEntitlements } from "@/lib/entitlements-server";
 import { loadOwnerPetsForSwitcher } from "@/lib/owner-pets";
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
 import { paginationHref } from "@/lib/photo-pagination";
 import { formatTokyoDateTime, photoTimestamp } from "@/lib/photo-timeline";
+import { discoveryDateBounds, interpretMemoryQuery, loadDiscoveryGroups } from "@/lib/memory-discovery";
 import {
   parseSearchState,
   SEARCH_PAGE_SIZE,
-  searchDateBounds,
   searchHref,
   searchValues,
   type SearchFacets,
@@ -63,16 +66,25 @@ export async function SearchScreen({
   params: SearchParams;
   contextPetId?: string;
 }) {
-  const { state, cursor, error: validationError } = parseSearchState(
+  const parsed = parseSearchState(
     params,
     contextPetId,
   );
+  const interpretation = interpretMemoryQuery(parsed.state);
+  const { cursor, error: validationError } = parsed;
   const supabase = await createClient();
   const {
     data: { user },
     error: authError,
   } = await supabase.auth.getUser();
   if (authError || !user) redirect("/login");
+
+  const entitlements = await loadUserEntitlements(supabase, user.id);
+  const advancedRequested = isAdvancedSearchSelection(interpretation.state);
+  const advancedSearchBlocked = advancedRequested && !entitlements.canUseAdvancedSearch;
+  const state = advancedSearchBlocked
+    ? freeSearchSelection(interpretation.state)
+    : interpretation.state;
 
   let petName: string | undefined;
   if (state.pet) {
@@ -90,7 +102,7 @@ export async function SearchScreen({
   const base = contextPetId ? `/pets/${contextPetId}/search` : "/search";
   const dates = validationError
     ? { from: null, to: null }
-    : searchDateBounds(state);
+    : discoveryDateBounds(state);
 
   const isFiltered = Boolean(
     state.q ||
@@ -98,19 +110,29 @@ export async function SearchScreen({
       state.favorite ||
       state.from ||
       state.to ||
+      state.year ||
+      state.month ||
+      state.season ||
+      state.best ||
+      state.anniversary ||
+      state.story ||
       (!contextPetId && state.pet),
   );
 
-  const [ownerPetsResult, facetResult, photoResult] = await Promise.all([
+  const photoQuery = advancedSearchBlocked
+    ? ""
+    : interpretation.photoQuery || (state.anniversary === "birthday" ? "誕生日" : state.anniversary === "adoption" ? "お迎え" : "");
+  const skipPhotoSearch = (state.best || state.story) && !photoQuery && !state.word && !state.favorite;
+  const [ownerPetsResult, facetResult, photoResult, discovery] = await Promise.all([
     loadOwnerPetsForSwitcher(supabase, user.id),
     supabase.rpc("get_search_facets", {
       p_pet_id: state.pet || undefined,
     }),
-    validationError
+    validationError || skipPhotoSearch
       ? Promise.resolve({ data: null, error: null })
       : supabase.rpc("search_photos_page", {
           p_pet_id: state.pet || undefined,
-          p_query: state.q || undefined,
+          p_query: photoQuery || undefined,
           p_kind: state.kind || undefined,
           p_value: state.word || undefined,
           p_favorite_only: state.favorite,
@@ -120,6 +142,9 @@ export async function SearchScreen({
           p_cursor_at: cursor?.at,
           p_cursor_id: cursor?.id,
         }),
+    validationError || !isFiltered
+      ? Promise.resolve({ bestShots: [], stories: [], albums: [], anniversaries: [], error: null })
+      : loadDiscoveryGroups({ supabase, userId: user.id, state }),
   ]);
 
   const facets =
@@ -190,7 +215,12 @@ export async function SearchScreen({
     ...resultPhotos,
     ...recentPhotos,
     ...samplePhotos,
+    ...discovery.bestShots,
   ]);
+
+  const groupedResultCount = discovery.bestShots.length + discovery.stories.length + discovery.albums.length + discovery.anniversaries.length;
+  const hasAnyResult = resultPhotos.length > 0 || groupedResultCount > 0;
+  const storyLabels: Record<string, string> = { single: "1枚のStory", sequence: "連続したStory", contrast: "対比のStory", event: "イベント", same_day: "同じ日のStory", everyday: "日常のStory" };
 
   const sceneCards: SampleCard[] = samples
     .filter((s) => s.kind === "scene")
@@ -249,7 +279,20 @@ export async function SearchScreen({
         facets={facets}
         contextPetName={contextPetId ? petName : undefined}
         popularKeywords={popularKeywords}
+        advancedEnabled={entitlements.canUseAdvancedSearch}
       />
+
+      {advancedSearchBlocked ? (
+        <PlusUpsell
+          title="期間や記念日で、もっと細かく探せます"
+          description="年・月・季節・Best Shot・Storyなどの詳細検索はPLUSで利用できます。キーワード検索とお気に入り検索はFREEのまま使えます。"
+          returnTo={base}
+        />
+      ) : interpretation.understood && interpretation.label ? (
+        <p className="rounded-xl bg-surface-warm px-4 py-3 text-sm text-muted" role="status">
+          「{interpretation.label}」として探しています。
+        </p>
+      ) : null}
 
       {validationError ? (
         <p role="alert" className="app-error">
@@ -260,10 +303,7 @@ export async function SearchScreen({
           思い出を読み込めませんでした。時間をおいて再度お試しください。
         </p>
       ) : isFiltered ? (
-        <section
-          aria-labelledby="search-results-heading"
-          className="search-results"
-        >
+        <div className="search-results space-y-8">
           <div className="search-section-head">
             <h2 id="search-results-heading" className="search-section-title">
               見つかった思い出
@@ -273,25 +313,71 @@ export async function SearchScreen({
               aria-atomic="true"
               className="text-[11px] text-muted"
             >
-              {(page?.total ?? 0).toLocaleString()}枚
+              写真{(page?.total ?? 0).toLocaleString()}枚 · 関連{groupedResultCount.toLocaleString()}件
             </p>
           </div>
+          {discovery.error ? <p role="alert" className="app-error">一部の関連する思い出を取得できませんでした。</p> : null}
+          {discovery.anniversaries.length ? (
+            <section aria-labelledby="anniversary-results" className="space-y-3">
+              <h3 id="anniversary-results" className="search-section-title">記念日</h3>
+              <ul className="grid gap-3 sm:grid-cols-2">
+                {discovery.anniversaries.map((item) => (
+                  <li key={`${item.petId}:${item.kind}`}>
+                    <Link href={`/pets/${item.petId}/anniversary`} className="ds-focus flex min-h-16 items-center gap-3 rounded-[14px] border bg-surface px-4 py-3">
+                      <Cake className="size-5 text-brand-terracotta-strong" aria-hidden="true" />
+                      <span><strong className="block text-sm text-foreground">{item.petName}の{item.kind === "birthday" ? "誕生日" : "お迎え日"}</strong><span className="text-xs text-muted">{item.date.replaceAll("-", ".")}</span></span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+          {discovery.bestShots.length ? (
+            <section aria-labelledby="best-shot-results" className="space-y-3">
+              <h3 id="best-shot-results" className="search-section-title">Best Shot</h3>
+              <ul className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                {discovery.bestShots.map((photo) => {
+                  const src = images.signedUrlByPath.get(listImagePath(photo));
+                  return <li key={photo.id}><Link href={`/pets/${photo.pet_id}/photos/${photo.id}`} aria-label={`${photo.pet_name}のBest Shotを見る`} className="ds-focus group block"><div className="relative aspect-square overflow-hidden rounded-photo bg-surface-warm">{src ? <Image src={src} alt="" fill sizes="120px" unoptimized className="object-cover" /> : null}<span className="absolute right-1 top-1 rounded-full bg-black/55 p-1 text-white"><Sparkles className="size-3" aria-hidden="true" /></span></div><span className="mt-1 block truncate text-[11px] text-muted">{photo.pet_name} · {Math.round(photo.score)}点</span></Link></li>;
+                })}
+              </ul>
+            </section>
+          ) : null}
+          {discovery.stories.length ? (
+            <section aria-labelledby="story-results" className="space-y-3">
+              <h3 id="story-results" className="search-section-title">Stories</h3>
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {discovery.stories.map((story) => <li key={story.id}><Link href={`/pets/${story.petId}/album/${story.albumId}`} className="ds-focus flex min-h-14 items-center justify-between rounded-[14px] border bg-surface px-4 py-3"><span><strong className="block text-sm text-foreground">{storyLabels[story.type] ?? "Story"}</strong><span className="text-xs text-muted">{story.petName}</span></span><ChevronRight className="size-4 text-muted" aria-hidden="true" /></Link></li>)}
+              </ul>
+            </section>
+          ) : null}
+          {discovery.albums.length ? (
+            <section aria-labelledby="album-results" className="space-y-3">
+              <h3 id="album-results" className="search-section-title">Albums</h3>
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {discovery.albums.map((album) => <li key={album.id}><Link href={`/pets/${album.petId}/album/${album.id}`} className="ds-focus flex min-h-16 items-center gap-3 rounded-[14px] border bg-surface px-4 py-3"><BookOpen className="size-5 text-brand-terracotta-strong" aria-hidden="true" /><span><strong className="block text-sm text-foreground">{album.title}</strong><span className="text-xs text-muted">{album.petName} · {album.kind === "annual" ? "Year in Review" : "月次アルバム"}</span></span></Link></li>)}
+              </ul>
+            </section>
+          ) : null}
           {images.error ? (
             <p className="mb-2 text-[11px] text-muted">
               一部の写真を表示できませんでした。
             </p>
           ) : null}
-          {!resultPhotos.length ? (
+          {!hasAnyResult ? (
             <EmptyState
-              title="この条件の思い出はまだありません"
-              description="言葉を解除するか、別の条件で探してみてください。"
+              title="見つかりませんでした"
+              description="年やペットを変えるか、Best Shotを選んで探してみてください。"
               action={
-                <Link href={base} className="app-button-ghost">
-                  条件をクリア
-                </Link>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Link href={base} className="app-button-ghost">条件をクリア</Link>
+                  {!state.best ? <Link href={searchHref(base, state, { q: "", word: "", kind: "", best: true })} className="app-button-secondary">Best Shotを見る</Link> : null}
+                </div>
               }
             />
-          ) : (
+          ) : resultPhotos.length ? (
+            <section aria-labelledby="photo-results" className="space-y-3">
+            <h3 id="photo-results" className="search-section-title">Photos</h3>
             <ul className="search-result-grid">
               {resultPhotos.map((photo) => {
                 const url = images.signedUrlByPath.get(listImagePath(photo));
@@ -332,7 +418,8 @@ export async function SearchScreen({
                 );
               })}
             </ul>
-          )}
+            </section>
+          ) : null}
           {hasMore && last ? (
             <Link
               className="app-button-secondary mx-auto mt-4 w-fit"
@@ -353,7 +440,7 @@ export async function SearchScreen({
               最初のページへ
             </Link>
           ) : null}
-        </section>
+        </div>
       ) : (
         <>
           {sceneCards.length > 0 ? (
