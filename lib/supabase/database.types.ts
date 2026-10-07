@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       album_analytics_events: {
@@ -824,6 +849,7 @@ export type Database = {
           cover_original_path_snapshot: string | null
           cover_photo_id_snapshot: string | null
           created_at: string
+          currency: string
           draft_version_id: string | null
           id: string
           owner_user_id: string
@@ -837,6 +863,8 @@ export type Database = {
           product_id: string
           product_name: string
           product_size: string
+          provider_cost: number | null
+          quantity: number
           shipping_address1: string
           shipping_address2: string | null
           shipping_city: string
@@ -852,6 +880,7 @@ export type Database = {
           stripe_checkout_session_id: string | null
           stripe_payment_intent_id: string | null
           subtotal: number
+          tax_amount: number
           total: number
           updated_at: string
         }
@@ -862,6 +891,7 @@ export type Database = {
           cover_original_path_snapshot?: string | null
           cover_photo_id_snapshot?: string | null
           created_at?: string
+          currency?: string
           draft_version_id?: string | null
           id?: string
           owner_user_id: string
@@ -875,6 +905,8 @@ export type Database = {
           product_id: string
           product_name: string
           product_size: string
+          provider_cost?: number | null
+          quantity?: number
           shipping_address1: string
           shipping_address2?: string | null
           shipping_city: string
@@ -890,6 +922,7 @@ export type Database = {
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
           subtotal: number
+          tax_amount?: number
           total: number
           updated_at?: string
         }
@@ -900,6 +933,7 @@ export type Database = {
           cover_original_path_snapshot?: string | null
           cover_photo_id_snapshot?: string | null
           created_at?: string
+          currency?: string
           draft_version_id?: string | null
           id?: string
           owner_user_id?: string
@@ -913,6 +947,8 @@ export type Database = {
           product_id?: string
           product_name?: string
           product_size?: string
+          provider_cost?: number | null
+          quantity?: number
           shipping_address1?: string
           shipping_address2?: string | null
           shipping_city?: string
@@ -928,6 +964,7 @@ export type Database = {
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
           subtotal?: number
+          tax_amount?: number
           total?: number
           updated_at?: string
         }
@@ -1342,58 +1379,88 @@ export type Database = {
       }
       print_jobs: {
         Row: {
+          accepted_at: string | null
+          canceled_at: string | null
           content_file_path: string | null
           cover_file_path: string | null
           created_at: string
+          delivered_at: string | null
           error_code: string | null
           failed_at: string | null
+          fulfillment_status: string
           id: string
           idempotency_key: string
+          last_error_at: string | null
+          last_error_code: string | null
+          last_error_retryable: boolean | null
+          mode: string
           order_id: string
           preparation_started_at: string | null
           prepared_at: string | null
           provider: string
           provider_order_id: string | null
+          provider_request_id: string | null
           shipped_at: string | null
           status: string
+          submission_attempted_at: string | null
           submitted_at: string | null
           tracking_number: string | null
           updated_at: string
         }
         Insert: {
+          accepted_at?: string | null
+          canceled_at?: string | null
           content_file_path?: string | null
           cover_file_path?: string | null
           created_at?: string
+          delivered_at?: string | null
           error_code?: string | null
           failed_at?: string | null
+          fulfillment_status?: string
           id?: string
           idempotency_key: string
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_error_retryable?: boolean | null
+          mode?: string
           order_id: string
           preparation_started_at?: string | null
           prepared_at?: string | null
           provider: string
           provider_order_id?: string | null
+          provider_request_id?: string | null
           shipped_at?: string | null
           status?: string
+          submission_attempted_at?: string | null
           submitted_at?: string | null
           tracking_number?: string | null
           updated_at?: string
         }
         Update: {
+          accepted_at?: string | null
+          canceled_at?: string | null
           content_file_path?: string | null
           cover_file_path?: string | null
           created_at?: string
+          delivered_at?: string | null
           error_code?: string | null
           failed_at?: string | null
+          fulfillment_status?: string
           id?: string
           idempotency_key?: string
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_error_retryable?: boolean | null
+          mode?: string
           order_id?: string
           preparation_started_at?: string | null
           prepared_at?: string | null
           provider?: string
           provider_order_id?: string | null
+          provider_request_id?: string | null
           shipped_at?: string | null
           status?: string
+          submission_attempted_at?: string | null
           submitted_at?: string | null
           tracking_number?: string | null
           updated_at?: string
@@ -2051,6 +2118,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

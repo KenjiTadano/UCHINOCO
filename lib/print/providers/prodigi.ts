@@ -28,6 +28,18 @@ import { buildProdigiJobStatus } from "./prodigi-status.ts";
  * All methods throw ProviderNotConfiguredError until implemented.
  */
 export class ProdigiProvider implements PrintProvider {
+  async validateOrder(params: PrintOrderParams): Promise<void> {
+    const sku = getProviderProductId(params.productId, params.pages, "prodigi");
+    if (!sku) {
+      throw new ProviderProductUnavailableError(params.productId, params.pages, "prodigi");
+    }
+  }
+
+  async createOrder(params: PrintOrderParams): Promise<PrintJobResult> {
+    await this.validateOrder(params);
+    return this.submitOrder(params);
+  }
+
   async submitOrder(params: PrintOrderParams): Promise<PrintJobResult> {
     // 1. Resolve provider SKU — null means no confirmed mapping yet
     const sku = getProviderProductId(params.productId, params.pages, "prodigi");
@@ -75,5 +87,15 @@ export class ProdigiProvider implements PrintProvider {
       "prodigi",
       "ProdigiProvider.cancelJob: not yet implemented.",
     );
+  }
+
+  normalizeError(error: unknown) {
+    return {
+      code: error instanceof ProviderProductUnavailableError
+        ? "UNSUPPORTED_PRODUCT"
+        : "PROVIDER_NOT_CONFIGURED",
+      retryable: false,
+      outcomeUnknown: false,
+    };
   }
 }

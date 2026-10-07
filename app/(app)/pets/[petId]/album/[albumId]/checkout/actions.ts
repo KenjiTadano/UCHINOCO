@@ -19,6 +19,7 @@ import {
   resolveCheckoutSiteUrl,
 } from "@/lib/checkout-session-helpers";
 import { bindOrderToSnapshot, reusePendingOrder, type OrderPrintBinding } from "@/lib/album-order/finalize";
+import { canCreatePrintCheckout, getPrintCommerceMode } from "@/lib/print/commerce-readiness";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -50,6 +51,13 @@ export async function createCheckoutSession(
   pages: number,
   formData: FormData,
 ): Promise<CheckoutActionState> {
+  // Production pricing/provider requirements are not confirmed yet. Keep the
+  // checkout route available, but never create a real charge behind a fake
+  // production price. TEST additionally requires a Stripe test secret.
+  if (!canCreatePrintCheckout(getPrintCommerceMode())) {
+    return { error: "印刷注文は現在準備中です。印刷プレビューは引き続きご利用いただけます。" };
+  }
+
   // ── 1. Fail-fast: Stripe key ───────────────────────────────────────────────
   if (!hasStripeKey()) {
     return { error: "決済サービスが設定されていません。管理者にお問い合わせください。" };

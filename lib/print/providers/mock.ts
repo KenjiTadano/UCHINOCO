@@ -32,6 +32,17 @@ export class MockPrintProvider implements PrintProvider {
     this.behavior = behavior;
   }
 
+  async validateOrder(params: PrintOrderParams): Promise<void> {
+    if (!params.orderId || !params.idempotencyKey) {
+      throw new ProviderRequestError("mock: missing order identity");
+    }
+  }
+
+  async createOrder(params: PrintOrderParams): Promise<PrintJobResult> {
+    await this.validateOrder(params);
+    return this.submitOrder(params);
+  }
+
   async submitOrder(params: PrintOrderParams): Promise<PrintJobResult> {
     if (this.behavior === "fail") {
       throw new ProviderRequestError("mock: simulated submit failure");
@@ -63,5 +74,13 @@ export class MockPrintProvider implements PrintProvider {
   async cancelJob(providerOrderId: string): Promise<void> {
     void providerOrderId;
     // Always succeeds in mock
+  }
+
+  normalizeError(error: unknown) {
+    return {
+      code: error instanceof ProviderTimeoutError ? "PROVIDER_TIMEOUT" : "PROVIDER_REQUEST_FAILED",
+      retryable: !(error instanceof ProviderRequestError),
+      outcomeUnknown: error instanceof ProviderTimeoutError,
+    };
   }
 }

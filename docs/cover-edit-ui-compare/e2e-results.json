@@ -1,0 +1,77 @@
+[
+  {
+    "name": "A 07.1→07.3",
+    "ok": true,
+    "detail": "http://127.0.0.1:3001/pets/645f30fe-700f-441c-8878-6658caef0870/album/a2533aee-cb29-4714-acfb-22264ca45c45/cover/edit"
+  },
+  {
+    "name": "simple template",
+    "ok": true,
+    "detail": "pressed=true; overlay=/album/cover-overlays/simple-overlay.png"
+  },
+  {
+    "name": "natural template",
+    "ok": true,
+    "detail": "pressed=true; overlay=/album/cover-overlays/natural-overlay.png"
+  },
+  {
+    "name": "polaroid template",
+    "ok": true,
+    "detail": "pressed=true; overlay=/album/cover-overlays/polaroid-overlay.png"
+  },
+  {
+    "name": "seasonal template",
+    "ok": true,
+    "detail": "pressed=true; overlay=/album/cover-overlays/seasonal-overlay.png"
+  },
+  {
+    "name": "handwritten template",
+    "ok": true,
+    "detail": "pressed=true; overlay=/album/cover-overlays/handwritten-overlay.png"
+  },
+  {
+    "name": "custom template",
+    "ok": true,
+    "detail": "pressed=true; overlay=/album/cover-overlays/custom-overlay.png"
+  },
+  {
+    "name": "H cover color",
+    "ok": true,
+    "detail": "aria-selected=true; hasTint=true"
+  },
+  {
+    "name": "I title",
+    "ok": true,
+    "detail": "テストの思い出"
+  },
+  {
+    "name": "J subtitle",
+    "ok": true,
+    "detail": "テストペットの"
+  },
+  {
+    "name": "K photo change",
+    "ok": true,
+    "detail": "candidates=13; changed=true"
+  },
+  {
+    "name": "L 完了",
+    "ok": true,
+    "detail": "http://127.0.0.1:3001/pets/645f30fe-700f-441c-8878-6658caef0870/album/a2533aee-cb29-4714-acfb-22264ca45c45/edit"
+  },
+  {
+    "name": "M 戻る",
+    "ok": true,
+    "detail": "http://127.0.0.1:3001/pets/645f30fe-700f-441c-8878-6658caef0870/album/a2533aee-cb29-4714-acfb-22264ca45c45/edit"
+  },
+  {
+    "name": "390px screenshot",
+    "ok": true,
+    "detail": "/Users/tadanokenji/dev/uchinoco/docs/cover-edit-ui-compare/e2e-390-viewport.png"
+  },
+  {
+    "name": "console major errors",
+    "ok": false,
+    "detail": "Can't perform a React state update on a component that hasn't mounted yet. This indicates that you have a side-effect in your render function that asynchronously tries to update the component. Move this work to useEffect instead."
+  }
+]

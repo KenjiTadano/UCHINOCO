@@ -1,0 +1,77 @@
+[
+  {
+    "name": "07.1→07.2",
+    "ok": true,
+    "detail": "http://localhost:3001/pets/645f30fe-700f-441c-8878-6658caef0870/album/a2533aee-cb29-4714-acfb-22264ca45c45/pages/edit"
+  },
+  {
+    "name": "thumbnail count",
+    "ok": true,
+    "detail": "count=7"
+  },
+  {
+    "name": "thumbnail switch",
+    "ok": true,
+    "detail": "1 - 2 / 14 → 3 - 4 / 14"
+  },
+  {
+    "name": "Arrow next",
+    "ok": true,
+    "detail": "1 - 2 / 14 → 3 - 4 / 14"
+  },
+  {
+    "name": "Arrow prev",
+    "ok": true,
+    "detail": "3 - 4 / 14 → 1 - 2 / 14"
+  },
+  {
+    "name": "Layout 1",
+    "ok": true,
+    "detail": "aria-selected=true"
+  },
+  {
+    "name": "Layout 2",
+    "ok": true,
+    "detail": "aria-selected=true"
+  },
+  {
+    "name": "Layout 3",
+    "ok": true,
+    "detail": "aria-selected=true"
+  },
+  {
+    "name": "Layout 4",
+    "ok": true,
+    "detail": "aria-selected=true"
+  },
+  {
+    "name": "写真X",
+    "ok": true,
+    "detail": "2 → 1"
+  },
+  {
+    "name": "写真変更",
+    "ok": true,
+    "detail": "candidates=13"
+  },
+  {
+    "name": "完了",
+    "ok": true,
+    "detail": "http://localhost:3001/pets/645f30fe-700f-441c-8878-6658caef0870/album/a2533aee-cb29-4714-acfb-22264ca45c45/edit"
+  },
+  {
+    "name": "戻る",
+    "ok": true,
+    "detail": "http://localhost:3001/pets/645f30fe-700f-441c-8878-6658caef0870/album/a2533aee-cb29-4714-acfb-22264ca45c45/edit"
+  },
+  {
+    "name": "390px screenshot",
+    "ok": true,
+    "detail": "/Users/tadanokenji/dev/uchinoco/docs/page-edit-ui-compare/e2e-390-viewport.png"
+  },
+  {
+    "name": "console major errors",
+    "ok": true,
+    "detail": ""
+  }
+]

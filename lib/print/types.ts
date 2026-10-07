@@ -6,6 +6,7 @@ import "server-only";
  */
 
 export type PrintProviderName = "mock" | "prodigi" | "gelato" | "fujifilm";
+export type PrintProviderMode = "disabled" | "test" | "live";
 
 export type PrintOrderItem = {
   position: number;
@@ -68,7 +69,11 @@ export type ProviderQuote = {
 };
 
 export interface PrintProvider {
+  validateOrder(params: PrintOrderParams): Promise<void>;
+  createOrder(params: PrintOrderParams): Promise<PrintJobResult>;
+  /** Compatibility alias for the pre-Task072 worker boundary. */
   submitOrder(params: PrintOrderParams): Promise<PrintJobResult>;
   getJobStatus(providerOrderId: string): Promise<PrintJobStatus>;
   cancelJob(providerOrderId: string): Promise<void>;
+  normalizeError(error: unknown): { code: string; retryable: boolean; outcomeUnknown: boolean };
 }
