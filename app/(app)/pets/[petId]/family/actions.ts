@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { loadUserEntitlements } from "@/lib/entitlements-server";
+import { analyticsEventKey, recordProductAnalyticsEvent } from "@/lib/product-analytics-server";
 import { createClient } from "@/lib/supabase/server";
 
 export type InviteState = {
@@ -55,6 +56,10 @@ export async function createFamilyInvite(
       inviteUrl: null,
     };
   }
+  await recordProductAnalyticsEvent({
+    supabase: untyped(supabase), userId: user.id, eventType: "family_invite_sent",
+    eventKey: await analyticsEventKey(`family-invite-sent:${user.id}:${petId}:${Date.now()}`),
+  });
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
   revalidatePath(`/pets/${petId}/family`);
@@ -89,7 +94,10 @@ export async function markFamilyActivitySeen(formData: FormData) {
   const petId = String(formData.get("petId") ?? "");
   if (!UUID_PATTERN.test(petId)) return;
   const supabase = await createClient();
-  await untyped(supabase).rpc("mark_pet_family_activity_seen", { p_pet_id: petId });
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  const { error } = await untyped(supabase).rpc("mark_pet_family_activity_seen", { p_pet_id: petId });
+  if (!error) await recordProductAnalyticsEvent({ supabase: untyped(supabase), userId: user.id, eventType: "family_activity_viewed" });
   revalidatePath("/home");
   revalidatePath(`/pets/${petId}/family`);
   redirect(`/pets/${petId}`);
@@ -110,6 +118,10 @@ export async function acceptFamilyInvite(formData: FormData) {
   if (error || typeof data !== "string") {
     redirect("/home?error=招待を確認できませんでした");
   }
+  await recordProductAnalyticsEvent({
+    supabase: untyped(supabase), userId: user.id, eventType: "family_invite_accepted",
+    eventKey: await analyticsEventKey(`family-invite-accepted:${user.id}:${data}`),
+  });
   revalidatePath("/home");
   redirect(`/pets/${data}?message=家族の共有に参加しました`);
 }

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/app/_components/ui";
 import { loadUserEntitlements } from "@/lib/entitlements-server";
+import { analyticsEventKey, recordProductAnalyticsEvent } from "@/lib/product-analytics-server";
 import { createClient } from "@/lib/supabase/server";
 import { PlusCheckoutButton } from "./plus-checkout-button";
 
@@ -15,6 +16,14 @@ export default async function PlusPage({ searchParams }: Props) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect(`/login?next=${encodeURIComponent("/plus")}`);
   const entitlements = await loadUserEntitlements(supabase as unknown as SupabaseClient, user.id);
+  if (entitlements.plan !== "PLUS") {
+    await recordProductAnalyticsEvent({
+      supabase: supabase as unknown as SupabaseClient,
+      userId: user.id,
+      eventType: "upgrade_viewed",
+      eventKey: await analyticsEventKey(`upgrade-view:${user.id}:${new Date().toISOString().slice(0, 10)}`),
+    });
+  }
 
   return (
     <main className="app-page-narrow grid gap-7">

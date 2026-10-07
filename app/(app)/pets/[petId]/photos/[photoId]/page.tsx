@@ -11,11 +11,13 @@ import { PhotoDeleteControl } from "./photo-delete-control";
 import { PhotoEditControls } from "./photo-edit-controls";
 import { PhotoPetControls } from "./photo-pet-controls";
 import { getPhotoPetOptions } from "@/lib/photo-pets";
+import { recordProductAnalyticsEvent } from "@/lib/product-analytics-server";
 
 export const maxDuration = 60;
 
 type PhotoDetailPageProps = {
   params: Promise<{ petId: string; photoId: string }>;
+  searchParams: Promise<{ source?: string }>;
 };
 
 type PhotoAiAnalysis = {
@@ -33,8 +35,9 @@ type PhotoAiAnalysis = {
   analyzed_at: string | null;
 };
 
-export default async function PhotoDetailPage({ params }: PhotoDetailPageProps) {
+export default async function PhotoDetailPage({ params, searchParams }: PhotoDetailPageProps) {
   const { petId, photoId } = await params;
+  const { source } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -83,6 +86,9 @@ export default async function PhotoDetailPage({ params }: PhotoDetailPageProps) 
   const canEditPhoto = photo.uploader_user_id === user.id;
   const canDeletePhoto = canEditPhoto || pet.owner_user_id === user.id;
   const canEditRelations = canEditPhoto && pet.owner_user_id === user.id;
+  if (source === "search") {
+    await recordProductAnalyticsEvent({ supabase: supabase as unknown as SupabaseClient, userId: user.id, eventType: "search_result_opened" });
+  }
 
   return (
     <main className="app-page">

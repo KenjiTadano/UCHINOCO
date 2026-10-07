@@ -1475,6 +1475,36 @@ export type Database = {
           },
         ]
       }
+      product_analytics_events: {
+        Row: {
+          created_at: string
+          event_data: Json
+          event_key: string | null
+          event_source: string
+          event_type: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_data?: Json
+          event_key?: string | null
+          event_source?: string
+          event_type: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_data?: Json
+          event_key?: string | null
+          event_source?: string
+          event_type?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -1774,6 +1804,7 @@ export type Database = {
           source: string
         }[]
       }
+      get_production_kpis: { Args: { p_since?: string }; Returns: Json }
       get_search_facets: { Args: { p_pet_id?: string }; Returns: Json }
       is_accessible_pet: { Args: { pet_id_text: string }; Returns: boolean }
       is_owned_pet: { Args: { pet_id_text: string }; Returns: boolean }

@@ -10,6 +10,7 @@ import { loadUserEntitlements } from "@/lib/entitlements-server";
 import { loadOwnerPetsForSwitcher } from "@/lib/owner-pets";
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
 import { paginationHref } from "@/lib/photo-pagination";
+import { recordProductAnalyticsEvent } from "@/lib/product-analytics-server";
 import { formatTokyoDateTime, photoTimestamp } from "@/lib/photo-timeline";
 import { discoveryDateBounds, interpretMemoryQuery, loadDiscoveryGroups } from "@/lib/memory-discovery";
 import {
@@ -220,6 +221,12 @@ export async function SearchScreen({
 
   const groupedResultCount = discovery.bestShots.length + discovery.stories.length + discovery.albums.length + discovery.anniversaries.length;
   const hasAnyResult = resultPhotos.length > 0 || groupedResultCount > 0;
+  if (!cursor) {
+    await recordProductAnalyticsEvent({ supabase, userId: user.id, eventType: "search_opened" });
+  }
+  if (!cursor && isFiltered && !validationError && !photoResult.error && !hasAnyResult) {
+    await recordProductAnalyticsEvent({ supabase, userId: user.id, eventType: "search_empty" });
+  }
   const storyLabels: Record<string, string> = { single: "1枚のStory", sequence: "連続したStory", contrast: "対比のStory", event: "イベント", same_day: "同じ日のStory", everyday: "日常のStory" };
 
   const sceneCards: SampleCard[] = samples
@@ -338,7 +345,7 @@ export async function SearchScreen({
               <ul className="grid grid-cols-3 gap-2 sm:grid-cols-6">
                 {discovery.bestShots.map((photo) => {
                   const src = images.signedUrlByPath.get(listImagePath(photo));
-                  return <li key={photo.id}><Link href={`/pets/${photo.pet_id}/photos/${photo.id}`} aria-label={`${photo.pet_name}のBest Shotを見る`} className="ds-focus group block"><div className="relative aspect-square overflow-hidden rounded-photo bg-surface-warm">{src ? <Image src={src} alt="" fill sizes="120px" unoptimized className="object-cover" /> : null}<span className="absolute right-1 top-1 rounded-full bg-black/55 p-1 text-white"><Sparkles className="size-3" aria-hidden="true" /></span></div><span className="mt-1 block truncate text-[11px] text-muted">{photo.pet_name} · {Math.round(photo.score)}点</span></Link></li>;
+                  return <li key={photo.id}><Link href={`/pets/${photo.pet_id}/photos/${photo.id}?source=search`} aria-label={`${photo.pet_name}のBest Shotを見る`} className="ds-focus group block"><div className="relative aspect-square overflow-hidden rounded-photo bg-surface-warm">{src ? <Image src={src} alt="" fill sizes="120px" unoptimized className="object-cover" /> : null}<span className="absolute right-1 top-1 rounded-full bg-black/55 p-1 text-white"><Sparkles className="size-3" aria-hidden="true" /></span></div><span className="mt-1 block truncate text-[11px] text-muted">{photo.pet_name} · {Math.round(photo.score)}点</span></Link></li>;
                 })}
               </ul>
             </section>
@@ -385,7 +392,7 @@ export async function SearchScreen({
                 return (
                   <li key={photo.id} className="min-w-0">
                     <Link
-                      href={`/pets/${photo.pet_id}/photos/${photo.id}`}
+                      href={`/pets/${photo.pet_id}/photos/${photo.id}?source=search`}
                       aria-label={`${photo.pet_name}の${date}の思い出${photo.favorite ? "（お気に入り）" : ""}を詳しく見る`}
                       className="search-result-card ds-focus group"
                     >

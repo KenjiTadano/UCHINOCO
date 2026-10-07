@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createStripeClient } from "@/lib/stripe/server";
 import { getOrderIdFromMetadata, getAlbumIdFromMetadata, extractPaymentIntentId, isUUID } from "@/lib/webhook-helpers";
 import { subscriptionIdFromCheckout, subscriptionSyncPayload } from "@/lib/subscription-webhook";
+import { analyticsEventKey, recordProductAnalyticsEvent } from "@/lib/product-analytics-server";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -44,6 +45,11 @@ export async function POST(request: Request): Promise<Response> {
       console.error(`[webhook] ${event.id} ${event.type}: invalid subscription metadata`);
       return false;
     }
+    const { data: previous } = await adminClient
+      .from("user_subscriptions")
+      .select("plan")
+      .eq("user_id", payload.p_user_id)
+      .maybeSingle();
     // The RPC is introduced by the pending Task071 migration; generated types are
     // refreshed only after that migration is applied remotely.
     const { error } = await (adminClient as unknown as SupabaseClient).rpc(
@@ -53,6 +59,25 @@ export async function POST(request: Request): Promise<Response> {
     if (error) {
       console.error(`[webhook] ${event.id} subscription sync failed: ${error.message}`);
       return false;
+    }
+    const { data: current } = await adminClient
+      .from("user_subscriptions")
+      .select("plan, last_stripe_event_id")
+      .eq("user_id", payload.p_user_id)
+      .maybeSingle();
+    // A stale Stripe delivery is ignored by the sync RPC and must not emit KPI events.
+    if (!current || current.last_stripe_event_id !== event.id) return true;
+    const eventType = previous?.plan !== "PLUS" && current.plan === "PLUS"
+      ? "subscription_activated"
+      : previous?.plan === "PLUS" && subscription.status === "canceled" ? "subscription_canceled" : null;
+    if (eventType) {
+      await recordProductAnalyticsEvent({
+        supabase: adminClient as unknown as SupabaseClient,
+        userId: payload.p_user_id,
+        eventType,
+        eventKey: await analyticsEventKey(`stripe:${event.id}:${eventType}`),
+        source: "webhook",
+      });
     }
     return true;
   }
@@ -92,7 +117,7 @@ export async function POST(request: Request): Promise<Response> {
 
         // album_id binding: metadata.album_id must match the stored order.album_id.
         // Prevents processing events where session metadata was misrouted or tampered.
-        const { data: orderCheck } = await adminClient.from("orders").select("album_id, print_snapshot_id, print_fingerprint").eq("id", orderId).maybeSingle();
+        const { data: orderCheck } = await adminClient.from("orders").select("album_id, owner_user_id, print_snapshot_id, print_fingerprint").eq("id", orderId).maybeSingle();
 
         if (!orderCheck) {
           console.log(`[webhook] ${event.id} ${event.type}: order not found in DB, order_id=${orderId}`);
@@ -130,6 +155,9 @@ export async function POST(request: Request): Promise<Response> {
           console.error(`[webhook] ${event.id} mark_order_paid failed: ${error.message}`);
           return new Response("DB error", { status: 500 });
         }
+        const paymentKey = await analyticsEventKey(`stripe:${event.id}:payment`);
+        await recordProductAnalyticsEvent({ supabase: adminClient as unknown as SupabaseClient, userId: orderCheck.owner_user_id, eventType: "payment_success", eventKey: paymentKey, source: "webhook" });
+        await recordProductAnalyticsEvent({ supabase: adminClient as unknown as SupabaseClient, userId: orderCheck.owner_user_id, eventType: "print_order_created", eventKey: paymentKey, source: "webhook" });
         break;
       }
 

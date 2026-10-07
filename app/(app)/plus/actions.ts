@@ -3,6 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { loadUserEntitlements } from "@/lib/entitlements-server";
+import { analyticsEventKey, recordProductAnalyticsEvent } from "@/lib/product-analytics-server";
 import { createStripeClient, hasStripeKey } from "@/lib/stripe/server";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,6 +35,7 @@ export async function startPlusCheckout(
   const customerId = (subscription as { stripe_customer_id?: string | null } | null)?.stripe_customer_id;
 
   let checkoutUrl: string | null = null;
+  let checkoutSessionId: string | null = null;
   try {
     const stripe = createStripeClient();
     const session = await stripe.checkout.sessions.create({
@@ -49,6 +51,7 @@ export async function startPlusCheckout(
       cancel_url: `${siteUrl}/plus?checkout=cancelled&next=${encodeURIComponent(next)}`,
     });
     checkoutUrl = session.url;
+    checkoutSessionId = session.id;
   } catch (error) {
     console.error("PLUS checkout creation failed", {
       name: error instanceof Error ? error.name : "unknown",
@@ -56,5 +59,13 @@ export async function startPlusCheckout(
     return { error: "PLUSのお申し込みを開始できませんでした。時間をおいてお試しください。" };
   }
   if (!checkoutUrl) return { error: "PLUSのお申し込みを開始できませんでした。" };
+  if (checkoutSessionId) {
+    await recordProductAnalyticsEvent({
+      supabase: supabase as unknown as SupabaseClient,
+      userId: user.id,
+      eventType: "upgrade_started",
+      eventKey: await analyticsEventKey(`upgrade-start:${checkoutSessionId}`),
+    });
+  }
   redirect(checkoutUrl);
 }

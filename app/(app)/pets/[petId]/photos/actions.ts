@@ -6,6 +6,7 @@ import { loadUserEntitlements } from "@/lib/entitlements-server";
 import { parseTokyoLocalDateTime } from "@/lib/photo-timeline";
 import { PHOTO_IMAGE_DELIVERY, photoPreviewPath, rememberPhotoPreviewPresent } from "@/lib/photo-image-delivery";
 import { albumCandidateTransition } from "@/lib/photo-intake";
+import { analyticsEventKey, recordProductAnalyticsEvent } from "@/lib/product-analytics-server";
 import { tokyoDateParts, tokyoRange } from "@/lib/uchinoco-now";
 import { createClient } from "@/lib/supabase/server";
 
@@ -163,7 +164,6 @@ export async function preparePhotoUploads(petId: string, metadata: PhotoMetadata
       duplicateCount: 0,
     };
   }
-
   const { data: existing, error: duplicateError } = await client
     .from("photos")
     .select("content_hash")
@@ -248,6 +248,7 @@ export async function finalizePhotoUploads(petId: string, uploads: FinalizePhoto
   if (!(await canUploadToPet(client, user.id, petId))) {
     return { savedCount: 0, failedCount: uploads.length, duplicateCount: 0 };
   }
+  const petContext = await accessiblePet(client, petId);
 
   let savedCount = 0;
   let failedCount = 0;
@@ -367,6 +368,15 @@ export async function finalizePhotoUploads(petId: string, uploads: FinalizePhoto
     revalidatePath(`/pets/${petId}/album`);
     revalidatePath("/memories");
     revalidatePath("/home");
+    if (petContext && petContext.owner_user_id !== user.id) {
+      await recordProductAnalyticsEvent({
+        supabase: client,
+        userId: user.id,
+        eventType: "family_photo_added",
+        eventKey: await analyticsEventKey(`family-photo-batch:${batchId}`),
+        eventData: { photo_count: savedCount },
+      });
+    }
   }
 
   const candidateAfter = candidateBefore == null
