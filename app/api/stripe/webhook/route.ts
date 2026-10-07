@@ -8,6 +8,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
+function logWebhookFailure(stage: string, eventType?: string, code?: string | null) {
+  console.error("Stripe webhook failed", {
+    stage,
+    event_type: eventType ?? null,
+    code: code ?? null,
+  });
+}
+
 export async function POST(request: Request): Promise<Response> {
   // ── 1. Read raw body (must be before any parsing) ──────────────────────────
   const body = await request.text();
@@ -21,7 +29,7 @@ export async function POST(request: Request): Promise<Response> {
   // ── 3. Require STRIPE_WEBHOOK_SECRET ─────────────────────────────────────
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    console.error("[webhook] STRIPE_WEBHOOK_SECRET is not configured");
+    logWebhookFailure("configuration");
     return new Response("Webhook secret not configured", { status: 500 });
   }
 
@@ -30,9 +38,8 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const stripe = createStripeClient();
     event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "signature verification failed";
-    console.error("[webhook] constructEvent failed:", msg);
+  } catch {
+    logWebhookFailure("signature_verification");
     return new Response("Invalid signature", { status: 400 });
   }
 
@@ -42,7 +49,7 @@ export async function POST(request: Request): Promise<Response> {
   async function syncSubscription(subscription: Stripe.Subscription) {
     const payload = subscriptionSyncPayload(subscription, event);
     if (!payload) {
-      console.error(`[webhook] ${event.id} ${event.type}: invalid subscription metadata`);
+      logWebhookFailure("subscription_metadata", event.type);
       return false;
     }
     const { data: previous } = await adminClient
@@ -57,7 +64,7 @@ export async function POST(request: Request): Promise<Response> {
       payload,
     );
     if (error) {
-      console.error(`[webhook] ${event.id} subscription sync failed: ${error.message}`);
+      logWebhookFailure("subscription_sync", event.type, error.code);
       return false;
     }
     const { data: current } = await adminClient
@@ -99,7 +106,6 @@ export async function POST(request: Request): Promise<Response> {
 
         // Only process sessions where payment was actually collected.
         if (session.payment_status !== "paid") {
-          console.log(`[webhook] ${event.id} ${event.type}: payment_status=${session.payment_status}, skipping`);
           return new Response("ok", { status: 200 });
         }
 
@@ -107,11 +113,11 @@ export async function POST(request: Request): Promise<Response> {
         const albumId = getAlbumIdFromMetadata(session.metadata as Record<string, string> | null);
 
         if (!orderId) {
-          console.error(`[webhook] ${event.id} ${event.type}: missing or invalid order_id in metadata`);
+          logWebhookFailure("order_metadata", event.type);
           return new Response("ok", { status: 200 });
         }
         if (!albumId) {
-          console.error(`[webhook] ${event.id} ${event.type}: missing or invalid album_id in metadata, order_id=${orderId}`);
+          logWebhookFailure("album_metadata", event.type);
           return new Response("ok", { status: 200 });
         }
 
@@ -120,26 +126,23 @@ export async function POST(request: Request): Promise<Response> {
         const { data: orderCheck } = await adminClient.from("orders").select("album_id, owner_user_id, print_snapshot_id, print_fingerprint").eq("id", orderId).maybeSingle();
 
         if (!orderCheck) {
-          console.log(`[webhook] ${event.id} ${event.type}: order not found in DB, order_id=${orderId}`);
           return new Response("ok", { status: 200 });
         }
 
         if (orderCheck.album_id !== albumId) {
-          console.error(`[webhook] ${event.id} ${event.type}: album_id mismatch for order_id=${orderId}`);
+          logWebhookFailure("album_binding", event.type);
           return new Response("ok", { status: 200 });
         }
 
         if (orderCheck.print_snapshot_id) {
           const { data: bound } = await adminClient.from("album_print_snapshots").select("album_id, fingerprint").eq("id", orderCheck.print_snapshot_id).maybeSingle();
           if (!bound || bound.album_id !== orderCheck.album_id || bound.fingerprint !== orderCheck.print_fingerprint) {
-            console.error(`[webhook] ${event.id} ${event.type}: print snapshot binding mismatch for order_id=${orderId}`);
+            logWebhookFailure("print_snapshot_binding", event.type);
             return new Response("ok", { status: 200 });
           }
         }
 
         const paymentIntentId = extractPaymentIntentId(session.payment_intent);
-
-        console.log(`[webhook] ${event.id} ${event.type}: order_id=${orderId}`);
 
         // Webhook reads the configured provider — client cannot influence this value.
         const printProvider = process.env.PRINT_PROVIDER ?? "mock";
@@ -152,7 +155,7 @@ export async function POST(request: Request): Promise<Response> {
         } as never);
 
         if (error) {
-          console.error(`[webhook] ${event.id} mark_order_paid failed: ${error.message}`);
+          logWebhookFailure("mark_order_paid", event.type, error.code);
           return new Response("DB error", { status: 500 });
         }
         const paymentKey = await analyticsEventKey(`stripe:${event.id}:payment`);
@@ -176,11 +179,8 @@ export async function POST(request: Request): Promise<Response> {
         const orderId = getOrderIdFromMetadata(session.metadata as Record<string, string> | null);
 
         if (!isUUID(orderId)) {
-          console.log(`[webhook] ${event.id} ${event.type}: no valid order_id, ignoring`);
           return new Response("ok", { status: 200 });
         }
-
-        console.log(`[webhook] ${event.id} ${event.type}: order_id=${orderId}`);
 
         // Only cancel pending orders — paid orders are never downgraded.
         const { error } = await adminClient
@@ -194,7 +194,7 @@ export async function POST(request: Request): Promise<Response> {
           .eq("status", "pending");
 
         if (error) {
-          console.error(`[webhook] ${event.id} expired update failed: ${error.message}`);
+          logWebhookFailure("expire_order", event.type, error.code);
           return new Response("DB error", { status: 500 });
         }
         break;
@@ -205,11 +205,8 @@ export async function POST(request: Request): Promise<Response> {
         const orderId = getOrderIdFromMetadata(pi.metadata as Record<string, string> | null);
 
         if (!isUUID(orderId)) {
-          console.log(`[webhook] ${event.id} ${event.type}: no valid order_id, ignoring`);
           return new Response("ok", { status: 200 });
         }
-
-        console.log(`[webhook] ${event.id} ${event.type}: order_id=${orderId}`);
 
         // Only update pending orders — paid orders must not be changed.
         const { error } = await adminClient
@@ -222,7 +219,7 @@ export async function POST(request: Request): Promise<Response> {
           .eq("status", "pending");
 
         if (error) {
-          console.error(`[webhook] ${event.id} payment_failed update failed: ${error.message}`);
+          logWebhookFailure("fail_order", event.type, error.code);
           return new Response("DB error", { status: 500 });
         }
         break;
@@ -232,9 +229,8 @@ export async function POST(request: Request): Promise<Response> {
         // Unhandled event types — acknowledge and ignore.
         break;
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "unknown error";
-    console.error(`[webhook] ${event.id} handler error: ${msg}`);
+  } catch {
+    logWebhookFailure("handler", event.type);
     return new Response("Internal error", { status: 500 });
   }
 
