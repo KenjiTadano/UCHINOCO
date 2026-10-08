@@ -29,8 +29,24 @@ const kleeOne = Klee_One({
 });
 
 export const metadata: Metadata = {
-  title: "UCHINOCO",
+  metadataBase: new URL("https://www.uchinoco.app"),
+  title: {
+    default: "UCHINOCO | うちの子との思い出アルバム",
+    template: "%s | UCHINOCO",
+  },
   description: "うちの子との毎日を残す、家族のための思い出アルバム",
+  openGraph: {
+    type: "website",
+    locale: "ja_JP",
+    siteName: "UCHINOCO",
+    title: "UCHINOCO | うちの子との思い出アルバム",
+    description: "写真を撮るだけ。うちの子との毎日を、家族のアルバムに。",
+  },
+  twitter: {
+    card: "summary",
+    title: "UCHINOCO | うちの子との思い出アルバム",
+    description: "うちの子との毎日を残す、家族のための思い出アルバム",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
