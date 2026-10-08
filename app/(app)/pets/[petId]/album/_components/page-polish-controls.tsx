@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   DECORATION_KITS,
   DECORATION_SLOT_LABEL,
@@ -17,6 +17,11 @@ import type { DecorationSlotId, TextSlotId } from "@/lib/album-polish/types";
 import { PolishMark } from "./polish-mark";
 
 type CaptionOption = { text: string };
+type CaptionState = {
+  context: string;
+  options: CaptionOption[];
+  note: string | null;
+};
 
 type Props = {
   spreadId: string;
@@ -62,26 +67,30 @@ export function PagePolishControls({
   const decoShown = resolveEffectiveDecoration(decoRow);
   const kitItems = DECORATION_KITS.find((item) => item.id === kit)?.items ?? [];
   const [suggesting, setSuggesting] = useState(false);
-  const [captionOptions, setCaptionOptions] = useState<CaptionOption[]>([]);
-  const [captionNote, setCaptionNote] = useState<string | null>(null);
-
-  useEffect(() => {
-    setCaptionOptions([]);
-    setCaptionNote(null);
-  }, [spreadId, layoutId, textSlot]);
+  const [captionState, setCaptionState] = useState<CaptionState>({
+    context: "",
+    options: [],
+    note: null,
+  });
+  const captionContext = `${spreadId}:${layoutId}:${textSlot}`;
+  const captionOptions = captionState.context === captionContext ? captionState.options : [];
+  const captionNote = captionState.context === captionContext ? captionState.note : null;
 
   async function requestCaptions(force: boolean) {
     if (!activeText || disabled || suggesting) return;
     setSuggesting(true);
-    setCaptionNote(null);
+    setCaptionState({ context: captionContext, options: captionOptions, note: null });
     const result = await onSuggest(
       activeText.id,
       force,
       force ? captionOptions.map((item) => item.text) : [],
     );
     setSuggesting(false);
-    setCaptionOptions(result.suggestions);
-    setCaptionNote(result.ok ? result.message : (result.message ?? "提案できる情報が足りません。"));
+    setCaptionState({
+      context: captionContext,
+      options: result.suggestions,
+      note: result.ok ? result.message : (result.message ?? "提案できる情報が足りません。"),
+    });
   }
 
   return (
@@ -111,13 +120,13 @@ export function PagePolishControls({
 
       {panel === "text" && activeText ? (
         <div className="page-edit-polish-panel" data-testid="page-edit-text-panel">
-          <div className="page-edit-polish-slots" role="listbox" aria-label="テキストの位置">
+          <div className="page-edit-polish-slots" role="group" aria-label="テキストの位置">
             {slots.text.map((slot) => (
               <button
                 key={slot.id}
                 type="button"
                 className={`page-edit-polish-chip${slot.id === activeText.id ? " is-selected" : ""}`}
-                aria-selected={slot.id === activeText.id}
+                aria-pressed={slot.id === activeText.id}
                 data-testid={`page-edit-text-slot-${slot.id}`}
                 disabled={disabled}
                 onClick={() => setTextSlot(slot.id)}

@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
   SmartCropFrameResult,
-  SmartCropPhotoAnalysis,
   SmartCropQuality,
   SmartCropTransform,
 } from "@/lib/smart-crop/types";
@@ -12,7 +11,6 @@ import { SmartCropPreview } from "./smart-crop-preview";
 type Props = {
   result: SmartCropFrameResult;
   imageUrl: string;
-  analysis: SmartCropPhotoAnalysis;
 };
 
 type ViewMode = "after" | "before";
@@ -73,7 +71,7 @@ function QualityGrid({
   );
 }
 
-export function SmartCropFrameCard({ result, imageUrl, analysis }: Props) {
+export function SmartCropFrameCard({ result, imageUrl }: Props) {
   const {
     frame,
     aiCrop,
@@ -83,8 +81,7 @@ export function SmartCropFrameCard({ result, imageUrl, analysis }: Props) {
     candidatesEvaluated,
   } = result;
   const [viewMode, setViewMode] = useState<ViewMode>("after");
-  const [crop, setCrop] = useState<SmartCropTransform>(aiCrop);
-  const [userAdjusted, setUserAdjusted] = useState(false);
+  const [adjustedCrop, setAdjustedCrop] = useState<SmartCropTransform | null>(null);
   const dragRef = useRef<{
     startX: number;
     startY: number;
@@ -93,11 +90,8 @@ export function SmartCropFrameCard({ result, imageUrl, analysis }: Props) {
 
   const activeAi = viewMode === "after" ? aiCrop : legacyCrop;
   const activeQuality = viewMode === "after" ? quality : legacyQuality;
-
-  useEffect(() => {
-    setCrop(activeAi);
-    setUserAdjusted(false);
-  }, [activeAi, analysis.width, analysis.height, frame.id, viewMode]);
+  const crop = viewMode === "after" ? (adjustedCrop ?? activeAi) : activeAi;
+  const userAdjusted = viewMode === "after" && adjustedCrop !== null;
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -117,7 +111,7 @@ export function SmartCropFrameCard({ result, imageUrl, analysis }: Props) {
       if (!dragRef.current || viewMode !== "after") return;
       const dx = (e.clientX - dragRef.current.startX) / 280;
       const dy = (e.clientY - dragRef.current.startY) / 280;
-      setCrop({
+      setAdjustedCrop({
         ...dragRef.current.origin,
         x: Math.min(
           1,
@@ -128,7 +122,6 @@ export function SmartCropFrameCard({ result, imageUrl, analysis }: Props) {
           Math.max(0, dragRef.current.origin.y - dy / crop.scale),
         ),
       });
-      setUserAdjusted(true);
     },
     [crop.scale, viewMode],
   );
@@ -160,7 +153,10 @@ export function SmartCropFrameCard({ result, imageUrl, analysis }: Props) {
               ? "bg-white text-[#b36048] shadow-sm"
               : "text-[#8a7c74]"
           }`}
-          onClick={() => setViewMode("after")}
+          onClick={() => {
+            setViewMode("after");
+            setAdjustedCrop(null);
+          }}
         >
           After (048.1)
         </button>
@@ -171,7 +167,10 @@ export function SmartCropFrameCard({ result, imageUrl, analysis }: Props) {
               ? "bg-white text-[#b36048] shadow-sm"
               : "text-[#8a7c74]"
           }`}
-          onClick={() => setViewMode("before")}
+          onClick={() => {
+            setViewMode("before");
+            setAdjustedCrop(null);
+          }}
         >
           Before (048)
         </button>
@@ -214,8 +213,10 @@ export function SmartCropFrameCard({ result, imageUrl, analysis }: Props) {
               value={crop.scale}
               className="flex-1"
               onChange={(e) => {
-                setCrop((c) => ({ ...c, scale: Number(e.target.value) }));
-                setUserAdjusted(true);
+                setAdjustedCrop((current) => ({
+                  ...(current ?? aiCrop),
+                  scale: Number(e.target.value),
+                }));
               }}
             />
             <span className="w-10 tabular-nums">{crop.scale.toFixed(2)}</span>
@@ -226,8 +227,7 @@ export function SmartCropFrameCard({ result, imageUrl, analysis }: Props) {
             className="mt-3 w-full rounded-xl border border-[#eadfd8] bg-[#fcfaf7] px-3 py-2 text-[13px] font-semibold text-[#b36048] disabled:opacity-40"
             disabled={!userAdjusted}
             onClick={() => {
-              setCrop(aiCrop);
-              setUserAdjusted(false);
+              setAdjustedCrop(null);
             }}
           >
             AIおすすめに戻す

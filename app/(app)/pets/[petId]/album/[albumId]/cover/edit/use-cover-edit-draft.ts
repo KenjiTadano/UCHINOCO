@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   overrideCover,
   refreshCoverPhotoUrls,
@@ -44,8 +44,11 @@ export function useCoverEditDraft(
   const inFlight = useRef(0);
   const intent = useRef<Intent | null>(null);
   const coverRef = useRef(cover);
-  coverRef.current = cover;
   const history = useEditorHistory("cover");
+
+  useEffect(() => {
+    coverRef.current = cover;
+  }, [cover]);
 
   function bump(fallback: number) {
     const next = Math.max(seqRef.current, fallback) + 1;

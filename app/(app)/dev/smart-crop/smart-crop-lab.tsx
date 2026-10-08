@@ -171,7 +171,7 @@ export function SmartCropLab({ photos, initialPetId, initialPhotoId }: Props) {
 
           <div className="grid gap-4 md:grid-cols-2">
             {result.frames.map((fr) => (
-              <SmartCropFrameCard key={fr.frame.id} result={fr} imageUrl={result.previewUrl ?? result.imageUrl!} analysis={result.analysis!} />
+              <SmartCropFrameCard key={fr.frame.id} result={fr} imageUrl={result.previewUrl ?? result.imageUrl!} />
             ))}
           </div>
         </>

@@ -159,14 +159,12 @@ export function useGeneratingStep(pending: boolean): number {
   const [step, setStep] = useState(1);
 
   useEffect(() => {
-    if (!pending) {
-      setStep(1);
-      return;
-    }
-    setStep(1);
+    if (!pending) return;
+    const reset = window.setTimeout(() => setStep(1), 0);
     const t1 = window.setTimeout(() => setStep(2), 900);
     const t2 = window.setTimeout(() => setStep(3), 2200);
     return () => {
+      window.clearTimeout(reset);
       window.clearTimeout(t1);
       window.clearTimeout(t2);
     };
