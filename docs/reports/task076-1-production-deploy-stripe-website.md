@@ -3,18 +3,21 @@
 - Date: 2026-10-08
 - Production site: https://www.uchinoco.app
 - Task076 implementation: `c580824` (`feat: add public website for stripe onboarding`)
-- Current main / origin/main: `879976837edf5e0beb37eab1f847649945ca894d`
+- Production code commit on main: `879976837edf5e0beb37eab1f847649945ca894d`
+- Task076.1 report commit on main / origin/main: `431946eae2a07f4ee013483236cfec39d7c7bc5b`
 - Branch: `feature/task076-public-website-stripe-onboarding`
 
 ## Git state
 
-Task076 implementation commit `c580824` is an ancestor of both local `main` and `origin/main`. The branch and `origin/main` are both at `8799768`; `main` already contains the implementation and report commits. Integration is linear/fast-forward, so no distinct merge commit was created. No additional main push was needed because local and origin main match. The existing untracked Japanese-named `docs/` directory was present and left untouched.
+Task076 implementation commit `c580824` is an ancestor of both local `main` and `origin/main`. Integration was linear/fast-forward, so no distinct merge commit was created. Task076.1's report-only commit `431946e` was pushed to `origin/main`; local and origin main now match. The existing untracked Japanese-named `docs/` directory was present and left untouched.
 
 ## Production deployment
 
 GitHub deployment record `6933717360` is `Production`, targets SHA `879976837edf5e0beb37eab1f847649945ca894d`, and has status `success` / “Deployment has completed” at 2026-10-08 10:59:37 UTC. Its deployment URL is `https://uchinoco-kemu49k2x-tadanokenjis-projects.vercel.app`.
 
 The canonical domain returned HTTP/2 200 from Vercel and rendered the Task076 public landing page. The production deployment target URL and GitHub status were confirmed; direct Vercel Dashboard inspection and opening the target URL were blocked by Vercel SSO in this browser session. Thus the provider status record is successful, while independent alias mapping in the Dashboard was not directly inspected.
+
+After the report-only main push, the six public routes were rechecked and again returned 200; `/home` and `/search` still redirected to `/login`.
 
 ## Public routes and authentication
 
