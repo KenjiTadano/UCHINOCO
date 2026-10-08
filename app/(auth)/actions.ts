@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { safeAppReturnPath } from "@/lib/app-return-path";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
@@ -20,8 +21,11 @@ function redirectWithMessage(
   path: "/login" | "/signup" | "/home" | "/forgot-password" | "/reset-password",
   kind: "error" | "message",
   message: string,
+  next?: string,
 ): never {
   const params = new URLSearchParams({ [kind]: message });
+  const safeNext = safeAppReturnPath(next);
+  if (safeNext) params.set("next", safeNext);
   redirect(`${path}?${params.toString()}`);
 }
 
@@ -29,7 +33,6 @@ function validateCredentials(email: string, password: string) {
   if (!EMAIL_PATTERN.test(email)) {
     return "有効なメールアドレスを入力してください。";
   }
-
   if (password.length < MIN_PASSWORD_LENGTH) {
     return `パスワードは${MIN_PASSWORD_LENGTH}文字以上で入力してください。`;
   }
@@ -37,7 +40,7 @@ function validateCredentials(email: string, password: string) {
   return null;
 }
 
-function getEmailRedirectTo() {
+function getEmailRedirectTo(next: string) {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
 
   if (!siteUrl) {
@@ -45,7 +48,9 @@ function getEmailRedirectTo() {
   }
 
   try {
-    return new URL("/auth/confirm", siteUrl).toString();
+    const redirectUrl = new URL("/auth/confirm", siteUrl);
+    redirectUrl.searchParams.set("next", safeAppReturnPath(next) ?? "/home");
+    return redirectUrl.toString();
   } catch {
     return null;
   }
@@ -61,7 +66,7 @@ export async function requestPasswordReset(formData: FormData) {
     );
   }
 
-  const redirectTo = getEmailRedirectTo();
+  const redirectTo = getEmailRedirectTo("/home");
   if (!redirectTo) {
     redirectWithMessage(
       "/forgot-password",
@@ -125,7 +130,6 @@ export async function resetPassword(formData: FormData) {
       "パスワードを変更できませんでした。入力内容を確認して再度お試しください。",
     );
   }
-
   const { error: signOutError } = await supabase.auth.signOut();
   revalidatePath("/", "layout");
   if (signOutError) {
@@ -143,12 +147,13 @@ export async function resetPassword(formData: FormData) {
 }
 
 export async function login(formData: FormData) {
+  const next = safeAppReturnPath(field(formData, "next")) ?? "/home";
   const email = field(formData, "email");
   const password = field(formData, "password", false);
   const validationError = validateCredentials(email, password);
 
   if (validationError) {
-    redirectWithMessage("/login", "error", validationError);
+    redirectWithMessage("/login", "error", validationError, next);
   }
 
   const supabase = await createClient();
@@ -159,14 +164,16 @@ export async function login(formData: FormData) {
       "/login",
       "error",
       "メールアドレスまたはパスワードが正しくありません。",
+      next,
     );
   }
 
   revalidatePath("/", "layout");
-  redirect("/home");
+  redirect(next);
 }
 
 export async function signup(formData: FormData) {
+  const next = safeAppReturnPath(field(formData, "next")) ?? "/home";
   const displayName = field(formData, "display_name");
   const email = field(formData, "email");
   const password = field(formData, "password", false);
@@ -181,12 +188,13 @@ export async function signup(formData: FormData) {
       "/signup",
       "error",
       "表示名は1文字以上50文字以内で入力してください。",
+      next,
     );
   }
 
   const validationError = validateCredentials(email, password);
   if (validationError) {
-    redirectWithMessage("/signup", "error", validationError);
+    redirectWithMessage("/signup", "error", validationError, next);
   }
 
   if (password !== passwordConfirmation) {
@@ -194,15 +202,17 @@ export async function signup(formData: FormData) {
       "/signup",
       "error",
       "パスワードと確認用パスワードが一致しません。",
+      next,
     );
   }
 
-  const emailRedirectTo = getEmailRedirectTo();
+  const emailRedirectTo = getEmailRedirectTo(next);
   if (!emailRedirectTo) {
     redirectWithMessage(
       "/signup",
       "error",
       "現在、新規登録を利用できません。時間をおいて再度お試しください。",
+      next,
     );
   }
 
@@ -221,6 +231,7 @@ export async function signup(formData: FormData) {
       "/signup",
       "error",
       "このメールアドレスでは登録できません。入力内容を確認するか、ログインをお試しください。",
+      next,
     );
   }
 
@@ -229,11 +240,12 @@ export async function signup(formData: FormData) {
       "/signup",
       "message",
       "確認メールを送信しました。メール内のリンクから登録を完了してください。",
+      next,
     );
   }
 
   revalidatePath("/", "layout");
-  redirect("/home");
+  redirect(next);
 }
 
 export async function logout() {

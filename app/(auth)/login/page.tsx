@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { login } from "../actions";
 import { PendingSubmitButton } from "../../_components/pending-submit-button";
+import { safeAppReturnPath } from "@/lib/app-return-path";
 
 type LoginPageProps = {
-  searchParams: Promise<{ error?: string; message?: string }>;
+  searchParams: Promise<{ error?: string; message?: string; next?: string }>;
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const { error, message } = await searchParams;
+  const { error, message, next: requestedNext } = await searchParams;
+  const next = safeAppReturnPath(requestedNext) ?? "/home";
 
   return (
     <main className="app-page-narrow max-w-sm justify-center">
@@ -24,6 +26,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       {message ? <p role="status" className="app-success">{message}</p> : null}
 
       <form action={login} className="flex flex-col gap-4">
+        <input type="hidden" name="next" value={next} />
         <label className="app-label">
           メールアドレス
           <input
@@ -54,7 +57,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
       <p className="text-center text-sm text-muted">
         アカウントをお持ちでない場合は、
-        <Link className="font-semibold text-primary underline underline-offset-4" href="/signup">
+        <Link className="font-semibold text-primary underline underline-offset-4" href={`/signup?next=${encodeURIComponent(next)}`}>
           新規登録
         </Link>
         してください。

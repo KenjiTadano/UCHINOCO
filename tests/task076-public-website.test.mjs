@@ -18,11 +18,12 @@ test("Task076 public pages describe the service, plans, and print status accurat
   }
   assert.ok(pricing.includes("FREE"));
   assert.ok(pricing.includes("PLUS"));
-  assert.match(pricing, /本番価格と提供条件が確定するまで、料金は表示していません/);
+  assert.match(pricing, /月額 ¥680/);
+  assert.match(legal, /PLUSは月額 ¥680です/);
   assert.doesNotMatch(home, /Year in Review.{0,30}提供予定|家族共有.{0,30}提供予定/);
   assert.match(publicCopy, /Production Printの注文受付は現在行っていません/);
   assert.doesNotMatch(publicCopy, /フォトブック注文可能|フォトブックを注文できます|ご注文いただけます/);
-  assert.doesNotMatch(publicCopy, /¥\s*[0-9]|[0-9][0-9,]*\s*円/);
+  assert.doesNotMatch(publicCopy.replaceAll("¥680", ""), /¥\s*[0-9]|[0-9][0-9,]*\s*円/);
   assert.doesNotMatch(publicCopy, /support@uchinoco\.app|sk_live_[A-Za-z0-9]+|whsec_[A-Za-z0-9]+/);
 });
 

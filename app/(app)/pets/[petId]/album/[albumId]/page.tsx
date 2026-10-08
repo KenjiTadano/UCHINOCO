@@ -200,6 +200,7 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
         acceptAction={acceptAlbumDraft.bind(null, petId, albumId)}
         regenerateAction={regenerateAlbumDraft.bind(null, petId, albumId)}
         canRegenerate={isOwner && ownerEntitlements.canRegenerateAlbum}
+        showRegenerateUpsell={isOwner && !ownerEntitlements.canRegenerateAlbum}
         newPhotoSuggestion={visibleSuggestion ? { href: `${base}/new-photos`, count: visibleSuggestion.candidates.length } : null}
       />
     );

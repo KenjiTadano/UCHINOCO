@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
+import { PlusUpgradeCta } from "../plus/plus-checkout-button";
 
 export function PlusUpsell({
   title,
@@ -20,8 +21,9 @@ export function PlusUpsell({
           <p className="mt-1 text-sm leading-6 text-muted">{description}</p>
         </div>
       </div>
-      <Link className="app-button-secondary min-h-11 w-fit" href={href}>
-        PLUSを見る
+      <PlusUpgradeCta next={href} />
+      <Link className="ds-focus min-h-11 self-center px-3 py-2 text-sm text-muted underline underline-offset-4" href={returnTo ?? "/home"}>
+        今はFREEのまま使う
       </Link>
     </aside>
   );

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { AlbumCoverBook } from "../_components/album-cover-book";
 import { buildCoverTitleLines } from "@/lib/album-cover-title";
+import { PlusUpgradeCta } from "@/app/(app)/plus/plus-checkout-button";
 import { NewPhotoSuggestionNotice } from "./new-photo-suggestion";
 
 export type AlbumCompleteScreenProps = {
@@ -29,6 +30,7 @@ export type AlbumCompleteScreenProps = {
   acceptAction: () => Promise<void>;
   regenerateAction: () => Promise<void>;
   canRegenerate: boolean;
+  showRegenerateUpsell: boolean;
   newPhotoSuggestion?: { href: string; count: number } | null;
 };
 
@@ -48,6 +50,7 @@ export function AlbumCompleteScreen({
   acceptAction,
   regenerateAction,
   canRegenerate,
+  showRegenerateUpsell,
   newPhotoSuggestion,
 }: AlbumCompleteScreenProps) {
   const coverLines = buildCoverTitleLines(petName, albumTitle, periodMonthLabel);
@@ -156,11 +159,15 @@ export function AlbumCompleteScreen({
                 ペットや期間を変えて作る
               </button>
             </form>
-          ) : (
-            <Link href={`/plus?next=${encodeURIComponent(backHref)}`} className="ai-complete-recreate ds-focus w-full text-center">
-              PLUSで別案を作る
-            </Link>
-          )}
+          ) : showRegenerateUpsell ? (
+            <div className="grid gap-2 border-t pt-4">
+              <p className="text-center text-sm text-muted">アルバムの再生成はPLUSで利用できます。</p>
+              <PlusUpgradeCta next={backHref} />
+              <Link className="ds-focus min-h-11 px-3 py-2 text-center text-sm text-muted underline underline-offset-4" href={backHref}>
+                今はFREEのまま使う
+              </Link>
+            </div>
+          ) : null}
         </div>
       </div>
     </main>

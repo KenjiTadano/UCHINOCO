@@ -337,6 +337,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             <Link href="/pets/new" className="ds-focus block rounded-lg px-3 py-2 text-sm text-muted hover:bg-surface-warm">
               うちの子を追加
             </Link>
+            <Link href="/settings/billing" className="ds-focus block rounded-lg px-3 py-2 text-sm text-muted hover:bg-surface-warm">
+              プラン・お支払い
+            </Link>
             <form action={logout}>
               <button type="submit" className="ds-focus w-full rounded-lg px-3 py-2 text-left text-sm text-muted hover:bg-surface-warm">
                 ログアウト

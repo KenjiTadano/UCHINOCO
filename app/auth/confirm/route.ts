@@ -1,5 +1,6 @@
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { type NextRequest, NextResponse } from "next/server";
+import { safeAppReturnPath } from "@/lib/app-return-path";
 import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
@@ -14,7 +15,8 @@ export async function GET(request: NextRequest) {
     });
 
     if (!error) {
-      const destination = type === "recovery" ? "/reset-password" : "/home";
+      const requestedNext = safeAppReturnPath(request.nextUrl.searchParams.get("next") ?? undefined);
+      const destination = type === "recovery" ? "/reset-password" : requestedNext ?? "/home";
       return NextResponse.redirect(new URL(destination, request.url));
     }
   }
