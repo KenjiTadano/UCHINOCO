@@ -14,6 +14,19 @@ import type {
   BestShotScores,
 } from "./types.ts";
 
+export function uniquePhotoIds(photoIdLists: readonly (readonly string[])[]): string[] {
+  return [...new Set(photoIdLists.flat())].sort((a, b) => a.localeCompare(b));
+}
+
+export function chunkPhotoIds(photoIds: readonly string[], size = 200): string[][] {
+  if (!Number.isInteger(size) || size <= 0) throw new Error("Invalid photo ID batch size");
+  const batches: string[][] = [];
+  for (let offset = 0; offset < photoIds.length; offset += size) {
+    batches.push(photoIds.slice(offset, offset + size));
+  }
+  return batches;
+}
+
 function round2(n: number) {
   return Math.round(n * 100) / 100;
 }

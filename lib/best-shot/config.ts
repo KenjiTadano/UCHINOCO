@@ -1,5 +1,5 @@
 /** Task053 — pick a scene representative, not the highest keeper score. */
-export const BEST_SHOT_VERSION = "best-shot-v1";
+export const BEST_SHOT_VERSION = "best-shot-v2";
 
 export const BEST_SHOT_CONFIG = {
   weights: {

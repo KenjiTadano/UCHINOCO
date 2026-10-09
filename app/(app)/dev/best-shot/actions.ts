@@ -3,7 +3,7 @@
 import { groupPetPhotos } from "../photo-grouping/actions";
 import { bestShotConfigFingerprint } from "@/lib/best-shot/config";
 import { bestShotCacheKey, getBestShotCache, setBestShotCache } from "@/lib/best-shot/cache";
-import { selectBestShot } from "@/lib/best-shot/select";
+import { chunkPhotoIds, selectBestShot, uniquePhotoIds } from "@/lib/best-shot/select";
 import { visualPairKey } from "@/lib/best-shot/score";
 import type { BestShotGroupInput, BestShotPhoto, BestShotResult } from "@/lib/best-shot/types";
 import { getPhotoIntelligenceCache } from "@/lib/photo-intelligence/cache";
@@ -45,27 +45,35 @@ export async function selectPetBestShots(petId: string, options?: { storedOnly?:
   } = await supabase.auth.getUser();
   if (!user) return emptyRun("ログインが必要です。");
 
-  const { data: rows } = await supabase.from("photos").select("id, storage_path, updated_at, content_hash").eq("pet_id", petId).eq("uploader_user_id", user.id).limit(40);
-
   const byId = new Map<string, { sharpness: number; intelligence: BestShotPhoto["intelligence"] }>();
-  for (const row of rows ?? []) {
-    const hit = getPhotoIntelligenceCache(intelligenceMemoryKey(row));
-    if (!hit) continue;
-    byId.set(row.id, {
-      sharpness: hit.parts.sharpness,
-      intelligence: {
-        overallScore: hit.intelligence.overallScore,
-        expression: hit.intelligence.expression,
-        petVisibility: hit.intelligence.petVisibility,
-        technicalQuality: hit.intelligence.technicalQuality,
-        composition: hit.intelligence.composition,
-        memoryValue: hit.intelligence.memoryValue,
-        confidence: hit.intelligence.confidence,
-        tags: hit.intelligence.tags,
-        warnings: hit.intelligence.warnings,
-        status: hit.intelligence.status,
-      },
-    });
+  const photoIds = uniquePhotoIds(grouped.groups.map(({ photoIds }) => photoIds));
+  for (const batch of chunkPhotoIds(photoIds)) {
+    const { data: rows, error } = await supabase
+      .from("photos")
+      .select("id, storage_path, updated_at, content_hash")
+      .eq("pet_id", petId)
+      .eq("uploader_user_id", user.id)
+      .in("id", batch);
+    if (error) return emptyRun("写真を読み込めませんでした。");
+    for (const row of rows ?? []) {
+      const hit = getPhotoIntelligenceCache(intelligenceMemoryKey(row));
+      if (!hit) continue;
+      byId.set(row.id, {
+        sharpness: hit.parts.sharpness,
+        intelligence: {
+          overallScore: hit.intelligence.overallScore,
+          expression: hit.intelligence.expression,
+          petVisibility: hit.intelligence.petVisibility,
+          technicalQuality: hit.intelligence.technicalQuality,
+          composition: hit.intelligence.composition,
+          memoryValue: hit.intelligence.memoryValue,
+          confidence: hit.intelligence.confidence,
+          tags: hit.intelligence.tags,
+          warnings: hit.intelligence.warnings,
+          status: hit.intelligence.status,
+        },
+      });
+    }
   }
 
   const fingerprint = configFingerprint();
