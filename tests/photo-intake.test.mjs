@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import {
-  PHOTO_INTAKE_CONFIG,
-  albumCandidateTransition,
-  derivePhotoIntakeState,
-  shouldContinueIntake,
-} from "../lib/photo-intake.ts";
+import { PHOTO_INTAKE_CONFIG, albumCandidateTransition, derivePhotoIntakeState, shouldContinueIntake } from "../lib/photo-intake.ts";
 import { selectUchinocoNowHero } from "../lib/uchinoco-now.ts";
 
 const source = async (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -69,7 +64,7 @@ test("Photo Intelligence work reuses current version and source fingerprint", as
   assert.match(finder, /result_status/);
   assert.match(finder, /pets\.owner_user_id/);
   assert.match(finder, /uploader_user_id/);
-  assert.match(intelligence, /semanticJson\(vision, intelligence\.overallScore\)/);
+  assert.match(intelligence, /semanticJson\(vision, intelligence\.overallScore, technical\)/);
 });
 
 test("semantic and intelligence stages alternate but remain server-selected", async () => {
@@ -100,11 +95,7 @@ test("batch refresh updates NOW and candidate state once without creating an alb
 });
 
 test("edited, accepted and ordered albums are never overwritten by intake", async () => {
-  const files = await Promise.all([
-    source("app/(app)/pets/[petId]/photos/actions.ts"),
-    source("app/api/photo-analysis/route.ts"),
-    source("lib/photo-intake-server.ts"),
-  ]);
+  const files = await Promise.all([source("app/(app)/pets/[petId]/photos/actions.ts"), source("app/api/photo-analysis/route.ts"), source("lib/photo-intake-server.ts")]);
   const combined = files.join("\n");
   assert.doesNotMatch(combined, /album_draft_versions.*(insert|update)/s);
   assert.doesNotMatch(combined, /album_photos.*(insert|update)/s);

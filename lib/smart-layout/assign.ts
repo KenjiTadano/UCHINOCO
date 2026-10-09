@@ -39,14 +39,34 @@ type Cell = {
   quality: ReturnType<typeof computeSmartCrop>["quality"];
 };
 
-function buildMatchMatrix(photos: LayoutPhotoInput[], frames: AlbumFrameDefinition[]): Cell[][] {
+export type LayoutEvaluationWork = {
+  cells: Map<string, Cell>;
+  cropDurationMs: number;
+  cropItemCount: number;
+  cropReusedCount: number;
+};
+
+function buildMatchMatrix(photos: LayoutPhotoInput[], frames: AlbumFrameDefinition[], work?: LayoutEvaluationWork): Cell[][] {
   return photos.map((photo) =>
     frames.map((frame) => {
       const cropFrame = resolveLayoutCropFrame(frame);
+      const key = `${photo.photoId}|${JSON.stringify(cropFrame)}`;
+      const cached = work?.cells.get(key);
+      if (cached) {
+        work!.cropReusedCount++;
+        return cached;
+      }
+      const started = performance.now();
       const { crop, quality } = computeSmartCrop(photo.analysis, cropFrame);
       const safeCrop = sanitizeCropTransform(crop);
       const frameMatch = scoreFrameMatch(photo.analysis, cropFrame, safeCrop, quality);
-      return { frameMatch, crop: safeCrop, quality };
+      const cell = { frameMatch, crop: safeCrop, quality };
+      if (work) {
+        work.cropDurationMs += performance.now() - started;
+        work.cropItemCount++;
+        work.cells.set(key, cell);
+      }
+      return cell;
     }),
   );
 }
@@ -222,7 +242,7 @@ function assignmentIntegrityOk(layout: AlbumLayoutDefinition, photos: LayoutPhot
 /**
  * Best photo→frame permutation for one layout.
  */
-export function evaluateLayout(layout: AlbumLayoutDefinition, photos: LayoutPhotoInput[]): LayoutMatchResult {
+export function evaluateLayout(layout: AlbumLayoutDefinition, photos: LayoutPhotoInput[], work?: LayoutEvaluationWork): LayoutMatchResult {
   const heroConfidence = computeHeroConfidence(photos);
   if (photos.length !== layout.photoCount) {
     return {
@@ -238,7 +258,7 @@ export function evaluateLayout(layout: AlbumLayoutDefinition, photos: LayoutPhot
     };
   }
 
-  const matrix = buildMatchMatrix(photos, layout.frames);
+  const matrix = buildMatchMatrix(photos, layout.frames, work);
   // Hierarchy need is photo-set level (not layout-dependent crop max).
   const qualityProfile = buildPhotoSetQualityProfile(photos);
   const heroSuitabilityByPhotoId = new Map(photos.map((photo) => [photo.photoId, computeHeroSuitability(photo)]));

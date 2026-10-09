@@ -14,7 +14,7 @@ import type { Json } from "@/lib/supabase/database.types";
 import type { ResultStatus } from "@/lib/photo-analysis/constants";
 import { buildPhotoIntelligence } from "@/lib/photo-intelligence/score";
 import { measureTechnicalQuality } from "@/lib/photo-intelligence/technical";
-import type { PhotoIntelligence, PhotoIntelligenceVision, TechnicalParts, TechnicalSignals } from "@/lib/photo-intelligence/types";
+import type { PhotoIntelligence, PhotoIntelligenceVision, TechnicalParts, TechnicalSignals, TechnicalQualityResult } from "@/lib/photo-intelligence/types";
 import { parsePhotoIntelligenceVision, PHOTO_INTELLIGENCE_VISION_PROMPT, PHOTO_INTELLIGENCE_VISION_SCHEMA } from "@/lib/photo-intelligence/vision-parse";
 import { geometryMemoryKey } from "@/lib/photo-analysis/keys";
 import { getSmartCropCache } from "@/lib/smart-crop/cache";
@@ -69,10 +69,10 @@ function emptyResult(message: string): PhotoIntelligenceAnalyzeResult {
   };
 }
 
-function semanticJson(vision: PhotoIntelligenceVision, overallScore: number): Json {
+function semanticJson(vision: PhotoIntelligenceVision, overallScore: number, technical: TechnicalQualityResult): Json {
   // Keep the validated semantic payload reusable while exposing the derived,
   // deterministic score to UCHINOCO NOW without another Vision request.
-  return JSON.parse(JSON.stringify({ ...vision, overallScore })) as Json;
+  return JSON.parse(JSON.stringify({ ...vision, overallScore, technical })) as Json;
 }
 
 function hasExpectedImageSignature(mimeType: string, bytes: Uint8Array) {
@@ -441,7 +441,7 @@ export async function analyzePhotoIntelligence(petId: string, photoId: string, f
     analysisVersion: PHOTO_INTELLIGENCE_VERSION,
     sourceFingerprint: fingerprint,
     resultStatus: status,
-    result: vision ? semanticJson(vision, intelligence.overallScore) : { reason: visionFailed ? "vision_failed" : "vision_skipped" },
+    result: vision ? semanticJson(vision, intelligence.overallScore, technical) : (JSON.parse(JSON.stringify({ reason: visionFailed ? "vision_failed" : "vision_skipped", technical })) as Json),
     existingStatus: stored?.resultStatus ?? null,
   });
   if (!(force && saved.reason === "success_immutable")) {

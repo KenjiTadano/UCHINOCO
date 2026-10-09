@@ -1,10 +1,13 @@
 "use server";
 
-import OpenAI from "openai";
 import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { selectPetBestShots } from "@/app/(app)/dev/best-shot/actions";
-import { analyzeSmartCropPhoto } from "@/app/(app)/dev/smart-crop/actions";
+import { buildSceneGroups } from "@/lib/photo-grouping/group";
+import { selectBestShot } from "@/lib/best-shot/select";
+import { visualPairKey } from "@/lib/best-shot/score";
+import { loadStoredGenerationInputs } from "@/lib/album-generation/stored-inputs";
+import { generationPerformance } from "@/lib/album-generation/performance";
+import { createPhotoPreviewUrls } from "@/lib/photo-image-delivery";
 import { parseAlbumSetup } from "@/lib/album-setup";
 import { planEditorialAlbum, buildEditorialDraft, editorialPageText, EDITORIAL_VERSION, type EditorialPhoto } from "@/lib/album-draft/editorial";
 import type { LayoutPhotoInput } from "@/lib/smart-layout/types";
@@ -24,9 +27,22 @@ export type CreateAlbumState = {
 };
 
 export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, formData: FormData): Promise<CreateAlbumState> {
+  const timing = generationPerformance();
+  try {
+    const result = await generateAlbumDraft(petId, formData, timing);
+    timing.finish("failed");
+    return result;
+  } catch (error) {
+    timing.finish("failed");
+    throw error;
+  }
+}
+
+async function generateAlbumDraft(petId: string, formData: FormData, timing: ReturnType<typeof generationPerformance>): Promise<CreateAlbumState> {
+  timing.start("01_request_validation", 1);
   if (!UUID_PATTERN.test(petId)) return { error: "無効なリクエストです。" };
-
-
+  timing.end("01_request_validation", 1);
+  timing.start("02_pet_ownership_validation");
   const supabase = await createClient();
   const {
     data: { user },
@@ -39,20 +55,31 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
   if (!pets.some((item) => item.id === petId)) return { error: "ペット情報を取得できませんでした。" };
 
   let setup;
-  try { setup = parseAlbumSetup(formData, pets.map(pet => pet.id)); }
-  catch (error) { return { error: error instanceof Error ? error.message : "作成条件を確認してください。" }; }
-  const selectedPets = pets.filter(pet => setup.petIds.includes(pet.id));
-  const anchorPet = selectedPets.find(pet => pet.id === petId) ?? selectedPets[0];
+  try {
+    setup = parseAlbumSetup(
+      formData,
+      pets.map((pet) => pet.id),
+    );
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "作成条件を確認してください。" };
+  }
+  const selectedPets = pets.filter((pet) => setup.petIds.includes(pet.id));
+  const anchorPet = selectedPets.find((pet) => pet.id === petId) ?? selectedPets[0];
   const { from: periodFrom, to: periodTo } = setup;
+  timing.end("02_pet_ownership_validation", selectedPets.length);
+  timing.context({ selectedPetIds: setup.petIds, petCount: selectedPets.length, periodPreset: ["3months", "6months", "1year", "all", "custom"].includes(String(formData.get("period"))) ? String(formData.get("period")) : "3months", periodStart: periodFrom.toISOString(), periodEnd: periodTo.toISOString(), requestedBodyPages: setup.pageCount });
 
+  timing.start("03_source_photo_query", selectedPets.length);
+  let sourceQueryCount = 0;
   const photoResults = await Promise.all(
     selectedPets.map(async (selectedPet) => {
       const pageSize = 200;
       const petPhotos = [];
       for (let offset = 0; ; offset += pageSize) {
+        sourceQueryCount++;
         const result = await supabase
           .from("photos")
-          .select("id, pet_id, storage_path, thumbnail_path, taken_at, created_at, timeline_at, favorite, caption")
+          .select("id, pet_id, storage_path, thumbnail_path, taken_at, created_at, timeline_at, favorite, caption, updated_at, content_hash")
           .eq("pet_id", selectedPet.id)
           .eq("uploader_user_id", user.id)
           .gte("timeline_at", periodFrom.toISOString())
@@ -71,27 +98,47 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
     return { error: "写真の取得中にエラーが発生しました。" };
   }
   const rawPhotos = photoResults.flatMap((result) => result.data ?? []);
+  timing.end("03_source_photo_query", rawPhotos.length);
 
   if (rawPhotos.length === 0) {
     return { error: "この期間に写真がありません。別の期間を選んでください。" };
   }
 
-  const analysisMap = new Map<string, { activity: string | null; scene: string | null; emotion: string | null; tags: string[] | null }>();
-  for (let offset=0; offset<rawPhotos.length; offset+=200) {
-    const result = await supabase.from("photo_ai_analyses").select("photo_id, activity, scene, emotion, tags").in("photo_id", rawPhotos.slice(offset,offset+200).map(photo=>photo.id)).eq("status","completed");
-    if (result.error) return { error: "写真の解析情報を取得できませんでした。" };
-    for (const row of result.data ?? []) analysisMap.set(row.photo_id,row);
+  timing.start("04_intelligence_metadata_query", rawPhotos.length);
+  let inputs;
+  try {
+    inputs = await loadStoredGenerationInputs(supabase as unknown as SupabaseClient, rawPhotos);
+  } catch {
+    timing.finish("failed");
+    return { error: "写真の解析情報を取得できませんでした。" };
+  }
+  timing.end("04_intelligence_metadata_query", rawPhotos.length);
+  timing.start("07_missing_analysis_intelligence", rawPhotos.length);
+  timing.counts({
+    eligiblePhotoCount: rawPhotos.length,
+    selectedSourcePhotoCount: 0,
+    existingIntelligenceCount: inputs.existingIntelligenceCount,
+    missingIntelligenceCount: inputs.missingIntelligenceCount,
+    cropAnalysisRequiredCount: inputs.missingGeometryCount,
+    layoutPlanningSpreadCount: setup.pageCount / 2,
+    metadataQueryCount: inputs.metadataQueryCount,
+    legacyTechnicalFallbackCount: inputs.legacyTechnicalFallbackCount,
+    failedAnalysisCount: inputs.failedAnalysisCount,
+  });
+  timing.end("07_missing_analysis_intelligence", inputs.missingIntelligenceCount + inputs.missingGeometryCount);
+  if (inputs.missingIntelligenceCount || inputs.missingGeometryCount) {
+    timing.finish("analysis_pending");
+    return { error: inputs.failedAnalysisCount ? "一部の写真の整理を完了できませんでした。写真の解析状況を確認してから、もう一度お試しください。" : "写真の整理がまだ完了していません。ホームで整理が終わってから、もう一度お試しください。" };
   }
 
   const candidates: AlbumCandidate[] = rawPhotos.map((photo) => {
-    const ai = analysisMap.get(photo.id);
     return {
       ...photo,
       timeline_at: photo.timeline_at ?? photo.created_at,
-      activity: ai?.activity ?? null,
-      scene: ai?.scene ?? null,
-      emotion: ai?.emotion ?? null,
-      tags: ai?.tags ?? null,
+      activity: null,
+      scene: null,
+      emotion: null,
+      tags: null,
     };
   });
 
@@ -101,85 +148,105 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
     periodFrom,
     periodTo,
   );
-  const candidateById = new Map(scopedCandidates.map(photo=>[photo.id,photo]));
+  const candidateById = new Map(scopedCandidates.map((photo) => [photo.id, photo]));
   const rankedPhotos: EditorialPhoto[] = [];
-  for (const pet of selectedPets) {
-    if (!scopedCandidates.some(photo=>photo.pet_id===pet.id)) continue;
-    const run = await selectPetBestShots(pet.id, { dateRange: { start: periodFrom.toISOString(), end: periodTo.toISOString() }, allowedPhotoIds: scopedCandidates.filter(photo=>photo.pet_id===pet.id).map(photo=>photo.id), allowLargeImageDegrade: true });
-    if (!run.ok) return { error: run.message ?? "写真選定に失敗しました。" };
-    for (const {group,selection} of run.groups) for (const candidate of selection.ranking) {
-      const photo=candidateById.get(candidate.photoId);
-      if (photo) rankedPhotos.push({ photoId:photo.id, petId:pet.id, groupId:group.id, timeline:photo.timeline_at, scene:group.scene, activity:group.activity, candidate, confidence:selection.confidence });
+  timing.start("05_grouping_preparation", scopedCandidates.length);
+  const groupsByPet = selectedPets.map((pet) => ({ pet, groups: buildSceneGroups(inputs.grouping.filter((photo) => candidateById.get(photo.photoId)?.pet_id === pet.id)) }));
+  timing.end(
+    "05_grouping_preparation",
+    groupsByPet.reduce((sum, item) => sum + item.groups.length, 0),
+  );
+  timing.start("06_best_shot_preparation", scopedCandidates.length);
+  for (const { pet, groups } of groupsByPet) {
+    for (const group of groups) {
+      const selection = selectBestShot(
+        {
+          id: group.id,
+          scene: group.scene,
+          activity: group.activity,
+          tags: group.tags,
+          groupConfidence: group.groupConfidence,
+          warnings: group.warnings,
+          visualSimilarity: Object.fromEntries(group.pairs.map((pair) => [visualPairKey(pair.photoA, pair.photoB), pair.visualScore])),
+          geometrySimilarity: Object.fromEntries(group.pairs.map((pair) => [visualPairKey(pair.photoA, pair.photoB), pair.geometryScore])),
+        },
+        group.members.map((member) => ({ photoId: member.photoId, relativeUniqueness: member.relativeUniqueness, intelligence: inputs.grouping.find((photo) => photo.photoId === member.photoId)?.intelligence ?? null, sharpness: inputs.sharpness.get(member.photoId) ?? 62 })),
+      );
+      for (const candidate of selection.ranking) {
+        const photo = candidateById.get(candidate.photoId);
+        if (photo) rankedPhotos.push({ photoId: photo.id, petId: pet.id, groupId: group.id, timeline: photo.timeline_at, scene: group.scene, activity: group.activity, candidate, confidence: selection.confidence });
+      }
     }
   }
+  timing.end("06_best_shot_preparation", rankedPhotos.length);
+  timing.start("08_photo_ranking_selection", rankedPhotos.length);
   let plan;
-  try { plan=planEditorialAlbum(rankedPhotos,setup.pageCount); }
-  catch (error) { return { error:error instanceof Error ? error.message : "写真選定に失敗しました。" }; }
+  try {
+    plan = planEditorialAlbum(rankedPhotos, setup.pageCount);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "写真選定に失敗しました。" };
+  }
+  timing.end("08_photo_ranking_selection", plan.selected.length);
+  timing.counts({
+    eligiblePhotoCount: rawPhotos.length,
+    selectedSourcePhotoCount: plan.selected.length,
+    existingIntelligenceCount: inputs.existingIntelligenceCount,
+    missingIntelligenceCount: 0,
+    cropAnalysisRequiredCount: 0,
+    layoutPlanningSpreadCount: plan.spreads.length,
+    metadataQueryCount: inputs.metadataQueryCount,
+    legacyTechnicalFallbackCount: inputs.legacyTechnicalFallbackCount,
+    failedAnalysisCount: inputs.failedAnalysisCount,
+  });
   const layoutPhotos: LayoutPhotoInput[] = [];
-  for (let offset=0; offset<plan.selected.length; offset+=4) {
-    const batch=plan.selected.slice(offset,offset+4);
-    const results=await Promise.all(batch.map(photo=>analyzeSmartCropPhoto(photo.petId,photo.photoId,{allowLargeImageDegrade:true})));
-    for (let index=0; index<results.length; index++) {
-      const result=results[index], photo=batch[index];
-      const preview=result.previewUrl ?? result.thumbnailUrl ?? result.imageUrl;
-      if (!result.ok || !result.analysis || !preview) return { error:result.message ?? "写真の配置情報を取得できませんでした。" };
-      layoutPhotos.push({photoId:photo.photoId,analysis:result.analysis,imageUrl:result.imageUrl ?? preview,previewUrl:preview,bestShot:{candidate:photo.candidate,confidence:photo.confidence},captionAvailable:true});
+  timing.start("09_layout_planning", plan.spreads.length);
+  const previews = await createPhotoPreviewUrls(
+    supabase,
+    plan.selected.map((photo) => candidateById.get(photo.photoId)!),
+    true,
+    false,
+    user.id,
+  );
+  for (const photo of plan.selected) {
+    const analysis = inputs.geometry.get(photo.photoId);
+    const preview = previews.get(photo.photoId);
+    if (!analysis || !preview) return { error: "写真の配置情報を取得できませんでした。" };
+    layoutPhotos.push({ photoId: photo.photoId, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: photo.candidate, confidence: photo.confidence }, captionAvailable: true });
+  }
+  const textByStory: Record<string, string> = {};
+  for (const story of plan.spreads)
+    if (story.photoIds.length === 1) {
+      const photo = candidateById.get(story.photoIds[0])!;
+      textByStory[story.id] = editorialPageText(photo.timeline_at, photo.caption);
     }
-  }
-  const textByStory: Record<string,string> = {};
-  for (const story of plan.spreads) if (story.photoIds.length===1) {
-    const photo=candidateById.get(story.photoIds[0])!;
-    textByStory[story.id] = editorialPageText(photo.timeline_at,photo.caption);
-  }
   let editorial;
-  try { editorial=buildEditorialDraft(plan.spreads,layoutPhotos,textByStory); }
-  catch (error) { return { error:error instanceof Error ? error.message : "レイアウト生成に失敗しました。" }; }
-  const persistableSpreads=editorial.spreads.map(toPersistableSpread);
-  const selected=plan.selected.map(photo=>candidateById.get(photo.photoId)!);
-  const coverPhotoId=[...plan.selected].sort((a,b)=>b.candidate.scores.overall-a.candidate.scores.overall)[0].photoId;
+  try {
+    editorial = buildEditorialDraft(plan.spreads, layoutPhotos, textByStory, (event, itemCount) => {
+      if (event === "started") timing.start("11_whole_album_rhythm_audit", itemCount);
+      else timing.end("11_whole_album_rhythm_audit", itemCount);
+    });
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "レイアウト生成に失敗しました。" };
+  }
+  timing.end("09_layout_planning", editorial.spreads.length);
+  timing.measured("10_crop_calculation", editorial.performance.cropStartedAt, editorial.performance.cropDurationMs, editorial.performance.cropItemCount);
+  timing.work({ sourceQueryCount, analysisQueryCount: inputs.metadataQueryCount, cropCalculatedCount: editorial.performance.cropItemCount, cropReusedCount: editorial.performance.cropReusedCount, layoutCandidateCount: editorial.performance.layoutCandidateCount, visionCallCount: 0, originalDownloadCount: 0 });
+  const persistableSpreads = editorial.spreads.map(toPersistableSpread);
+  const selected = plan.selected.map((photo) => candidateById.get(photo.photoId)!);
+  const coverPhotoId = [...plan.selected].sort((a, b) => b.candidate.scores.overall - a.candidate.scores.overall)[0].photoId;
 
   // Generate title
   const label = setup.label;
   const petNames = selectedPets.map((item) => item.name);
   const displayPetName = petNames.join("・");
-  let title = generateFallbackTitle(displayPetName, periodFrom, periodTo);
-
-  if (process.env.OPENAI_API_KEY) {
-    try {
-      const topActivities = [...new Set(selected.map((p) => p.activity).filter(Boolean))].slice(0, 3) as string[];
-      const topScenes = [...new Set(selected.map((p) => p.scene).filter(Boolean))].slice(0, 3) as string[];
-      const topTags = [...new Set(selected.flatMap((p) => p.tags ?? []))].slice(0, 5);
-
-      const openai = new OpenAI();
-      const resp = await Promise.race([
-        openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          store: false,
-          messages: [
-            {
-              role: "system",
-              content: "ペットのフォトアルバムの短いタイトルを日本語で1つだけ出力してください。感情的で温かみのある表現を使い、30文字以内にしてください。タイトルのみ出力し、説明や記号は不要です。",
-            },
-            {
-              role: "user",
-              content: `ペット名: ${petNames.join("・")}, 期間: ${label}, 活動: ${topActivities.join("・")}, 場所: ${topScenes.join("・")}, タグ: ${topTags.join("・")}`,
-            },
-          ],
-          max_tokens: 40,
-          temperature: 0.7,
-        }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000)),
-      ]);
-      const candidate = resp.choices[0]?.message?.content?.trim();
-      if (candidate && candidate.length > 0 && candidate.length <= 50) {
-        title = candidate;
-      }
-    } catch {
-      // rule-based fallback already set
-    }
-  }
+  const title = generateFallbackTitle(displayPetName, periodFrom, periodTo);
 
   // Insert album
+  if (timing.budgetExceeded()) {
+    timing.finish("failed");
+    return { error: "アルバムの作成に時間がかかっています。しばらくしてから、もう一度お試しください。" };
+  }
+  timing.start("12_album_row_creation", 1);
   const { data: album, error: albumError } = await supabase
     .from("albums")
     .insert({
@@ -194,6 +261,8 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
     .single();
 
   if (albumError || !album) return { error: "アルバムの作成に失敗しました。" };
+  timing.end("12_album_row_creation", 1);
+  timing.start("13_spread_page_persistence", persistableSpreads.length);
 
   const otherPets = selectedPets.filter((item) => item.id !== anchorPet.id);
   if (otherPets.length > 0) {
@@ -228,18 +297,15 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
   }
 
   {
-    const composition = buildAlbumCompositionPlan(
-      editorial.spreads,
-      {
-        title,
-        petName: displayPetName,
-        period: formatAlbumPeriodLabels(periodFrom.toISOString(), periodTo.toISOString()).coverDateLabel,
-        periodStart: periodFrom.toISOString(),
-        periodEnd: periodTo.toISOString(),
-        events: [],
-      },
-    );
-    composition.items = composition.items.filter(item => item.kind === "spread");
+    const composition = buildAlbumCompositionPlan(editorial.spreads, {
+      title,
+      petName: displayPetName,
+      period: formatAlbumPeriodLabels(periodFrom.toISOString(), periodTo.toISOString()).coverDateLabel,
+      periodStart: periodFrom.toISOString(),
+      periodEnd: periodTo.toISOString(),
+      events: [],
+    });
+    composition.items = composition.items.filter((item) => item.kind === "spread");
     const savedDraft = await supabase.rpc("save_album_draft_version", {
       p_album_id: album.id,
       p_payload: buildDraftSavePayload(persistableSpreads, [], composition, {
@@ -256,18 +322,20 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
       return { error: "アルバムの初稿を保存できませんでした。もう一度お試しください。" };
     }
     const { data: savedSpreads, error: savedSpreadsError } = await supabase.from("album_draft_spreads").select("id, story_spread_id").eq("draft_version_id", String(savedDraft.data));
-    if (savedSpreadsError || !savedSpreads || savedSpreads.length !== setup.pageCount/2) {
-      await supabase.from("albums").delete().eq("id",album.id);
-      return {error:"アルバムのページを確認できませんでした。"};
+    if (savedSpreadsError || !savedSpreads || savedSpreads.length !== setup.pageCount / 2) {
+      await supabase.from("albums").delete().eq("id", album.id);
+      return { error: "アルバムのページを確認できませんでした。" };
     }
-    const textRows=savedSpreads.filter(spread=>textByStory[spread.story_spread_id]).map(spread=>({draft_spread_id:spread.id,slot_id:"gutter-note",kind:"caption",ai_text:textByStory[spread.story_spread_id],ai_style_id:"editorial",override_mode:"inherit"}));
+    const textRows = savedSpreads.filter((spread) => textByStory[spread.story_spread_id]).map((spread) => ({ draft_spread_id: spread.id, slot_id: "gutter-note", kind: "caption", ai_text: textByStory[spread.story_spread_id], ai_style_id: "editorial", override_mode: "inherit" }));
     if (textRows.length) {
-      const {error:textError}=await supabase.from("album_draft_text_elements").insert(textRows);
+      const { error: textError } = await supabase.from("album_draft_text_elements").insert(textRows);
       if (textError) {
-        await supabase.from("albums").delete().eq("id",album.id);
-        return {error:"日付・キャプションを保存できませんでした。もう一度お試しください。"};
+        await supabase.from("albums").delete().eq("id", album.id);
+        return { error: "日付・キャプションを保存できませんでした。もう一度お試しください。" };
       }
     }
+    timing.end("13_spread_page_persistence", persistableSpreads.length);
+    timing.start("14_cover_persistence", 1);
     const savedCover = await loadCoverEditor(album.id, {
       aiPhotoId: coverPhotoId,
       aiTitle: title,
@@ -277,8 +345,10 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
       await supabase.from("albums").delete().eq("id", album.id);
       return { error: "アルバムの表紙を準備できませんでした。もう一度お試しください。" };
     }
+    timing.end("14_cover_persistence", 1);
   }
 
+  timing.start("15_metadata_persistence", 1);
   const { data: activeVersion } = await supabase.from("album_draft_versions").select("id").eq("album_id", album.id).eq("is_active", true).maybeSingle();
   await recordAlbumAnalyticsEvent({
     supabase,
@@ -289,6 +359,9 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
     eventKey: activeVersion?.id ?? album.id,
     eventData: { photo_count: selected.length, pet_count: selectedPets.length, spread_count: persistableSpreads.length },
   });
-
+  timing.end("15_metadata_persistence", 1);
+  timing.start("16_redirect_preparation", 1);
+  timing.end("16_redirect_preparation", 1);
+  timing.finish("ready");
   redirect(`/pets/${anchorPet.id}/album/${album.id}?view=preview`);
 }

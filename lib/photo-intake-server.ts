@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { PHOTO_INTELLIGENCE_SEMANTIC } from "./photo-analysis/constants.ts";
+import { PHOTO_INTELLIGENCE_SEMANTIC, SUBJECT_GEOMETRY, SUBJECT_GEOMETRY_VERSION } from "./photo-analysis/constants.ts";
 import { sourceFingerprint } from "./photo-analysis/fingerprint.ts";
 import { PHOTO_INTELLIGENCE_VERSION } from "./photo-intelligence/config.ts";
 
@@ -18,39 +18,37 @@ type IntakePhoto = {
  * through Photo Intelligence yet. Any persisted terminal result counts as an
  * attempt, so provider fallback cannot become an infinite retry loop.
  */
-export async function findPhotoIntelligenceWork(
-  supabase: SupabaseClient,
-  userId: string,
-) {
-  const { data: photos, error } = await supabase
-    .from("photos")
-    .select("id, pet_id, storage_path, updated_at, content_hash, pets!photos_pet_id_fkey!inner(owner_user_id), photo_ai_analyses!inner(status)")
-    .eq("uploader_user_id", userId)
-    .eq("pets.owner_user_id", userId)
-    .eq("photo_ai_analyses.status", "completed")
-    .order("created_at", { ascending: false })
-    .limit(30);
-  if (error) throw new Error("photo_intake_unavailable");
+export async function findPhotoIntelligenceWork(supabase: SupabaseClient, userId: string) {
+  let reusedCount = 0;
+  for (let offset = 0; ; offset += 200) {
+    const { data: photos, error } = await supabase
+      .from("photos")
+      .select("id, pet_id, storage_path, updated_at, content_hash, pets!photos_pet_id_fkey!inner(owner_user_id), photo_ai_analyses!inner(status)")
+      .eq("uploader_user_id", userId)
+      .eq("pets.owner_user_id", userId)
+      .eq("photo_ai_analyses.status", "completed")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(offset, offset + 199);
+    if (error) throw new Error("photo_intake_unavailable");
 
-  const candidates = (photos ?? []) as unknown as IntakePhoto[];
-  if (!candidates.length) return { photo: null, reusedCount: 0 };
-  const { data: results, error: resultError } = await supabase
-    .from("photo_analysis_results")
-    .select("photo_id, analysis_version, source_fingerprint, result_status")
-    .in("photo_id", candidates.map((photo) => photo.id))
-    .eq("analysis_type", PHOTO_INTELLIGENCE_SEMANTIC)
-    .eq("analysis_version", PHOTO_INTELLIGENCE_VERSION);
-  if (resultError) throw new Error("photo_intake_unavailable");
+    const candidates = (photos ?? []) as unknown as IntakePhoto[];
+    if (!candidates.length) return { photo: null, reusedCount };
+    const { data: results, error: resultError } = await supabase
+      .from("photo_analysis_results")
+      .select("photo_id, analysis_type, analysis_version, source_fingerprint, result_status")
+      .in(
+        "photo_id",
+        candidates.map((photo) => photo.id),
+      )
+      .in("analysis_type", [PHOTO_INTELLIGENCE_SEMANTIC, SUBJECT_GEOMETRY]);
+    if (resultError) throw new Error("photo_intake_unavailable");
 
-  const completed = new Set(
-    (results ?? []).map((row) => `${row.photo_id}|${row.analysis_version}|${row.source_fingerprint}`),
-  );
-  const isCompleted = (candidate: IntakePhoto) => completed.has(
-    `${candidate.id}|${PHOTO_INTELLIGENCE_VERSION}|${sourceFingerprint(candidate)}`,
-  );
-  const photo = candidates.find((candidate) => !isCompleted(candidate));
-  return {
-    photo: photo ? { id: photo.id, pet_id: photo.pet_id } : null,
-    reusedCount: candidates.filter(isCompleted).length,
-  };
+    const completed = new Set((results ?? []).map((row) => `${row.photo_id}|${row.analysis_type}|${row.analysis_version}|${row.source_fingerprint}`));
+    const isCompleted = (candidate: IntakePhoto) => completed.has(`${candidate.id}|${PHOTO_INTELLIGENCE_SEMANTIC}|${PHOTO_INTELLIGENCE_VERSION}|${sourceFingerprint(candidate)}`) && completed.has(`${candidate.id}|${SUBJECT_GEOMETRY}|${SUBJECT_GEOMETRY_VERSION}|${sourceFingerprint(candidate)}`);
+    const photo = candidates.find((candidate) => !isCompleted(candidate));
+    reusedCount += candidates.filter(isCompleted).length;
+    if (photo) return { photo: { id: photo.id, pet_id: photo.pet_id }, reusedCount, geometryRequired: !completed.has(`${photo.id}|${SUBJECT_GEOMETRY}|${SUBJECT_GEOMETRY_VERSION}|${sourceFingerprint(photo)}`) };
+    if (candidates.length < 200) return { photo: null, reusedCount };
+  }
 }

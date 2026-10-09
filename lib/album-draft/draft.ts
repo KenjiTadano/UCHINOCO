@@ -1,7 +1,7 @@
 import { EDITORIAL_TEMPLATES } from "../smart-layout/editorial-library.ts";
 import type { StorySpread, StoryType } from "../album-story/types.ts";
 import { ALBUM_LAYOUTS } from "../smart-layout/layouts.ts";
-import { evaluateLayout } from "../smart-layout/assign.ts";
+import { evaluateLayout, type LayoutEvaluationWork } from "../smart-layout/assign.ts";
 import { filterTemplateCandidates, templateMetadata } from "../smart-layout/template-system.ts";
 import { withSmartLayoutV2Score } from "../smart-layout/v2.ts";
 import type { AlbumLayoutDefinition, LayoutMatchResult, LayoutPhotoInput, LayoutPurpose } from "../smart-layout/types.ts";
@@ -55,7 +55,7 @@ function rankedLayout(item: Ranked): LayoutAlternative {
 
 function layoutsForSpread(spread: StorySpread): AlbumLayoutDefinition[] {
   const count = spread.photoIds.length;
-  if (spread.id.startsWith("editorial-")) return EDITORIAL_TEMPLATES.filter(layout => layout.photoCount === count);
+  if (spread.id.startsWith("editorial-")) return EDITORIAL_TEMPLATES.filter((layout) => layout.photoCount === count);
   const base = ALBUM_LAYOUTS.filter((layout) => layout.photoCount === count);
   const hasSecondary = spread.secondaryPhotoIds.length > 0;
   const extras = hasSecondary ? DRAFT_HIERARCHY_LAYOUTS.filter((layout) => layout.photoCount === count) : [];
@@ -315,7 +315,7 @@ function emptyDraft(spread: StorySpread, warnings: string[]): AlbumSpreadDraft {
   };
 }
 
-export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[], context?: LayoutRhythmContext, layoutIds?: string[]): AlbumSpreadDraft {
+export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[], context?: LayoutRhythmContext, layoutIds?: string[], work?: LayoutEvaluationWork): AlbumSpreadDraft {
   let scoped: LayoutPhotoInput[];
   try {
     scoped = photosForSpread(spread, photos);
@@ -324,23 +324,19 @@ export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[]
     return emptyDraft(spread, [message]);
   }
 
-  const layouts = layoutsForSpread(spread).filter(layout => !layoutIds || layoutIds.includes(layout.id));
+  const layouts = layoutsForSpread(spread).filter((layout) => !layoutIds || layoutIds.includes(layout.id));
   if (layouts.length === 0) {
     return emptyDraft(spread, ["NO_LAYOUT_FOR_COUNT"]);
   }
 
   const captionAvailable = scoped.some((photo) => photo.captionAvailable);
   const shortlist = filterTemplateCandidates(layouts, scoped, { captionAvailable, storyType: spread.storyType, maxCandidates: 6, preserveLegacy: true });
-  let evaluated = shortlist.map((layout) => withSmartLayoutV2Score(evaluateLayout(layout, scoped), scoped, { captionAvailable, storyType: spread.storyType }));
+  let evaluated = shortlist.map((layout) => withSmartLayoutV2Score(evaluateLayout(layout, scoped, work), scoped, { captionAvailable, storyType: spread.storyType }));
   if (!evaluated.some((result) => result.tier === "strict" && !result.invalid)) {
     const selected = new Set(shortlist.map((layout) => layout.id));
-    evaluated = evaluated.concat(layouts.filter((layout) => !selected.has(layout.id)).map((layout) => withSmartLayoutV2Score(evaluateLayout(layout, scoped), scoped, { captionAvailable, storyType: spread.storyType })));
+    evaluated = evaluated.concat(layouts.filter((layout) => !selected.has(layout.id)).map((layout) => withSmartLayoutV2Score(evaluateLayout(layout, scoped, work), scoped, { captionAvailable, storyType: spread.storyType })));
   }
-  const ranked = rankSpreadLayouts(
-    evaluated,
-    spread,
-    context,
-  );
+  const ranked = rankSpreadLayouts(evaluated, spread, context);
   const considered = ranked.map((item) => ({
     item,
     assignments: item.result.assignments.length ? buildAssignments(item.result, scoped) : [],
@@ -355,12 +351,7 @@ export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[]
   if (!chosen) return emptyDraft(spread, ["NO_LAYOUT"]);
 
   const alternatives: LayoutAlternative[] = considered
-    .filter((entry) =>
-      entry.item.result.layoutId !== chosen.item.result.layoutId &&
-      entry.item.result.tier !== "unusable" &&
-      !entry.item.result.invalid &&
-      entry.gate.hard.length === 0,
-    )
+    .filter((entry) => entry.item.result.layoutId !== chosen.item.result.layoutId && entry.item.result.tier !== "unusable" && !entry.item.result.invalid && entry.gate.hard.length === 0)
     .slice(0, 3)
     .map((entry) => rankedLayout(entry.item));
 
