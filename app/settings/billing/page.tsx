@@ -4,20 +4,9 @@ import { AIAnalysisRunner } from "@/app/(app)/_components/ai-analysis-runner";
 import { AppShell } from "@/app/(app)/_components/app-shell";
 import { PlusUpgradeCta } from "@/app/(app)/plus/plus-checkout-button";
 import { BillingPortalButton } from "@/app/(app)/settings/billing/billing-portal-button";
+import { getBillingSubscriptionPresentation } from "@/lib/billing-display";
 import { loadUserEntitlements } from "@/lib/entitlements-server";
 import { createClient } from "@/lib/supabase/server";
-
-const STATUS_LABELS: Record<string, string> = {
-  none: "登録なし",
-  trialing: "トライアル中",
-  active: "有効",
-  past_due: "お支払い確認中",
-  canceled: "解約済み",
-  unpaid: "未払い",
-  incomplete: "手続き確認中",
-  incomplete_expired: "手続き期限切れ",
-  paused: "一時停止中",
-};
 
 export default async function BillingPage() {
   const supabase = await createClient();
@@ -33,12 +22,12 @@ export default async function BillingPage() {
     loadUserEntitlements(supabase, user.id),
   ]);
   const isPlus = entitlements.plan === "PLUS";
-  const periodEnd = subscription?.current_period_end
-    ? new Date(subscription.current_period_end)
-    : null;
-  const formattedPeriodEnd = periodEnd && Number.isFinite(periodEnd.getTime())
-    ? new Intl.DateTimeFormat("ja-JP", { dateStyle: "long", timeZone: "Asia/Tokyo" }).format(periodEnd)
-    : null;
+  const presentation = getBillingSubscriptionPresentation({
+    plan: entitlements.plan,
+    status: subscription?.status,
+    cancelAtPeriodEnd: subscription?.cancel_at_period_end,
+    currentPeriodEnd: subscription?.current_period_end,
+  });
 
   return (
     <AppShell analysis={<AIAnalysisRunner key={user.id} />}>
@@ -62,15 +51,20 @@ export default async function BillingPage() {
               <dl className="grid gap-2 border-t pt-3 text-sm">
                 <div className="flex justify-between gap-3">
                   <dt className="text-muted">契約状態</dt>
-                  <dd>{STATUS_LABELS[subscription?.status ?? "none"] ?? "確認中"}</dd>
+                  <dd>{presentation.contractStatus}</dd>
                 </div>
-                {formattedPeriodEnd ? (
+                {presentation.formattedPeriodEnd && presentation.periodEndLabel ? (
                   <div className="flex justify-between gap-3">
-                    <dt className="text-muted">{subscription?.cancel_at_period_end ? "利用終了予定日" : "次回更新日"}</dt>
-                    <dd>{formattedPeriodEnd}</dd>
+                    <dt className="text-muted">{presentation.periodEndLabel}</dt>
+                    <dd>{presentation.formattedPeriodEnd}</dd>
                   </div>
                 ) : null}
               </dl>
+              {presentation.cancellationNotice ? (
+                <p className="rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-sm leading-6 text-warning" role="status" aria-live="polite">
+                  {presentation.cancellationNotice}
+                </p>
+              ) : null}
               {subscription?.stripe_customer_id ? (
                 <BillingPortalButton />
               ) : (
