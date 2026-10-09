@@ -194,7 +194,10 @@ export function assessPrintQuality(snapshot: AlbumPrintSnapshot, images: Record<
     for (const text of spread.texts) {
       styles.add(text.styleId);
       const slot = slotCss(text.rect);
-      if (textOverflows(text.text, slot.width, slot.height, cssFontPx(text.styleId))) {
+      const overflows = spread.layoutId.startsWith("E_")
+        ? printTextOverflows(text.text, slot.width, slot.height, cssFontPx(text.styleId))
+        : textOverflows(text.text, slot.width, slot.height, cssFontPx(text.styleId));
+      if (overflows) {
         issues.push({ code: "TEXT_OVERFLOW", severity: "blocking", message: "文字が枠を超えています。", spreadId: spread.id });
       }
       if (outside(text.rect)) {

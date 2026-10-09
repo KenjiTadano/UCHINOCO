@@ -9,9 +9,11 @@ import type { PersistedDraftView, PersistedSpreadView } from "@/lib/album-persis
 import type { AlbumCompositionItem } from "@/lib/album-draft/composition";
 import { BookSpread } from "../_components/book-spread";
 import { DraftSpreadView } from "../_components/draft-spread-view";
+import { AlbumCoverBook } from "../_components/album-cover-book";
+import type { CoverEditorModel } from "@/lib/album-persistence/cover";
 import { AlbumCompositionPage } from "../_components/album-composition-page";
 
-type PreviewSequenceItem = { kind: "title"; item: Extract<AlbumCompositionItem, { kind: "title" }> } | { kind: "event"; item: Extract<AlbumCompositionItem, { kind: "event" }> } | { kind: "draft-spread"; item: PersistedSpreadView; role: string; density: string } | { kind: "legacy-spread"; item: PreviewSpread };
+type PreviewSequenceItem = {kind:"front-cover" | "back-cover"} | { kind: "title"; item: Extract<AlbumCompositionItem, { kind: "title" }> } | { kind: "event"; item: Extract<AlbumCompositionItem, { kind: "event" }> } | { kind: "draft-spread"; item: PersistedSpreadView; role: string; density: string } | { kind: "legacy-spread"; item: PreviewSpread };
 
 function previewSequence(draft: PersistedDraftView | null, spreads: PreviewSpread[]): PreviewSequenceItem[] {
   if (!draft) return spreads.map((item) => ({ kind: "legacy-spread", item }));
@@ -32,6 +34,7 @@ function previewSequence(draft: PersistedDraftView | null, spreads: PreviewSprea
 export type AlbumPreviewScreenProps = {
   spreads: PreviewSpread[];
   draft?: PersistedDraftView | null;
+  cover?: CoverEditorModel | null;
   backHref: string;
   editHref: string;
   orderHref: string;
@@ -68,14 +71,16 @@ function ThumbPreview({ spread }: { spread: PreviewSpread }) {
   );
 }
 
-export function AlbumPreviewScreen({ spreads, draft = null, backHref, editHref, orderHref, printHref }: AlbumPreviewScreenProps) {
+export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHref, editHref, orderHref, printHref }: AlbumPreviewScreenProps) {
   const [index, setIndex] = useState(0);
   const savedDraft = draft;
-  const sequence = previewSequence(savedDraft, spreads);
+  const body = previewSequence(savedDraft, spreads);
+  const hasBackCover = Boolean(cover && savedDraft?.spreads.some(spread => spread.effectiveLayoutId.startsWith("E_")));
+  const sequence: PreviewSequenceItem[] = cover ? [{kind:"front-cover"},...body,...(hasBackCover ? [{kind:"back-cover" as const}] : [])] : body;
   const currentItem = sequence[index] ?? null;
-  const totalPages = sequence.reduce((sum, item) => sum + (item.kind === "draft-spread" || item.kind === "legacy-spread" ? 2 : 1), 0);
+  const totalPages = body.reduce((sum, item) => sum + (item.kind === "draft-spread" || item.kind === "legacy-spread" ? 2 : 1), 0);
   const pageOffset = sequence.slice(0, index).reduce((sum, item) => sum + (item.kind === "draft-spread" || item.kind === "legacy-spread" ? 2 : 1), 0);
-  const pageLabel = `${Math.min(pageOffset + 1, Math.max(totalPages, 1))} / ${Math.max(totalPages, 1)}`;
+  const pageLabel = currentItem?.kind === "front-cover" ? "表紙" : currentItem?.kind === "back-cover" ? "裏表紙" : `本文 ${Math.max(1,pageOffset-(cover?1:0)+1)} / ${Math.max(1,totalPages)}`;
   const thumbsCentered = sequence.length <= 3;
   const draftSpread = currentItem?.kind === "draft-spread" ? currentItem.item : null;
   const editorSpread = draftSpread && savedDraft ? toAlbumEditorSpread(draftSpread, savedDraft.previewUrls) : null;
@@ -98,7 +103,16 @@ export function AlbumPreviewScreen({ spreads, draft = null, backHref, editHref, 
       </header>
 
       <div className="album-preview-body">
-        {currentItem?.kind === "title" || currentItem?.kind === "event" ? (
+        {currentItem?.kind === "front-cover" || currentItem?.kind === "back-cover" ? (
+          <>
+            <p className="album-preview-page-num" aria-live="polite">{pageLabel}</p>
+            <div className="album-preview-stage album-preview-stage--single" data-page-kind={currentItem.kind}>
+              <button type="button" className="album-preview-arrow album-preview-arrow-left ds-focus" aria-label="前のページ" onClick={()=>go(index-1)}><ChevronLeft size={20} /></button>
+              {currentItem.kind === "front-cover" && cover ? <AlbumCoverBook coverSrc={cover.previewUrl} dateLabel={cover.subtitle} titlePrefix="" titleMain={cover.title} label="表紙" templateId={cover.templateId} colorId={cover.colorId} /> : <div className="album-editorial-back-cover" aria-label="裏表紙"><p>UCHINOCO</p><p>うちの子との、大切な日々。</p></div>}
+              <button type="button" className="album-preview-arrow album-preview-arrow-right ds-focus" aria-label="次のページ" onClick={()=>go(index+1)}><ChevronRight size={20} /></button>
+            </div>
+          </>
+        ) : currentItem?.kind === "title" || currentItem?.kind === "event" ? (
           <>
             <p className="album-preview-page-num" aria-live="polite">
               {pageLabel}
@@ -132,7 +146,8 @@ export function AlbumPreviewScreen({ spreads, draft = null, backHref, editHref, 
             </div>
 
             <div className={`album-preview-thumbs${thumbsCentered ? " is-centered" : ""}`} role="tablist" aria-label="見開き一覧">
-              {sequence.slice(0, 6).map((item, itemIndex) => {
+              {sequence.map((item, itemIndex) => {
+                if (item.kind === "front-cover" || item.kind === "back-cover") return <button key={item.kind} type="button" role="tab" aria-selected={itemIndex===index} className={`album-preview-thumb album-preview-thumb--text${itemIndex===index?" is-selected":""}`} onClick={()=>setIndex(itemIndex)}>{item.kind==="front-cover"?"表紙":"裏表紙"}</button>;
                 if (item.kind === "title" || item.kind === "event") {
                   return (
                     <button key={`${item.kind}-${itemIndex}`} type="button" role="tab" aria-selected={itemIndex === index} className={`album-preview-thumb album-preview-thumb--text${itemIndex === index ? " is-selected" : ""}`} onClick={() => setIndex(itemIndex)}>
@@ -188,15 +203,22 @@ export function AlbumPreviewScreen({ spreads, draft = null, backHref, editHref, 
           <p className="album-preview-empty">プレビューできる写真がありません。</p>
         )}
 
+        {cover && currentItem?.kind === "front-cover" ? <Link href={editHref.replace(/\/pages\/edit$/, "/cover/edit")} className="album-preview-secondary ds-focus">表紙を編集する</Link> : null}
+        <div className="album-preview-section-nav" aria-label="アルバムの表示箇所">
+          {cover ? <button type="button" className="app-button-secondary" onClick={()=>setIndex(0)}>表紙</button> : null}
+          <button type="button" className="app-button-secondary" onClick={()=>setIndex(cover?1:0)}>本文</button>
+          {hasBackCover ? <button type="button" className="app-button-secondary" onClick={()=>setIndex(sequence.length-1)}>裏表紙</button> : null}
+        </div>
+        {draft ? <Link href={printHref} className="album-preview-secondary ds-focus">印刷を確認する</Link> : null}
         <div className="album-preview-actions">
-          <Link href={draft ? printHref : orderHref} className="album-preview-primary ds-focus">
+          <Link href={draft ? backHref : orderHref} className="album-preview-primary ds-focus">
             <BookOpen size={18} strokeWidth={1.9} aria-hidden="true" />
-            {draft ? "印刷を確認する" : "このアルバムで注文する"}
+            {draft ? "このアルバムで進む" : "このアルバムで注文する"}
             <ArrowRight size={18} strokeWidth={2} aria-hidden="true" />
           </Link>
           <Link href={editHref} className="album-preview-secondary ds-focus">
             <SquarePen size={16} strokeWidth={1.9} aria-hidden="true" />
-            編集を続ける
+            少し編集する
           </Link>
         </div>
       </div>

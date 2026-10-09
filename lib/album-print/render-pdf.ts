@@ -394,6 +394,17 @@ export async function renderDraftPrintPdf(snapshot: AlbumPrintSnapshot, images: 
       page.setBleedBox(0, 0, pageWidth, pageHeight);
     }
   }
+  if (snapshot.spreads.some(spread => spread.layoutId.startsWith("E_"))) {
+    const back = doc.addPage([pageWidth,pageHeight]);
+    back.drawRectangle({x:0,y:0,width:pageWidth,height:pageHeight,color:PAPER});
+    const font = embedded.get("handwritten");
+    if (font) {
+      drawLines(back,"UCHINOCO",font,mmToPoints(4),{x:bleed,y:bleed+mmToPoints(25),width:trimWidth,height:mmToPoints(10)},"center");
+      drawLines(back,"うちの子との、大切な日々。",font,mmToPoints(3),{x:bleed,y:bleed+mmToPoints(15),width:trimWidth,height:mmToPoints(10)},"center");
+    }
+    back.setTrimBox(bleed,bleed,trimWidth,trimHeight);
+    back.setBleedBox(0,0,pageWidth,pageHeight);
+  }
   const bytes = await doc.save();
   return { bytes, contentHash: renderContentHash(snapshot, images), pageCount: doc.getPageCount() };
 }

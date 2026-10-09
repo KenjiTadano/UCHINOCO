@@ -3,7 +3,11 @@
 import OpenAI from "openai";
 import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildPetAlbumDraft } from "@/app/(app)/dev/album-draft/actions";
+import { selectPetBestShots } from "@/app/(app)/dev/best-shot/actions";
+import { analyzeSmartCropPhoto } from "@/app/(app)/dev/smart-crop/actions";
+import { parseAlbumSetup } from "@/lib/album-setup";
+import { planEditorialAlbum, buildEditorialDraft, editorialPageText, EDITORIAL_VERSION, type EditorialPhoto } from "@/lib/album-draft/editorial";
+import type { LayoutPhotoInput } from "@/lib/smart-layout/types";
 import { createClient } from "@/lib/supabase/server";
 import { buildDraftSavePayload, toPersistableSpread } from "@/lib/album-persistence/payload";
 import { scopeAlbumPhotos, generateFallbackTitle, type AlbumCandidate } from "@/lib/album-selection";
@@ -19,32 +23,9 @@ export type CreateAlbumState = {
   error: string | null;
 };
 
-const PERIOD_OPTIONS = ["3months", "6months", "1year", "all"] as const;
-type Period = (typeof PERIOD_OPTIONS)[number];
-
-function computePeriod(period: Period): { from: Date; to: Date } {
-  const to = new Date();
-  const from = new Date(to);
-  if (period === "3months") from.setMonth(from.getMonth() - 3);
-  else if (period === "6months") from.setMonth(from.getMonth() - 6);
-  else if (period === "1year") from.setFullYear(from.getFullYear() - 1);
-  else from.setFullYear(2000); // "all" — far past
-  return { from, to };
-}
-
-function periodLabel(period: Period, from: Date): string {
-  if (period === "3months") return "最近3か月";
-  if (period === "6months") return "最近半年";
-  if (period === "1year") return "最近1年";
-  const y = from.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric" });
-  return `${y}〜`;
-}
-
 export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, formData: FormData): Promise<CreateAlbumState> {
   if (!UUID_PATTERN.test(petId)) return { error: "無効なリクエストです。" };
 
-  const rawPeriod = formData.get("period");
-  const period: Period = PERIOD_OPTIONS.includes(rawPeriod as Period) ? (rawPeriod as Period) : "3months";
 
   const supabase = await createClient();
   const {
@@ -55,15 +36,14 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
 
   const { data: pets, error: petsError } = await supabase.from("pets").select("id, name, birthday, adoption_date").eq("owner_user_id", user.id).order("created_at", { ascending: true });
   if (petsError || !pets) return { error: "ペット情報を取得できませんでした。" };
-  const routePet = pets.find((item) => item.id === petId);
-  if (!routePet) return { error: "ペット情報を取得できませんでした。" };
+  if (!pets.some((item) => item.id === petId)) return { error: "ペット情報を取得できませんでした。" };
 
-  const selection = String(formData.get("petSelection") ?? petId);
-  const selectedPets = selection === "all" ? pets : pets.filter((item) => item.id === selection);
-  if (selectedPets.length === 0) return { error: "アルバムに含めるペットを選択してください。" };
-  const anchorPet = selection === "all" ? routePet : selectedPets[0];
-
-  const { from: periodFrom, to: periodTo } = computePeriod(period);
+  let setup;
+  try { setup = parseAlbumSetup(formData, pets.map(pet => pet.id)); }
+  catch (error) { return { error: error instanceof Error ? error.message : "作成条件を確認してください。" }; }
+  const selectedPets = pets.filter(pet => setup.petIds.includes(pet.id));
+  const anchorPet = selectedPets.find(pet => pet.id === petId) ?? selectedPets[0];
+  const { from: periodFrom, to: periodTo } = setup;
 
   const photoResults = await Promise.all(
     selectedPets.map(async (selectedPet) => {
@@ -74,13 +54,14 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
           .from("photos")
           .select("id, pet_id, storage_path, thumbnail_path, taken_at, created_at, timeline_at, favorite, caption")
           .eq("pet_id", selectedPet.id)
+          .eq("uploader_user_id", user.id)
           .gte("timeline_at", periodFrom.toISOString())
           .lte("timeline_at", periodTo.toISOString())
           .order("timeline_at", { ascending: false })
           .range(offset, offset + pageSize - 1);
         if (result.error) return { error: result.error, data: null };
         petPhotos.push(...(result.data ?? []));
-        if (selectedPets.length === 1 || (result.data?.length ?? 0) < pageSize) {
+        if ((result.data?.length ?? 0) < pageSize) {
           return { error: null, data: petPhotos };
         }
       }
@@ -95,15 +76,12 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
     return { error: "この期間に写真がありません。別の期間を選んでください。" };
   }
 
-  const analysesResult = await supabase
-    .from("photo_ai_analyses")
-    .select("photo_id, activity, scene, emotion, tags")
-    .in(
-      "photo_id",
-      rawPhotos.map((photo) => photo.id),
-    )
-    .eq("status", "completed");
-  const analysisMap = new Map((analysesResult.data ?? []).map((analysis) => [analysis.photo_id, analysis]));
+  const analysisMap = new Map<string, { activity: string | null; scene: string | null; emotion: string | null; tags: string[] | null }>();
+  for (let offset=0; offset<rawPhotos.length; offset+=200) {
+    const result = await supabase.from("photo_ai_analyses").select("photo_id, activity, scene, emotion, tags").in("photo_id", rawPhotos.slice(offset,offset+200).map(photo=>photo.id)).eq("status","completed");
+    if (result.error) return { error: "写真の解析情報を取得できませんでした。" };
+    for (const row of result.data ?? []) analysisMap.set(row.photo_id,row);
+  }
 
   const candidates: AlbumCandidate[] = rawPhotos.map((photo) => {
     const ai = analysisMap.get(photo.id);
@@ -123,41 +101,47 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
     periodFrom,
     periodTo,
   );
-  const petsWithPhotos = new Set(scopedCandidates.map((photo) => photo.pet_id));
-  const draftRuns = await Promise.all(
-    selectedPets
-      .filter((selectedPet) => petsWithPhotos.has(selectedPet.id))
-      .map((selectedPet) =>
-        buildPetAlbumDraft(
-          selectedPet.id,
-          {
-            type: "custom",
-            start: periodFrom.toISOString(),
-            end: periodTo.toISOString(),
-          },
-          { dateRange: { start: periodFrom.toISOString(), end: periodTo.toISOString() } },
-        ),
-      ),
-  );
-  const failedDraft = draftRuns.find((run) => !run.ok || !run.draft);
-  if (failedDraft) {
-    return { error: failedDraft.message ?? "アルバムのレイアウト生成に失敗しました。" };
+  const candidateById = new Map(scopedCandidates.map(photo=>[photo.id,photo]));
+  const rankedPhotos: EditorialPhoto[] = [];
+  for (const pet of selectedPets) {
+    if (!scopedCandidates.some(photo=>photo.pet_id===pet.id)) continue;
+    const run = await selectPetBestShots(pet.id, { dateRange: { start: periodFrom.toISOString(), end: periodTo.toISOString() }, allowedPhotoIds: scopedCandidates.filter(photo=>photo.pet_id===pet.id).map(photo=>photo.id), allowLargeImageDegrade: true });
+    if (!run.ok) return { error: run.message ?? "写真選定に失敗しました。" };
+    for (const {group,selection} of run.groups) for (const candidate of selection.ranking) {
+      const photo=candidateById.get(candidate.photoId);
+      if (photo) rankedPhotos.push({ photoId:photo.id, petId:pet.id, groupId:group.id, timeline:photo.timeline_at, scene:group.scene, activity:group.activity, candidate, confidence:selection.confidence });
+    }
   }
-  const persistableSpreads = draftRuns.flatMap((run) => run.spreads.map(toPersistableSpread));
-  const layoutPhotoIds = [...new Set(persistableSpreads.flatMap((spread) => spread.assignments.map((assignment) => assignment.photoId)))];
-  const candidateById = new Map(scopedCandidates.map((photo) => [photo.id, photo]));
-  const selected = layoutPhotoIds.map((photoId) => candidateById.get(photoId)).filter((photo): photo is AlbumCandidate => Boolean(photo));
-  if (selectedPets.length > 1) selected.sort((left, right) => left.timeline_at.localeCompare(right.timeline_at));
-
-  if (selected.length === 0) {
-    return { error: "アルバムに追加できる写真が見つかりませんでした。" };
+  let plan;
+  try { plan=planEditorialAlbum(rankedPhotos,setup.pageCount); }
+  catch (error) { return { error:error instanceof Error ? error.message : "写真選定に失敗しました。" }; }
+  const layoutPhotos: LayoutPhotoInput[] = [];
+  for (let offset=0; offset<plan.selected.length; offset+=4) {
+    const batch=plan.selected.slice(offset,offset+4);
+    const results=await Promise.all(batch.map(photo=>analyzeSmartCropPhoto(photo.petId,photo.photoId,{allowLargeImageDegrade:true})));
+    for (let index=0; index<results.length; index++) {
+      const result=results[index], photo=batch[index];
+      const preview=result.previewUrl ?? result.thumbnailUrl ?? result.imageUrl;
+      if (!result.ok || !result.analysis || !preview) return { error:result.message ?? "写真の配置情報を取得できませんでした。" };
+      layoutPhotos.push({photoId:photo.photoId,analysis:result.analysis,imageUrl:result.imageUrl ?? preview,previewUrl:preview,bestShot:{candidate:photo.candidate,confidence:photo.confidence},captionAvailable:true});
+    }
   }
-  const coverPhotoId = persistableSpreads.flatMap((spread) => spread.assignments).find((assignment) => assignment.role === "hero")?.photoId ?? selected[0].id;
+  const textByStory: Record<string,string> = {};
+  for (const story of plan.spreads) if (story.photoIds.length===1) {
+    const photo=candidateById.get(story.photoIds[0])!;
+    textByStory[story.id] = editorialPageText(photo.timeline_at,photo.caption);
+  }
+  let editorial;
+  try { editorial=buildEditorialDraft(plan.spreads,layoutPhotos,textByStory); }
+  catch (error) { return { error:error instanceof Error ? error.message : "レイアウト生成に失敗しました。" }; }
+  const persistableSpreads=editorial.spreads.map(toPersistableSpread);
+  const selected=plan.selected.map(photo=>candidateById.get(photo.photoId)!);
+  const coverPhotoId=[...plan.selected].sort((a,b)=>b.candidate.scores.overall-a.candidate.scores.overall)[0].photoId;
 
   // Generate title
-  const label = periodLabel(period, periodFrom);
+  const label = setup.label;
   const petNames = selectedPets.map((item) => item.name);
-  const displayPetName = selectedPets.length > 1 ? "すべてのペット" : petNames[0];
+  const displayPetName = petNames.join("・");
   let title = generateFallbackTitle(displayPetName, periodFrom, periodTo);
 
   if (process.env.OPENAI_API_KEY) {
@@ -243,28 +227,46 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
     return { error: "アルバムの表紙を登録できませんでした。もう一度お試しください。" };
   }
 
-  if (selectedPets.length === 1) {
-    const selectedPet = selectedPets[0];
+  {
     const composition = buildAlbumCompositionPlan(
-      draftRuns.flatMap((run) => run.spreads),
+      editorial.spreads,
       {
         title,
-        petName: selectedPet.name,
+        petName: displayPetName,
         period: formatAlbumPeriodLabels(periodFrom.toISOString(), periodTo.toISOString()).coverDateLabel,
         periodStart: periodFrom.toISOString(),
         periodEnd: periodTo.toISOString(),
-        events: [...(selectedPet.birthday ? [{ kind: "birthday" as const, date: selectedPet.birthday.slice(0, 10) }] : []), ...(selectedPet.adoption_date ? [{ kind: "adoption" as const, date: selectedPet.adoption_date.slice(0, 10) }] : [])],
+        events: [],
       },
     );
+    composition.items = composition.items.filter(item => item.kind === "spread");
     const savedDraft = await supabase.rpc("save_album_draft_version", {
       p_album_id: album.id,
       p_payload: buildDraftSavePayload(persistableSpreads, [], composition, {
+        editorial_version: EDITORIAL_VERSION,
+        requested_body_pages: setup.pageCount,
+        selected_pet_ids: setup.petIds,
+        rhythm_audit: editorial.audit,
+        rhythm_audit_before: editorial.beforeAudit,
         generation_photo_ids: scopedCandidates.map((photo) => photo.id).sort(),
       }) as unknown as Json,
     });
     if (savedDraft.error) {
       await supabase.from("albums").delete().eq("id", album.id);
       return { error: "アルバムの初稿を保存できませんでした。もう一度お試しください。" };
+    }
+    const { data: savedSpreads, error: savedSpreadsError } = await supabase.from("album_draft_spreads").select("id, story_spread_id").eq("draft_version_id", String(savedDraft.data));
+    if (savedSpreadsError || !savedSpreads || savedSpreads.length !== setup.pageCount/2) {
+      await supabase.from("albums").delete().eq("id",album.id);
+      return {error:"アルバムのページを確認できませんでした。"};
+    }
+    const textRows=savedSpreads.filter(spread=>textByStory[spread.story_spread_id]).map(spread=>({draft_spread_id:spread.id,slot_id:"gutter-note",kind:"caption",ai_text:textByStory[spread.story_spread_id],ai_style_id:"editorial",override_mode:"inherit"}));
+    if (textRows.length) {
+      const {error:textError}=await supabase.from("album_draft_text_elements").insert(textRows);
+      if (textError) {
+        await supabase.from("albums").delete().eq("id",album.id);
+        return {error:"日付・キャプションを保存できませんでした。もう一度お試しください。"};
+      }
     }
     const savedCover = await loadCoverEditor(album.id, {
       aiPhotoId: coverPhotoId,
@@ -288,5 +290,5 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
     eventData: { photo_count: selected.length, pet_count: selectedPets.length, spread_count: persistableSpreads.length },
   });
 
-  redirect(`/pets/${anchorPet.id}/album/${album.id}?view=complete`);
+  redirect(`/pets/${anchorPet.id}/album/${album.id}?view=preview`);
 }

@@ -145,7 +145,7 @@ export async function readDraft(supabase: Supabase, albumId: string, options?: {
     ),
   );
   const metadata = (version.generation_metadata ?? {}) as { signature?: string; composition?: unknown };
-  const layoutRankings = parseLayoutRankings((version.generation_metadata ?? {}) as Record<string, unknown>);
+  const layoutRankings = parseLayoutRankings(((version.generation_metadata ?? {}) as Record<string, unknown>).layoutRankings);
   return {
     albumId,
     versionId: version.id,

@@ -1,3 +1,4 @@
+import { mapDraftCoverRow, toCoverEditor } from "@/lib/album-persistence/cover";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -11,7 +12,7 @@ import { AlbumDeleteControl } from "./album-delete-control";
 import { AlbumCompleteScreen } from "./album-complete-screen";
 import { AlbumPreviewScreen } from "./album-preview-screen";
 import { buildAlbumPreviewSpreads } from "@/lib/album-preview-spreads";
-import { readDraft } from "@/lib/album-persistence/read-draft";
+import { readDraft, signedPreviewUrls } from "@/lib/album-persistence/read-draft";
 import { traceAlbumLoad } from "@/lib/album-load-trace";
 import { formatAlbumPeriodLabels } from "@/lib/album-cover-title";
 import { recordAlbumAnalyticsEvent } from "@/lib/album-analytics-server";
@@ -140,7 +141,11 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
     if (savedDraft) {
       await recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: savedDraft.versionId, eventType: "album_viewed", eventKey: `preview:${savedDraft.versionId}` });
       const base = `/pets/${petId}/album/${albumId}`;
-      return <AlbumPreviewScreen draft={savedDraft} spreads={[]} backHref={`${base}?view=complete`} editHref={`${base}/pages/edit`} orderHref={`${base}/product`} printHref={`${base}/print`} />;
+      const {data: coverRow} = await supabase.from("album_draft_covers").select("*").eq("draft_version_id",savedDraft.versionId).maybeSingle();
+      const coverSource = coverRow ? mapDraftCoverRow(coverRow as unknown as Record<string,unknown>) : null;
+      const coverUrls = coverSource ? await signedPreviewUrls(supabase,[coverSource.aiPhotoId,coverSource.userPhotoId].filter((id): id is string => Boolean(id))) : new Map<string,string>();
+      const cover = coverSource ? toCoverEditor(coverSource,Object.fromEntries(coverUrls)) : null;
+      return <AlbumPreviewScreen cover={cover} draft={savedDraft} spreads={[]} backHref={`${base}?view=complete`} editHref={`${base}/pages/edit`} orderHref={`${base}/product`} printHref={`${base}/print`} />;
     }
 
     const analysesResult = await supabase

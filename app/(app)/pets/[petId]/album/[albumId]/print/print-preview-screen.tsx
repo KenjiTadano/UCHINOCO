@@ -92,7 +92,7 @@ export function PrintPreviewScreen({ petId, albumId, petName, dateLabel, cover, 
             <AlbumCoverBook shell="monthly" size="edit" coverSrc={cover?.previewUrl || null} dateLabel={dateLabel} titlePrefix={cover?.subtitle ?? ""} titleMain={cover?.title || "タイトル"} label={`${petName}の表紙`} templateId={cover?.templateId ?? "simple"} colorId={cover?.colorId ?? "white"} showBrand imagePath={cover?.photoId ?? ""} />
           </section>
           {(() => {
-            let pageNumber = 2;
+            let pageNumber = 1;
             return sequence.map((item, index) => {
               if (item.kind === "title" || item.kind === "event") {
                 pageNumber += 1;
@@ -112,6 +112,7 @@ export function PrintPreviewScreen({ petId, albumId, petName, dateLabel, cover, 
               );
             });
           })()}
+          {view.spreads.some(spread=>spread.effectiveLayoutId.startsWith("E_")) ? <section className="print-preview-cover"><h2>裏表紙</h2><div className="album-editorial-back-cover" aria-label="裏表紙"><p>UCHINOCO</p><p>うちの子との、大切な日々。</p></div></section> : null}
           <section className="print-preview-order" data-testid="print-preview-summary">
             <p>見開き {spreadCount}</p>
             <p>ページ {pageCount}</p>

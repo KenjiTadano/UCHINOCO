@@ -3,6 +3,7 @@ import type { SpreadLayoutRanking } from "../album-draft/types.ts";
 import type { PageBackgroundState, PageElement, PageSide } from "../album-elements/model.ts";
 import { DRAFT_HIERARCHY_LAYOUTS } from "../album-draft/layouts.ts";
 import { sanitizeCropTransform } from "../smart-crop/transform.ts";
+import { EDITORIAL_TEMPLATES } from "../smart-layout/editorial-library.ts";
 import { ALBUM_LAYOUTS } from "../smart-layout/layouts.ts";
 import { templateMetadata } from "../smart-layout/template-system.ts";
 import { findDraftLayout, toPreviewSpread } from "./preview.ts";
@@ -81,7 +82,7 @@ export function saveStatusLabel(state: "saving" | "saved" | "error") {
 /** Catalog layouts that keep the same frame count. The current layout stays selectable. */
 export function layoutChoices(frameCount: number, currentLayoutId: string, ranking?: SpreadLayoutRanking | null): EditorLayoutChoice[] {
   const byId = new Map<string, (typeof ALBUM_LAYOUTS)[number]>();
-  for (const layout of [...ALBUM_LAYOUTS, ...DRAFT_HIERARCHY_LAYOUTS]) {
+  for (const layout of (currentLayoutId.startsWith("E_") ? EDITORIAL_TEMPLATES : [...ALBUM_LAYOUTS, ...DRAFT_HIERARCHY_LAYOUTS])) {
     if (layout.photoCount === frameCount) byId.set(layout.id, layout);
   }
   const current = findDraftLayout(currentLayoutId);

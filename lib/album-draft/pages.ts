@@ -125,6 +125,14 @@ function packSide(side: "left" | "right", frames: AlbumFrameDefinition[], maxAre
  * Frames stay inside one page so the spine does not cut a face.
  */
 export function placeFrames(frames: AlbumFrameDefinition[], focalXByFrameId: Map<string, number>): FramePlacement[] {
+  if (frames.every(frame => frame.preserveEditorialGeometry)) {
+    return frames.map(frame => {
+      const side = frame.rect.x < .5 ? "left" : "right";
+      const box = contentBox(side);
+      const origin = side === "left" ? 0 : .52;
+      return toPlacement(side, { x: box.x + (frame.rect.x - origin) / .48 * box.w, y: box.y + frame.rect.y * box.h, w: frame.rect.w / .48 * box.w, h: frame.rect.h * box.h });
+    });
+  }
   if (frames.length === 1) {
     const frame = frames[0];
     const focal = focalXByFrameId.get(frame.id) ?? 0.5;

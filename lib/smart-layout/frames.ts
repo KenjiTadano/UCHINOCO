@@ -1,5 +1,6 @@
 import { getSmartCropFrame, SMART_CROP_FRAMES } from "../smart-crop/frames.ts";
 import type { SmartCropFrame } from "../smart-crop/types.ts";
+import { contentBox } from "../album-draft/pages.ts";
 import type { AlbumFrameDefinition, CropShapeId } from "./types.ts";
 
 export function resolveCropFrame(shapeId: CropShapeId): SmartCropFrame {
@@ -7,6 +8,13 @@ export function resolveCropFrame(shapeId: CropShapeId): SmartCropFrame {
   if (found) return found;
   // Fallback to square if unknown
   return SMART_CROP_FRAMES.find((f) => f.id === "square") ?? SMART_CROP_FRAMES[0];
+}
+
+export function resolveLayoutCropFrame(frame: AlbumFrameDefinition): SmartCropFrame {
+  const base = resolveCropFrame(frame.cropShapeId);
+  if (!frame.preserveEditorialGeometry) return base;
+  const box = contentBox(frame.rect.x < .5 ? "left" : "right");
+  return { ...base, aspectRatio: (frame.rect.w / .48 * box.w) / (frame.rect.h * box.h) };
 }
 
 export function frameLabel(frame: AlbumFrameDefinition): string {

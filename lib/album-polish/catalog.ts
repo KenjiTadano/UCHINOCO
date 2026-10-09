@@ -1,6 +1,8 @@
+import { contentBox } from "../album-draft/pages.ts";
 import { bookPrintMetrics } from "../album-draft/pages.ts";
 import { DECORATION_PER_SPREAD, TEXT_LENGTH_LIMIT } from "../album-persistence/config.ts";
 import { DRAFT_HIERARCHY_LAYOUTS } from "../album-draft/layouts.ts";
+import { EDITORIAL_TEMPLATES } from "../smart-layout/editorial-library.ts";
 import { ALBUM_LAYOUTS } from "../smart-layout/layouts.ts";
 import type {
   AlbumLayoutDefinition,
@@ -23,7 +25,7 @@ import type {
   TextStyleId,
 } from "./types.ts";
 
-const LAYOUTS: AlbumLayoutDefinition[] = [...ALBUM_LAYOUTS, ...DRAFT_HIERARCHY_LAYOUTS];
+const LAYOUTS: AlbumLayoutDefinition[] = [...ALBUM_LAYOUTS, ...DRAFT_HIERARCHY_LAYOUTS, ...EDITORIAL_TEMPLATES];
 
 const GUTTER: LayoutPolishRect = { x: 0.47, y: 0, w: 0.06, h: 1 };
 
@@ -141,6 +143,12 @@ export function findPolishLayout(layoutId: string) {
 export function polishForLayout(layoutId: string): { text: LayoutTextSlot[]; decoration: LayoutDecorationSlot[] } {
   const layout = findPolishLayout(layoutId);
   if (!layout) return { text: [], decoration: [] };
+  if (layout.frames.every(frame => frame.preserveEditorialGeometry) && layout.photoCount === 1) {
+    const box = contentBox(layout.frames[0].rect.x < .5 ? "right" : "left");
+    const canvas = bookPrintMetrics().canvas;
+    return { text: [{ id: "gutter-note", kind: "caption", rect: { x: (box.x + box.w * .02) / canvas.width, y: (box.y + box.h * .01) / canvas.height, w: box.w * .96 / canvas.width, h: box.h * .98 / canvas.height } }], decoration: [] };
+  }
+  if (layout.frames.every(frame => frame.preserveEditorialGeometry)) return { text: [], decoration: [] };
   return {
     text: keepClear(TEXT_CANDIDATES.filter((slot) => clearOfFrames(slot.rect, layout))),
     decoration: keepClear(DECORATION_CANDIDATES.filter((slot) => clearOfFrames(slot.rect, layout))),
@@ -280,7 +288,7 @@ export function visibleTextLayers(layoutId: string, rows: DraftTextElement[]) {
     const row = rows.find((item) => item.slotId === slot.id) ?? null;
     const effective = resolveEffectiveText(row);
     if (!effective.visible) return [];
-    return [{ slotId: slot.id, kind: slot.kind, rect: toSpreadNorm(slot.rect), text: effective.text, styleId: effective.styleId }];
+    return [{ slotId: slot.id, kind: slot.kind, rect: layoutId.startsWith("E_") ? slot.rect : toSpreadNorm(slot.rect), text: effective.text, styleId: effective.styleId }];
   });
 }
 

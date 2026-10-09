@@ -11,6 +11,7 @@ const PERIOD_OPTIONS = [
   { value: "6months", label: "最近半年" },
   { value: "1year", label: "最近1年" },
   { value: "all", label: "すべて" },
+  { value: "custom", label: "期間を指定" },
 ] as const;
 
 const initialState: CreateAlbumState = { error: null };
@@ -19,11 +20,13 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref }: { petI
   const boundAction = createAlbumDraft.bind(null, petId);
   const [state, formAction, pending] = useActionState(boundAction, initialState);
   const [selected, setSelected] = useState<string>("3months");
-  const [petSelection, setPetSelection] = useState(petId);
+  const [petSelection, setPetSelection] = useState("all");
+  const [petIds,setPetIds]=useState(petOptions.map(pet=>pet.id));
+  const [pageCount,setPageCount]=useState(48);
   const generatingStep = useGeneratingStep(pending);
-  const selectedPets = petSelection === "all" ? petOptions : petOptions.filter((pet) => pet.id === petSelection);
+  const selectedPets = petSelection === "all" ? petOptions : petOptions.filter((pet) => petIds.includes(pet.id));
   const selectedPhotoCount = selectedPets.reduce((sum, pet) => sum + pet.photoCount, 0);
-  const selectedPetLabel = petSelection === "all" ? "すべてのペット" : (selectedPets[0]?.name ?? petName);
+  const selectedPetLabel = petSelection === "all" ? "すべてのペット" : (selectedPets.map(pet=>pet.name).join("・") || petName);
   const selectedPeriodLabel = PERIOD_OPTIONS.find((option) => option.value === selected)?.label ?? PERIOD_OPTIONS[0].label;
 
   if (pending) {
@@ -46,20 +49,20 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref }: { petI
         <h2 className="ai-gen-form-title">AIが{selectedPetLabel}のアルバムをまとめます</h2>
         {selectedPhotoCount > 0 ? <p className="ai-gen-form-desc">{selectedPeriodLabel}の思い出から、写真選びとページ構成をAIに任せて一冊にまとめます。</p> : <p className="ai-gen-form-desc">写真を追加するか、対象を変更するとアルバムを作れます。</p>}
 
-        <details className="ai-gen-options" open={selectedPhotoCount === 0 || Boolean(state.error)}>
-          <summary>対象を調整する（{selectedPetLabel}・{selectedPeriodLabel}）</summary>
+        <section className="ai-gen-options" aria-label="アルバムの作成条件">
+          <input type="hidden" name="petSelection" value={petSelection} />
           <fieldset className="ai-gen-period">
             <legend>アルバムに含めるペット</legend>
             <div className="ai-gen-period-grid">
               {petOptions.length > 1 ? (
                 <label className={`ai-gen-period-option ds-focus${petSelection === "all" ? " is-selected" : ""}`}>
-                  <input type="radio" name="petSelection" value="all" checked={petSelection === "all"} onChange={() => setPetSelection("all")} className="sr-only" />
+                  <input type="checkbox" checked={petSelection === "all"} onChange={(event) => { setPetSelection(event.target.checked ? "all" : "selected"); setPetIds(event.target.checked ? petOptions.map(pet=>pet.id) : []); }} />
                   すべて
                 </label>
               ) : null}
               {petOptions.map((pet) => (
-                <label key={pet.id} className={`ai-gen-period-option ds-focus${petSelection === pet.id ? " is-selected" : ""}`}>
-                  <input type="radio" name="petSelection" value={pet.id} checked={petSelection === pet.id} onChange={() => setPetSelection(pet.id)} className="sr-only" />
+                <label key={pet.id} className={`ai-gen-period-option ds-focus${petIds.includes(pet.id) ? " is-selected" : ""}`}>
+                  <input type="checkbox" name="petIds" value={pet.id} checked={petIds.includes(pet.id)} onChange={(event) => { setPetSelection("selected"); setPetIds(ids => event.target.checked ? [...ids,pet.id] : ids.filter(id=>id!==pet.id)); }} />
                   {pet.name}
                 </label>
               ))}
@@ -77,7 +80,21 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref }: { petI
               ))}
             </div>
           </fieldset>
-        </details>
+          {selected === "custom" ? <div className="grid grid-cols-2 gap-3">
+            <label>開始日<input type="date" name="periodFrom" required className="app-input" /></label>
+            <label>終了日<input type="date" name="periodTo" required className="app-input" /></label>
+          </div> : null}
+          <fieldset className="ai-gen-period">
+            <legend>本文のページ数（表紙・裏表紙は別）</legend>
+            <div className="ai-gen-period-grid">
+              {[24,48,72].map(count=><label key={count} className={`ai-gen-period-option${pageCount===count ? " is-selected" : ""}`}>
+                <input type="radio" name="pageCount" value={count} checked={pageCount===count} onChange={()=>setPageCount(count)} />
+                {count}P{count===48 ? "（おすすめ）" : ""}
+              </label>)}
+            </div>
+            <p className="app-help">良い写真を大きく使い、日付やことばと組み合わせます。少なくとも{pageCount/2}枚の異なる写真が必要です。</p>
+          </fieldset>
+        </section>
 
         {state.error ? (
           <p role="alert" className="app-error">
@@ -89,7 +106,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref }: { petI
           AIにおまかせで作る
         </button>
 
-        <p className="app-help text-center">完成後はそのまま楽しめます。写真やレイアウトは必要なときだけ編集できます。</p>
+        <p className="app-help text-center">完成したら、まずアルバムをプレビュー。写真やレイアウトは必要なときだけ編集できます。</p>
       </form>
     </main>
   );

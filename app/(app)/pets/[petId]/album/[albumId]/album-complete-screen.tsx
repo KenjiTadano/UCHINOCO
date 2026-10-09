@@ -37,6 +37,8 @@ export type AlbumCompleteScreenProps = {
 export { buildCoverTitleLines };
 
 export function AlbumCompleteScreen({
+  petId,
+  albumId,
   petName,
   albumTitle,
   coverSrc,
@@ -137,6 +139,7 @@ export function AlbumCompleteScreen({
         </ul>
 
         <div className="ai-complete-actions">
+          <Link href={`/pets/${petId}/album/${albumId}?view=preview`} className="ai-complete-primary ds-focus">アルバムを見る<ArrowRight size={18} aria-hidden="true" /></Link>
           <form action={acceptAction}>
             <button type="submit" className="ai-complete-primary ds-focus w-full">
               このままでOK

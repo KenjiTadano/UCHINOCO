@@ -356,7 +356,7 @@ export function DraftSpreadView({
           return (
             <p
               key={layer.slotId}
-              className={`page-polish-text page-polish-text--${layer.kind}`}
+              className={`page-polish-text page-polish-text--${layer.kind}${preview.layoutId.startsWith("E_") ? " page-polish-text--editorial-paragraph" : ""}`}
               data-testid={`page-polish-text-${layer.slotId}`}
               data-style={layer.styleId}
               style={{

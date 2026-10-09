@@ -191,17 +191,17 @@ test("N: single-month range includes month in title", () => {
   assert.ok(title.length > 0);
 });
 
-test("creation starts with AI defaults and keeps pet/period changes optional", () => {
-  assert.match(createFormSource, /<details className="ai-gen-options"/);
+test("creation exposes setup with all pets by default", () => {
+  assert.match(createFormSource, /<section className="ai-gen-options"/);
   assert.match(createFormSource, /AIにおまかせで作る/);
   assert.match(createFormSource, /useState<string>\("3months"\)/);
-  assert.match(createFormSource, /useState\(petId\)/);
+  assert.match(createFormSource, /useState\("all"\)/);
 });
 
-test("single-pet creation persists the generated album and cover without a new schema", () => {
-  assert.match(createActionSource, /buildPetAlbumDraft\(/);
+test("single and multi-pet creation persist the generated album and cover", () => {
+  assert.match(createActionSource, /buildEditorialDraft\(/);
   assert.match(createActionSource, /save_album_draft_version/);
-  assert.match(createActionSource, /selectedPets\.length === 1/);
+  assert.doesNotMatch(createActionSource, /if \(selectedPets\.length === 1\)/);
   assert.match(createActionSource, /loadCoverEditor\(/);
   assert.match(draftPersistenceMigration, /and p\.pet_id = v_pet/);
 });

@@ -6,7 +6,7 @@ import { scoreFrameMatch } from "../smart-crop/frame-match.ts";
 import { sanitizeCropTransform } from "../smart-crop/transform.ts";
 import type { FrameMatchResult } from "../smart-crop/types.ts";
 import { SMART_LAYOUT_CONFIG } from "./config.ts";
-import { resolveCropFrame } from "./frames.ts";
+import { resolveLayoutCropFrame } from "./frames.ts";
 import { scoreLayoutBalance } from "./balance.ts";
 import { scoreHierarchyFit, weakPhotoHeroPenalty } from "./hierarchy.ts";
 import type { HeroSelectionProfile } from "./hierarchy.ts";
@@ -42,7 +42,7 @@ type Cell = {
 function buildMatchMatrix(photos: LayoutPhotoInput[], frames: AlbumFrameDefinition[]): Cell[][] {
   return photos.map((photo) =>
     frames.map((frame) => {
-      const cropFrame = resolveCropFrame(frame.cropShapeId);
+      const cropFrame = resolveLayoutCropFrame(frame);
       const { crop, quality } = computeSmartCrop(photo.analysis, cropFrame);
       const safeCrop = sanitizeCropTransform(crop);
       const frameMatch = scoreFrameMatch(photo.analysis, cropFrame, safeCrop, quality);
@@ -65,7 +65,7 @@ function buildAssignment(photos: LayoutPhotoInput[], frames: AlbumFrameDefinitio
       frameMatch: cell.frameMatch,
       crop: cell.crop,
       quality: cell.quality,
-      cropFrame: resolveCropFrame(frame.cropShapeId),
+      cropFrame: resolveLayoutCropFrame(frame),
       photoIntelligence: photo.photoIntelligence,
       bestShot: photo.bestShot,
       heroSuitability: heroSuitabilityByPhotoId.get(photo.photoId) ?? 0,

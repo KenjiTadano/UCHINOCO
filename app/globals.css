@@ -5264,3 +5264,10 @@ button:disabled,
 .print-preview-generate:disabled {
   opacity: 0.45;
 }
+
+/* Task078.2 — real covers are single pages; body alone uses facing pages. */
+.album-editorial-back-cover { width: min(65vw, 240px); aspect-ratio: 148 / 210; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 32px 16px; gap: 12px; background: #faf8f4; color: #806c5e; box-shadow: 0 8px 24px #0002; font-size: 12px; }
+.album-preview-section-nav { display: flex; justify-content: center; gap: 8px; margin: 16px 0; }
+.ai-gen-options input:focus-visible { outline: 2px solid var(--color-brand-terracotta, #bc7965); outline-offset: 3px; }
+
+.page-polish-text--editorial-paragraph { display: block; white-space: pre-wrap; -webkit-line-clamp: unset; }

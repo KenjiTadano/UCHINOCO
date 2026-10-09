@@ -41,6 +41,8 @@ export type AlbumFrameDefinition = {
   rect: { x: number; y: number; w: number; h: number };
   preferredOrientation?: TemplateOrientation;
   cropTolerance?: CropTolerance;
+  /** Task078.2 coordinates on real facing pages; keep the authored geometry. */
+  preserveEditorialGeometry?: boolean;
 };
 
 /** Optional polish slots. Scoring ignores these. */

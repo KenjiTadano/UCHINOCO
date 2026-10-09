@@ -1,3 +1,4 @@
+import { EDITORIAL_TEMPLATES } from "../smart-layout/editorial-library.ts";
 import type { StorySpread, StoryType } from "../album-story/types.ts";
 import { ALBUM_LAYOUTS } from "../smart-layout/layouts.ts";
 import { evaluateLayout } from "../smart-layout/assign.ts";
@@ -54,6 +55,7 @@ function rankedLayout(item: Ranked): LayoutAlternative {
 
 function layoutsForSpread(spread: StorySpread): AlbumLayoutDefinition[] {
   const count = spread.photoIds.length;
+  if (spread.id.startsWith("editorial-")) return EDITORIAL_TEMPLATES.filter(layout => layout.photoCount === count);
   const base = ALBUM_LAYOUTS.filter((layout) => layout.photoCount === count);
   const hasSecondary = spread.secondaryPhotoIds.length > 0;
   const extras = hasSecondary ? DRAFT_HIERARCHY_LAYOUTS.filter((layout) => layout.photoCount === count) : [];
@@ -313,7 +315,7 @@ function emptyDraft(spread: StorySpread, warnings: string[]): AlbumSpreadDraft {
   };
 }
 
-export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[], context?: LayoutRhythmContext): AlbumSpreadDraft {
+export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[], context?: LayoutRhythmContext, layoutIds?: string[]): AlbumSpreadDraft {
   let scoped: LayoutPhotoInput[];
   try {
     scoped = photosForSpread(spread, photos);
@@ -322,7 +324,7 @@ export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[]
     return emptyDraft(spread, [message]);
   }
 
-  const layouts = layoutsForSpread(spread);
+  const layouts = layoutsForSpread(spread).filter(layout => !layoutIds || layoutIds.includes(layout.id));
   if (layouts.length === 0) {
     return emptyDraft(spread, ["NO_LAYOUT_FOR_COUNT"]);
   }

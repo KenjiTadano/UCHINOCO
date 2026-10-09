@@ -2,13 +2,15 @@ import { bookPrintMetrics, placeFrames } from "../album-draft/pages.ts";
 import { DRAFT_HIERARCHY_LAYOUTS } from "../album-draft/layouts.ts";
 import type { AlbumSpreadDraft } from "../album-draft/types.ts";
 import { ALBUM_DRAFT_VERSION } from "../album-draft/config.ts";
+import { resolveLayoutCropFrame } from "../smart-layout/frames.ts";
 import { SMART_CROP_FRAMES } from "../smart-crop/frames.ts";
+import { EDITORIAL_TEMPLATES } from "../smart-layout/editorial-library.ts";
 import { ALBUM_LAYOUTS } from "../smart-layout/layouts.ts";
 import type { AlbumLayoutDefinition } from "../smart-layout/types.ts";
 import { resolveEffectiveFrame, resolveEffectiveSpread } from "./resolve.ts";
 import type { DraftFrameRow, DraftSpreadRow } from "./types.ts";
 
-const LAYOUTS: AlbumLayoutDefinition[] = [...ALBUM_LAYOUTS, ...DRAFT_HIERARCHY_LAYOUTS];
+const LAYOUTS: AlbumLayoutDefinition[] = [...ALBUM_LAYOUTS, ...DRAFT_HIERARCHY_LAYOUTS, ...EDITORIAL_TEMPLATES];
 
 export function findDraftLayout(layoutId: string) {
   return LAYOUTS.find((layout) => layout.id === layoutId);
@@ -68,7 +70,7 @@ export function toPreviewSpread(
           gutterClearance: 0,
           crossesGutter: false,
         },
-        cropFrame: cropFrameFor(slot?.cropShapeId ?? "portrait"),
+        cropFrame: slot ? resolveLayoutCropFrame(slot) : cropFrameFor("portrait"),
         previewUrl: previewUrlByPhotoId.get(shown.photoId) ?? "",
       };
     }),

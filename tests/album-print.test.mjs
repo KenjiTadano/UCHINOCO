@@ -623,3 +623,19 @@ test("print preview does not call vision or caption generation", async () => {
     assert.doesNotMatch(source, /openai|responses\.create|image_url|suggestSpreadCaption|album-caption|photo-analysis/i);
   }
 });
+
+test("Editorial 24P prints exactly 24 body pages plus separate front and back covers", async () => {
+  const slot=polishForLayout("E_1_LEFT_FULL").text[0];
+  const spreads=Array.from({length:12},(_,i)=>({
+    source:spread({id:`spread-${i}`,storySpreadId:`editorial-${i}`,position:i,aiLayoutId:"E_1_LEFT_FULL",userLayoutId:null}),
+    frames:[frame(0,{frameId:"E_1_LEFT_FULL-0",userPhotoId:"user-photo-0"})],
+    texts:[textRow(slot,{userText:"2026年8月1日\n"+"思い出".repeat(23)})],decorations:[],
+  }));
+  const compositionPlan={version:"album-rhythm-v2",coverRole:"COVER",items:spreads.map(s=>({kind:"spread",role:"HERO",storySpreadId:s.source.storySpreadId,density:"LOW"}))};
+  const snapshot=buildAlbumPrintSnapshot(input({spreads,compositionPlan}));
+  const pdf=await renderDraftPrintPdf(snapshot,{"user-photo-0":jpeg(80,100),"user-cover":jpeg(80,100)});
+  assert.ok(!assessPrintQuality(snapshot,factsFor(snapshot),{fontsReady}).some(issue=>issue.code==="TEXT_OVERFLOW"));
+  assert.equal(pdf.pageCount,26);
+  assert.equal((await PDFDocument.load(pdf.bytes)).getPageCount(),26);
+  assert.ok(snapshot.spreads.every(s=>s.texts.length===1));
+});
