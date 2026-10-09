@@ -204,7 +204,7 @@ test("creation has no synchronous analysis/Vision and keeps ownership, metadata,
   assert.match(action, /loadStoredGenerationInputs/);
   assert.match(action, /\.eq\("uploader_user_id", user.id\)/);
   assert.match(action, /\.eq\("owner_user_id", user.id\)/);
-  assert.ok(action.indexOf("inputs.missingIntelligenceCount || inputs.missingGeometryCount") < action.indexOf('.from("albums")'));
+  assert.ok(action.indexOf("inputs.missingIntelligenceCount || inputs.missingGeometryCount") < action.indexOf("// Insert album"));
   for (const key of ["requested_body_pages", "selected_pet_ids", "rhythm_audit", "generation_photo_ids"]) assert.ok(action.includes(key));
   assert.match(action, /\?view=preview/);
   const page = await readFile("app/(app)/pets/[petId]/album/new/page.tsx", "utf8");

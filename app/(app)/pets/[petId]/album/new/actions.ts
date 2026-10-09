@@ -1,6 +1,7 @@
 "use server";
 
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
+import { ALBUM_INTENT_TTL_MS } from "@/lib/album-readiness";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildSceneGroups } from "@/lib/photo-grouping/group";
 import { selectBestShot } from "@/lib/best-shot/select";
@@ -24,6 +25,9 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 
 export type CreateAlbumState = {
   error: string | null;
+  status?: "preparing" | "retryable" | "action_required" | "in_progress" | "failed" | "complete";
+  previewHref?: string;
+  recoveryHref?: string;
 };
 
 export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, formData: FormData): Promise<CreateAlbumState> {
@@ -34,7 +38,8 @@ export async function createAlbumDraft(petId: string, _prev: CreateAlbumState, f
     return result;
   } catch (error) {
     timing.finish("failed");
-    throw error;
+    unstable_rethrow(error);
+    return { error: "アルバムを作成できませんでした。もう一度お試しください。", status: "retryable" };
   }
 }
 
@@ -48,17 +53,23 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     data: { user },
     error: userError,
   } = await supabase.auth.getUser();
-  if (userError || !user) return { error: "認証エラーが発生しました。再度ログインしてください。" };
+  if (userError || !user) return { error: "ログインしてから作成を続けられます。", status: "action_required", recoveryHref: `/login?next=${encodeURIComponent(`/pets/${petId}/album/new`)}` };
 
   const { data: pets, error: petsError } = await supabase.from("pets").select("id, name, birthday, adoption_date").eq("owner_user_id", user.id).order("created_at", { ascending: true });
   if (petsError || !pets) return { error: "ペット情報を取得できませんでした。" };
   if (!pets.some((item) => item.id === petId)) return { error: "ペット情報を取得できませんでした。" };
 
   let setup;
+  const intentId = String(formData.get("intentId") ?? "");
+  const requestedAt = formData.get("requestedAt") ? new Date(String(formData.get("requestedAt"))) : new Date();
+  if ((intentId && !UUID_PATTERN.test(intentId)) || !Number.isFinite(requestedAt.getTime()) || Date.now() - requestedAt.getTime() >= ALBUM_INTENT_TTL_MS || requestedAt.getTime() - Date.now() > 60_000) {
+    return { error: "作成条件をもう一度確認してください。", status: "action_required" };
+  }
   try {
     setup = parseAlbumSetup(
       formData,
       pets.map((pet) => pet.id),
+      requestedAt,
     );
   } catch (error) {
     return { error: error instanceof Error ? error.message : "作成条件を確認してください。" };
@@ -66,6 +77,22 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
   const selectedPets = pets.filter((pet) => setup.petIds.includes(pet.id));
   const anchorPet = selectedPets.find((pet) => pet.id === petId) ?? selectedPets[0];
   const { from: periodFrom, to: periodTo } = setup;
+  const intentKey = JSON.stringify({ petIds: [...setup.petIds].sort(), pages: setup.pageCount, start: periodFrom.toISOString(), end: periodTo.toISOString() });
+  if (intentId) {
+    const { data: previous, error: previousError } = await supabase.from("albums").select("id,created_at,pet_id").eq("id", intentId).eq("owner_user_id", user.id).maybeSingle();
+    if (previousError) return { error: "作成状況を確認しています。", status: "retryable" };
+    if (previous) {
+      const { data: draft, error: draftError } = await supabase.from("album_draft_versions").select("id,generation_metadata").eq("album_id", previous.id).eq("is_active", true).maybeSingle();
+      if (draftError) return { error: "作成状況を確認しています。", status: "retryable" };
+      if (draft) {
+        const metadata = draft.generation_metadata as Record<string, unknown> | null;
+        const { data: cover } = await supabase.from("album_draft_covers").select("id").eq("draft_version_id", draft.id).maybeSingle();
+        if (metadata?.generation_intent_key === intentKey && cover) return { error: null, status: "complete", previewHref: `/pets/${previous.pet_id}/album/${previous.id}?view=preview` };
+        if (metadata?.generation_intent_key !== intentKey) return { error: "作成条件が変更されています。条件を確認してください。", status: "action_required" };
+      }
+      return { error: "アルバムの作成状況を確認しています。", status: Date.now() - Date.parse(previous.created_at) < 150_000 ? "in_progress" : "failed" };
+    }
+  }
   timing.end("02_pet_ownership_validation", selectedPets.length);
   timing.context({ selectedPetIds: setup.petIds, petCount: selectedPets.length, periodPreset: ["3months", "6months", "1year", "all", "custom"].includes(String(formData.get("period"))) ? String(formData.get("period")) : "3months", periodStart: periodFrom.toISOString(), periodEnd: periodTo.toISOString(), requestedBodyPages: setup.pageCount });
 
@@ -128,7 +155,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
   timing.end("07_missing_analysis_intelligence", inputs.missingIntelligenceCount + inputs.missingGeometryCount);
   if (inputs.missingIntelligenceCount || inputs.missingGeometryCount) {
     timing.finish("analysis_pending");
-    return { error: inputs.failedAnalysisCount ? "一部の写真の整理を完了できませんでした。写真の解析状況を確認してから、もう一度お試しください。" : "写真の整理がまだ完了していません。ホームで整理が終わってから、もう一度お試しください。" };
+    return { error: inputs.failedAnalysisCount ? "一部の写真を確認できませんでした。写真を選び直すか、対象期間を変更できます。" : null, status: inputs.failedAnalysisCount ? "action_required" : "preparing" };
   }
 
   const candidates: AlbumCandidate[] = rawPhotos.map((photo) => {
@@ -183,8 +210,8 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
   let plan;
   try {
     plan = planEditorialAlbum(rankedPhotos, setup.pageCount);
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : "写真選定に失敗しました。" };
+  } catch {
+    return { error: "この条件では写真が足りません。写真を追加するか、ページ数を変更してください。", status: "action_required" };
   }
   timing.end("08_photo_ranking_selection", plan.selected.length);
   timing.counts({
@@ -210,7 +237,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
   for (const photo of plan.selected) {
     const analysis = inputs.geometry.get(photo.photoId);
     const preview = previews.get(photo.photoId);
-    if (!analysis || !preview) return { error: "写真の配置情報を取得できませんでした。" };
+    if (!analysis || !preview) return { error: "写真の表示を確認しています。", status: "retryable" };
     layoutPhotos.push({ photoId: photo.photoId, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: photo.candidate, confidence: photo.confidence }, captionAvailable: true });
   }
   const textByStory: Record<string, string> = {};
@@ -225,8 +252,8 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       if (event === "started") timing.start("11_whole_album_rhythm_audit", itemCount);
       else timing.end("11_whole_album_rhythm_audit", itemCount);
     });
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : "レイアウト生成に失敗しました。" };
+  } catch {
+    return { error: "この写真を安全に配置できませんでした。ページ数や対象期間を変更できます。", status: "action_required" };
   }
   timing.end("09_layout_planning", editorial.spreads.length);
   timing.measured("10_crop_calculation", editorial.performance.cropStartedAt, editorial.performance.cropDurationMs, editorial.performance.cropItemCount);
@@ -244,12 +271,13 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
   // Insert album
   if (timing.budgetExceeded()) {
     timing.finish("failed");
-    return { error: "アルバムの作成に時間がかかっています。しばらくしてから、もう一度お試しください。" };
+    return { error: "アルバムの作成に時間がかかっています。", status: "retryable" };
   }
   timing.start("12_album_row_creation", 1);
   const { data: album, error: albumError } = await supabase
     .from("albums")
     .insert({
+      ...(intentId ? { id: intentId } : {}),
       owner_user_id: user.id,
       pet_id: anchorPet.id,
       title,
@@ -260,7 +288,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     .select("id")
     .single();
 
-  if (albumError || !album) return { error: "アルバムの作成に失敗しました。" };
+  if (albumError || !album) return { error: "作成状況を確認しています。", status: albumError?.code === "23505" ? "in_progress" : "retryable" };
   timing.end("12_album_row_creation", 1);
   timing.start("13_spread_page_persistence", persistableSpreads.length);
 
@@ -310,6 +338,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       p_album_id: album.id,
       p_payload: buildDraftSavePayload(persistableSpreads, [], composition, {
         editorial_version: EDITORIAL_VERSION,
+        generation_intent_key: intentId ? intentKey : null,
         requested_body_pages: setup.pageCount,
         selected_pet_ids: setup.petIds,
         rhythm_audit: editorial.audit,
@@ -363,5 +392,6 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
   timing.start("16_redirect_preparation", 1);
   timing.end("16_redirect_preparation", 1);
   timing.finish("ready");
+  if (intentId) return { error: null, status: "complete", previewHref: `/pets/${anchorPet.id}/album/${album.id}?view=preview` };
   redirect(`/pets/${anchorPet.id}/album/${album.id}?view=preview`);
 }

@@ -192,8 +192,8 @@ test("N: single-month range includes month in title", () => {
 });
 
 test("creation exposes setup with all pets by default", () => {
-  assert.match(createFormSource, /<section className="ai-gen-options"/);
-  assert.match(createFormSource, /AIにおまかせで作る/);
+  assert.match(createFormSource, /<fieldset disabled=\{locked\} className="ai-gen-options/);
+  assert.match(createFormSource, /アルバムを作る/);
   assert.match(createFormSource, /useState<string>\("3months"\)/);
   assert.match(createFormSource, /useState\("all"\)/);
 });

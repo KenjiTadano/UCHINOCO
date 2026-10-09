@@ -314,16 +314,10 @@ export function PhotoUploadForm({ petId, returnTo, recentPhotos = [], allPhotosH
       );
       const failedCount = uploadFailedCount + finalized.failedCount;
       const duplicateCount = prepared.duplicateCount + finalized.duplicateCount;
-      const intakeNotice = finalized.savedCount > 0
-        ? finalized.candidateBecameReady
-          ? " AIがアルバムをまとめられる枚数になりました。写真の整理はあとで続けます。"
-          : " AIが思い出を整理しています。完了を待たずに写真を見ることができます。"
-        : "";
-      router.replace(
-        `/pets/${petId}?${new URLSearchParams({
-          message: `${resultMessage(photos.length, finalized.savedCount, failedCount)}${duplicateCount ? `${duplicateCount}枚はすでに保存されています。` : ""}${intakeNotice}`,
-        }).toString()}`,
-      );
+      const intakeNotice = finalized.savedCount > 0 ? (finalized.candidateBecameReady ? " AIがアルバムをまとめられる枚数になりました。写真の整理はあとで続けます。" : " AIが思い出を整理しています。完了を待たずに写真を見ることができます。") : "";
+      const destination = new URL(finalized.savedCount > 0 ? returnTo : `/pets/${petId}`, window.location.origin);
+      destination.searchParams.set("message", `${resultMessage(photos.length, finalized.savedCount, failedCount)}${duplicateCount ? `${duplicateCount}枚はすでに保存されています。` : ""}${intakeNotice}`);
+      router.replace(`${destination.pathname}${destination.search}`);
       router.refresh();
     } catch {
       setError("写真を保存できませんでした。通信状態を確認して再度お試しください。");
