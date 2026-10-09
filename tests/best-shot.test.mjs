@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BEST_SHOT_VERSION } from "../lib/best-shot/config.ts";
 import { bestShotCacheKey, clearBestShotCache, getBestShotCache, getBestShotCacheByPhotoIds, setBestShotCache } from "../lib/best-shot/cache.ts";
-import { selectBestShot } from "../lib/best-shot/select.ts";
+import { chunkPhotoIds, selectBestShot, uniquePhotoIds } from "../lib/best-shot/select.ts";
 import { visualPairKey } from "../lib/best-shot/score.ts";
 
 function intel(overall, extra = {}) {
@@ -229,4 +229,16 @@ test("best shot cache key includes version, group, and sorted photo ids", () => 
   assert.equal(byPhotoId.get("a")?.confidence, sample.confidence);
   clearBestShotCache();
   assert.equal(getBestShotCache(key), null);
+});
+
+test("Best Shot analysis lookup retains every grouped photo and batches large inputs", () => {
+  const photoIds = Array.from({ length: 451 }, (_, index) => `photo-${String(index).padStart(3, "0")}`);
+  const unique = uniquePhotoIds([photoIds.slice(0, 250), photoIds.slice(200), [photoIds[0]]]);
+  const batches = chunkPhotoIds(unique);
+
+  assert.equal(unique.length, 451);
+  assert.equal(batches.length, 3);
+  assert.deepEqual(batches.map((batch) => batch.length), [200, 200, 51]);
+  assert.deepEqual(batches.flat(), unique);
+  assert.throws(() => chunkPhotoIds(photoIds, 0), /Invalid photo ID batch size/);
 });
