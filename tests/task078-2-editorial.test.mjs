@@ -208,6 +208,93 @@ test("single-photo spread rescues via an unused eligible replacement even withou
   assert.deepEqual(result.selectedPhotoIds, ["single-rescue"]);
   assert.equal(result.recovery.spreadDiagnostics[0].finalPhotoCount, 1);
 });
+test("single-photo fallback evaluates unused eligible photos when the prebuilt replacement list is empty", () => {
+  const photo = ranked(1, 1)[0];
+  const story = { id: "editorial-empty-map-rescue", sceneIds: [photo.groupId], photoIds: [photo.photoId], primaryPhotoIds: [photo.photoId], secondaryPhotoIds: [], startedAt: photo.timeline, endedAt: photo.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" };
+  const neighborPhoto = { ...ranked(1, 1)[0], photoId: "neighbor-pet-photo", petId: photo.petId, candidate: { ...photo.candidate, photoId: "neighbor-pet-photo" } };
+  const neighborStory = { ...story, id: "editorial-neighbor", sceneIds: [neighborPhoto.groupId], photoIds: [neighborPhoto.photoId], primaryPhotoIds: [neighborPhoto.photoId], startedAt: neighborPhoto.timeline, endedAt: neighborPhoto.timeline };
+  const unsafe = layoutPhotos([photo])[0];
+  unsafe.analysis.focalPoint = { x: 0.98, y: 0.08 };
+  unsafe.analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
+  const replacement = { ...ranked(1, 1)[0], photoId: "empty-map-rescue", groupId: "different-scene", petId: "pet-b", timeline: "2020-01-01T00:00:00.000Z", candidate: { ...photo.candidate, photoId: "empty-map-rescue", scores: { ...photo.candidate.scores, overall: 20, sceneRepresentativeness: 10 } } };
+  const replacementLayout = layoutPhotos([replacement])[0];
+  const result = buildEditorialDraft([story, neighborStory], [unsafe, layoutPhotos([neighborPhoto])[0], replacementLayout], { [story.id]: "2026年8月", [neighborStory.id]: "2026年8月" }, undefined, { [story.id]: [] }, {}, 2, 3, { [photo.petId]: 2 });
+  assert.equal(result.recovery.globalReplacementSuccessCount, 1);
+  assert.deepEqual(new Set(result.selectedPhotoIds), new Set([replacement.photoId, neighborPhoto.photoId]));
+  assert.equal(result.recovery.spreadDiagnostics[0].finalPhotoCount, 1);
+  assert.equal(result.recovery.spreadDiagnostics[0].replacedOutPhotoCount, 1);
+  assert.equal(result.recovery.spreadDiagnostics[0].replacedInPhotoCount, 1);
+  const diagnostic = result.recovery.spreadDiagnostics[0];
+  assert.equal(diagnostic.finalPhotoCount, diagnostic.originalPhotoCount - diagnostic.movedOutPhotoCount + diagnostic.movedInPhotoCount - diagnostic.replacedOutPhotoCount + diagnostic.replacedInPhotoCount);
+});
+test("source-clipped unused photo is rejected before replacement candidate evaluation", () => {
+  const photo = ranked(1, 1)[0];
+  const story = { id: "editorial-clipped-replacement", sceneIds: [photo.groupId], photoIds: [photo.photoId], primaryPhotoIds: [photo.photoId], secondaryPhotoIds: [], startedAt: photo.timeline, endedAt: photo.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" };
+  const unsafe = layoutPhotos([photo])[0];
+  unsafe.analysis.focalPoint = { x: 0.98, y: 0.08 };
+  unsafe.analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
+  const clipped = { ...ranked(1, 1)[0], photoId: "clipped-replacement", petId: photo.petId, candidate: { ...photo.candidate, photoId: "clipped-replacement" } };
+  const clippedLayout = layoutPhotos([clipped])[0];
+  clippedLayout.analysis.pets = [{ bbox: { x: 0, y: 0.2, width: 0.4, height: 0.4 }, confidence: 0.95 }];
+  assert.throws(() => buildEditorialDraft([story], [unsafe, clippedLayout], { [story.id]: "2026年8月" }, undefined, { [story.id]: [] }), (error) => {
+    assert.equal(error.recoveryStats.spreadDiagnostics[0].sourceClippingRejectedCount, 1);
+    assert.equal(error.recoveryStats.spreadDiagnostics[0].replacementCandidateCount, 0);
+    return true;
+  });
+});
+test("replacement candidates that fail the normal crop gate are never adopted", () => {
+  const photo = ranked(1, 1)[0];
+  const story = { id: "editorial-unsafe-replacement", sceneIds: [photo.groupId], photoIds: [photo.photoId], primaryPhotoIds: [photo.photoId], secondaryPhotoIds: [], startedAt: photo.timeline, endedAt: photo.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" };
+  const unsafe = layoutPhotos([photo])[0];
+  unsafe.analysis.focalPoint = { x: 0.98, y: 0.08 };
+  unsafe.analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
+  const replacement = { ...ranked(1, 1)[0], photoId: "unsafe-replacement", petId: photo.petId, groupId: "other-scene", candidate: { ...photo.candidate, photoId: "unsafe-replacement" } };
+  const unsafeReplacementLayout = layoutPhotos([replacement])[0];
+  unsafeReplacementLayout.analysis.focalPoint = { x: 0.98, y: 0.08 };
+  unsafeReplacementLayout.analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.88, y: 0.05, width: 0.1, height: 0.2 }, confidence: 0.95 }];
+  assert.throws(() => buildEditorialDraft([story], [unsafe, unsafeReplacementLayout], { [story.id]: "2026年8月" }, undefined, { [story.id]: [replacement.photoId] }, { [replacement.photoId]: "global_replacement" }), (error) => {
+    assert.equal(error.recoveryStats.spreadDiagnostics[0].cropSafetyRejectedCount, 1);
+    assert.equal(error.recoveryStats.globalReplacementSuccessCount, 0);
+    assert.equal(error.recoveryStats.spreadDiagnostics[0].outcome, "unrecovered");
+    return true;
+  });
+});
+test("duplicate replacement photo is rejected when already assigned to another spread", () => {
+  const input = layoutPhotos(ranked(2, 1));
+  input[0].analysis.focalPoint = { x: 0.98, y: 0.08 };
+  input[0].analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
+  const makeStory = (id, item) => ({ id, sceneIds: [item.groupId], photoIds: [item.photoId], primaryPhotoIds: [item.photoId], secondaryPhotoIds: [], startedAt: item.timeline, endedAt: item.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" });
+  const stories = [makeStory("duplicate-source", ranked(2, 1)[0]), makeStory("duplicate-owner", ranked(2, 1)[1])];
+  assert.throws(() => buildEditorialDraft(stories, input, { "duplicate-source": "2026年8月", "duplicate-owner": "2026年8月" }, undefined, { "duplicate-source": [input[1].photoId] }, { [input[1].photoId]: "global_replacement" }, 2, 2), (error) => {
+    assert.equal(error.recoveryStats.spreadDiagnostics[0].duplicateRejectedCount, 1);
+    assert.equal(error.recoveryStats.spreadDiagnostics[0].replacementCandidateCount, 0);
+    return true;
+  });
+});
+test("cross-pet replacement preserves the final pet photo when another eligible photo exists", () => {
+  const photo = ranked(1, 1)[0];
+  const story = { id: "editorial-pet-preservation", sceneIds: [photo.groupId], photoIds: [photo.photoId], primaryPhotoIds: [photo.photoId], secondaryPhotoIds: [], startedAt: photo.timeline, endedAt: photo.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" };
+  const unsafe = layoutPhotos([photo])[0];
+  unsafe.analysis.focalPoint = { x: 0.98, y: 0.08 };
+  unsafe.analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
+  const otherPet = { ...ranked(1, 1)[0], photoId: "other-pet", petId: "pet-b", candidate: { ...photo.candidate, photoId: "other-pet" } };
+  assert.throws(() => buildEditorialDraft([story], [unsafe, layoutPhotos([otherPet])[0]], { [story.id]: "2026年8月" }, undefined, { [story.id]: [otherPet.photoId] }, { [otherPet.photoId]: "global_replacement" }, 1, 2, { [photo.petId]: 2 }), (error) => {
+    assert.equal(error.recoveryStats.spreadDiagnostics[0].petCompatibilityRejectedCount, 1);
+    assert.equal(error.recoveryStats.spreadDiagnostics[0].replacementCandidateCount, 0);
+    return true;
+  });
+});
+test("single-photo fallback keeps replacement evaluation within the candidate budget", () => {
+  const photo = ranked(1, 1)[0];
+  const story = { id: "editorial-candidate-budget", sceneIds: [photo.groupId], photoIds: [photo.photoId], primaryPhotoIds: [photo.photoId], secondaryPhotoIds: [], startedAt: photo.timeline, endedAt: photo.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" };
+  const unsafe = layoutPhotos([photo])[0];
+  unsafe.analysis.focalPoint = { x: 0.98, y: 0.08 };
+  unsafe.analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
+  const alternatives = ranked(12, 1).map((item, index) => ({ ...item, photoId: `budget-${index}`, candidate: { ...item.candidate, photoId: `budget-${index}` } }));
+  const result = buildEditorialDraft([story], [unsafe, ...layoutPhotos(alternatives)], { [story.id]: "2026年8月" });
+  assert.ok(result.recovery.spreadDiagnostics[0].finalReplacementCandidateCount <= 8);
+  assert.equal(result.recovery.spreadDiagnostics[0].candidateBudgetRejectedCount, 4);
+});
 test("three-photo unsafe spread drops the persistent unsafe contributor and rebuilds safely above minimum unique count", () => {
   const input = layoutPhotos(ranked(3, 1));
   input[0].analysis.focalPoint = { x: 0.98, y: 0.08 };
@@ -251,6 +338,7 @@ test("exhausted safety recovery returns generic actionable failure metadata with
     () => buildEditorialDraft([story], [unsafe], { [story.id]: "2026年8月" }),
     (error) => {
       assert.deepEqual(error.unrecoveredSpreadIndices, [0]);
+      assert.deepEqual(error.currentPhotoIds, [photo.photoId]);
       assert.match(error.message, /アルバムを完成できませんでした/);
       assert.doesNotMatch(error.message, /Crop|crop|Layout|template|配置|ページ数や対象期間/);
       const diagnostic = error.recoveryStats.spreadDiagnostics[0];
@@ -363,8 +451,15 @@ test("creation saves multi-pet drafts, all source IDs and preview-first; Best Sh
   assert.match(source, /\?view=preview/);
   assert.doesNotMatch(source, /if \(selectedPets.length === 1\)/);
   assert.match(source, /story\.sceneIds\.includes\(photo\.groupId\)/);
-  assert.match(source, /photo\.candidate\.role !== "alternate"/);
   assert.match(source, /photo\.candidate\.scores\.technical >= 25/);
+  assert.match(source, /new Set\(error\.currentPhotoIds\)/);
+  assert.match(source, /candidateBudgetRejectedCount/);
+  assert.match(source, /sourceSubjectClipped\(\{ analysis \}\)/);
+  assert.match(source, /timeDistance <= 30 \* 24 \* 60 \* 60 \* 1000/);
+  assert.match(source, /new Set\(error\.currentPhotoIds\)/);
+  assert.match(source, /candidateBudgetRejectedCount/);
+  assert.match(source, /sourceSubjectClipped\(\{ analysis \}\)/);
+  assert.match(source, /timeDistance <= 30 \* 24 \* 60 \* 60 \* 1000/);
   assert.match(source, /timing\.layoutRecovery\(/);
   assert.match(source, /function logAlbumLayoutRecovery\(/);
   assert.match(source, /console\.info\("albumLayoutRecovery", record\)/);
@@ -372,6 +467,32 @@ test("creation saves multi-pet drafts, all source IDs and preview-first; Best Sh
   for (const key of [
     "spreadCount",
     "spreadDiagnostics",
+    "unusedPoolCount",
+    "duplicateRejectedCount",
+    "petCompatibilityRejectedCount",
+    "sceneRejectedCount",
+    "chronologicalRejectedCount",
+    "qualityRejectedCount",
+    "sourceClippingRejectedCount",
+    "cropSafetyRejectedCount",
+    "candidateBudgetRejectedCount",
+    "otherEligibilityRejectedCount",
+    "finalReplacementCandidateCount",
+    "unusedReplacementEligibleCount",
+    "unusedReplacementRejectedCount",
+    "unusedPoolCount",
+    "duplicateRejectedCount",
+    "petCompatibilityRejectedCount",
+    "sceneRejectedCount",
+    "chronologicalRejectedCount",
+    "qualityRejectedCount",
+    "sourceClippingRejectedCount",
+    "cropSafetyRejectedCount",
+    "candidateBudgetRejectedCount",
+    "otherEligibilityRejectedCount",
+    "finalReplacementCandidateCount",
+    "unusedReplacementEligibleCount",
+    "unusedReplacementRejectedCount",
     "initialUnsafeSpreadCount",
     "templateFallbackAttemptCount",
     "templateFallbackCount",

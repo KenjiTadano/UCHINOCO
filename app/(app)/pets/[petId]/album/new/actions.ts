@@ -10,7 +10,7 @@ import { loadStoredGenerationInputs } from "@/lib/album-generation/stored-inputs
 import { generationPerformance } from "@/lib/album-generation/performance";
 import { createPhotoPreviewUrls } from "@/lib/photo-image-delivery";
 import { parseAlbumSetup } from "@/lib/album-setup";
-import { planEditorialAlbum, buildEditorialDraft, editorialPageText, EDITORIAL_VERSION, EditorialGenerationError, type EditorialPhoto, type LayoutRecoveryStats } from "@/lib/album-draft/editorial";
+import { planEditorialAlbum, buildEditorialDraft, editorialPageText, EDITORIAL_VERSION, EditorialGenerationError, sourceSubjectClipped, type EditorialPhoto, type LayoutRecoveryStats, type ReplacementMethod, type SpreadLayoutRecoveryDiagnostic } from "@/lib/album-draft/editorial";
 import { ALBUM_DRAFT_CONFIG } from "@/lib/album-draft/config";
 import type { LayoutPhotoInput } from "@/lib/smart-layout/types";
 import { createClient } from "@/lib/supabase/server";
@@ -346,32 +346,96 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       if (error instanceof EditorialGenerationError && error.recoveryStats) logAlbumLayoutRecovery(timing, plan.spreads.length, error.recoveryStats);
       return { error: "この条件ではアルバムを完成できませんでした。別の写真を見直すか、写真を追加できます。", status: "action_required", recoveryReason: "layout" };
     }
-    const selectedIds = new Set(plan.selected.map((photo) => photo.photoId));
+    const currentPhotoIds = new Set(error.currentPhotoIds);
     const replacementPhotoIdsBySpread: Record<string, string[]> = {};
-    const replacementMethodByPhotoId: Record<string, "same_scene_replacement" | "global_replacement"> = {};
+    const replacementMethodByPhotoId: Record<string, ReplacementMethod> = {};
     const replacementIds: string[] = [];
     const replacementIdSet = new Set<string>();
+    const replacementFunnelBySpread = new Map<number, Partial<SpreadLayoutRecoveryDiagnostic>>();
+    const rankedById = new Map(rankedPhotos.map((photo) => [photo.photoId, photo]));
+    const albumPetIds = new Set([...currentPhotoIds].flatMap((photoId) => {
+      const petId = rankedById.get(photoId)?.petId;
+      return petId ? [petId] : [];
+    }));
+    const usedByPet = new Map<string, number>();
+    for (const photoId of currentPhotoIds) {
+      const petId = rankedById.get(photoId)?.petId;
+      if (petId) usedByPet.set(petId, (usedByPet.get(petId) ?? 0) + 1);
+    }
     for (const spreadIndex of error.unrecoveredSpreadIndices) {
       const story = plan.spreads[spreadIndex];
       if (!story) continue;
-      const storyPetIds = new Set(plan.selected.filter((photo) => story.sceneIds.includes(photo.groupId)).map((photo) => photo.petId));
-      const options = rankedPhotos
-        .filter((photo) => !selectedIds.has(photo.photoId) && !replacementIdSet.has(photo.photoId) && setup.petIds.includes(photo.petId) && photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25)
-        .map((photo) => ({ photo, category: story.sceneIds.includes(photo.groupId) ? 0 : storyPetIds.has(photo.petId) ? 1 : 2, timeDistance: Math.abs(Date.parse(photo.timeline) - Date.parse(story.startedAt)) }))
-        .sort((a, b) => a.category - b.category || a.timeDistance - b.timeDistance || b.photo.candidate.scores.overall - a.photo.candidate.scores.overall || a.photo.photoId.localeCompare(b.photo.photoId));
+      const funnel: Partial<SpreadLayoutRecoveryDiagnostic> = {
+        unusedPoolCount: rankedPhotos.filter((photo) => !currentPhotoIds.has(photo.photoId)).length,
+        duplicateRejectedCount: rankedPhotos.filter((photo) => currentPhotoIds.has(photo.photoId) || replacementIdSet.has(photo.photoId)).length,
+        petCompatibilityRejectedCount: 0,
+        sceneRejectedCount: 0,
+        chronologicalRejectedCount: 0,
+        qualityRejectedCount: 0,
+        sourceClippingRejectedCount: 0,
+        cropSafetyRejectedCount: 0,
+        candidateBudgetRejectedCount: 0,
+        otherEligibilityRejectedCount: 0,
+        finalReplacementCandidateCount: 0,
+        compatiblePetGroupingCandidateCount: 0,
+      };
+      const replacePhotoId = story.secondaryPhotoIds.at(-1) ?? story.primaryPhotoIds[0];
+      const replacedPhoto = replacePhotoId ? rankedById.get(replacePhotoId) : undefined;
+      const storyPetIds = new Set(story.photoIds.flatMap((photoId) => {
+        const petId = rankedById.get(photoId)?.petId;
+        return petId ? [petId] : [];
+      }));
+      const availablePetCounts = availablePhotoCountByPet;
+      const options: Array<{ photo: EditorialPhoto; category: number; timeDistance: number }> = [];
+      for (const photo of rankedPhotos) {
+        if (currentPhotoIds.has(photo.photoId) || replacementIdSet.has(photo.photoId)) continue;
+        if (!setup.petIds.includes(photo.petId)) {
+          funnel.petCompatibilityRejectedCount = (funnel.petCompatibilityRejectedCount ?? 0) + 1;
+          continue;
+        }
+        if (photo.candidate.scores.technical < 25) {
+          funnel.qualityRejectedCount = (funnel.qualityRejectedCount ?? 0) + 1;
+          continue;
+        }
+        const analysis = inputs.geometry.get(photo.photoId);
+        if (!analysis) {
+          funnel.otherEligibilityRejectedCount = (funnel.otherEligibilityRejectedCount ?? 0) + 1;
+          continue;
+        }
+        if (sourceSubjectClipped({ analysis })) {
+          funnel.sourceClippingRejectedCount = (funnel.sourceClippingRejectedCount ?? 0) + 1;
+          continue;
+        }
+        const petUsedCount = usedByPet.get(replacedPhoto?.petId ?? "") ?? 0;
+        if (replacedPhoto && photo.petId !== replacedPhoto.petId && petUsedCount <= 1 && (availablePetCounts[replacedPhoto.petId] ?? petUsedCount) > petUsedCount) {
+          funnel.petCompatibilityRejectedCount = (funnel.petCompatibilityRejectedCount ?? 0) + 1;
+          continue;
+        }
+        const timeDistance = Math.abs(Date.parse(photo.timeline) - Date.parse(story.startedAt));
+        const category = story.sceneIds.includes(photo.groupId) ? 0
+          : storyPetIds.has(photo.petId) ? 1
+            : albumPetIds.has(photo.petId) ? 2
+              : timeDistance <= 30 * 24 * 60 * 60 * 1000 ? 3 : 4;
+        options.push({ photo, category, timeDistance });
+      }
+      options.sort((a, b) => a.category - b.category || b.photo.candidate.scores.overall - a.photo.candidate.scores.overall || b.photo.candidate.scores.sceneRepresentativeness - a.photo.candidate.scores.sceneRepresentativeness || a.timeDistance - b.timeDistance || a.photo.photoId.localeCompare(b.photo.photoId));
       const idsForSpread: string[] = [];
       for (const { photo, category } of options) {
-        if (replacementIds.length >= ALBUM_DRAFT_CONFIG.recovery.globalReplacementCandidatesPerAlbum || idsForSpread.length >= ALBUM_DRAFT_CONFIG.recovery.bestShotReplacementCandidates) break;
+        if (replacementIds.length >= ALBUM_DRAFT_CONFIG.recovery.globalReplacementCandidatesPerAlbum || idsForSpread.length >= ALBUM_DRAFT_CONFIG.recovery.bestShotReplacementCandidates) {
+          funnel.candidateBudgetRejectedCount = (funnel.candidateBudgetRejectedCount ?? 0) + 1;
+          continue;
+        }
         replacementIdSet.add(photo.photoId);
         replacementIds.push(photo.photoId);
         idsForSpread.push(photo.photoId);
-        replacementMethodByPhotoId[photo.photoId] = category === 0 ? "same_scene_replacement" : "global_replacement";
+        replacementMethodByPhotoId[photo.photoId] = category === 0 ? "same_scene_replacement"
+          : category === 1 ? "same_pet_replacement"
+            : category === 2 ? "compatible_pet_replacement"
+              : category === 3 ? "chronological_replacement" : "global_replacement";
       }
+      funnel.finalReplacementCandidateCount = idsForSpread.length;
+      replacementFunnelBySpread.set(spreadIndex, funnel);
       replacementPhotoIdsBySpread[story.id] = idsForSpread;
-    }
-    if (!replacementIds.length) {
-      if (error.recoveryStats) logAlbumLayoutRecovery(timing, plan.spreads.length, error.recoveryStats);
-      return { error: "この条件ではアルバムを完成できませんでした。別の写真を見直すか、写真を追加できます。", status: "action_required", recoveryReason: "layout" };
     }
     const replacementSources = replacementIds.map((photoId) => candidateById.get(photoId)!).filter(Boolean);
     const replacementPreviews = replacementSources.length ? await createPhotoPreviewUrls(supabase, replacementSources, true, false, user.id) : new Map();
@@ -382,6 +446,31 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       if (!analysis || !preview || !ranked) return [];
       return [{ photoId, petId: ranked.petId, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: ranked.candidate, confidence: ranked.confidence }, captionAvailable: true }];
     });
+    const replacementInputsById = new Set(replacementInputs.map((photo) => photo.photoId));
+    for (const [spreadIndex, funnel] of replacementFunnelBySpread) {
+      const spread = plan.spreads[spreadIndex];
+      const spreadCandidateIds = spread ? replacementPhotoIdsBySpread[spread.id] ?? [] : [];
+      const missingAssets = spreadCandidateIds.filter((photoId) => !replacementInputsById.has(photoId)).length;
+      funnel.otherEligibilityRejectedCount = (funnel.otherEligibilityRejectedCount ?? 0) + missingAssets;
+      funnel.finalReplacementCandidateCount = spreadCandidateIds.length - missingAssets;
+    }
+    const applyReplacementFunnel = (stats?: LayoutRecoveryStats) => {
+      if (!stats) return;
+      let eligibleCount = 0;
+      let rejectedCount = 0;
+      for (const [spreadIndex, funnel] of replacementFunnelBySpread) {
+        const diagnostic = stats.spreadDiagnostics[spreadIndex];
+        if (!diagnostic) continue;
+        for (const key of ["unusedPoolCount", "duplicateRejectedCount", "petCompatibilityRejectedCount", "sceneRejectedCount", "chronologicalRejectedCount", "qualityRejectedCount", "sourceClippingRejectedCount", "cropSafetyRejectedCount", "candidateBudgetRejectedCount", "otherEligibilityRejectedCount", "compatiblePetGroupingCandidateCount"] as const) {
+          diagnostic[key] = Math.max(diagnostic[key], funnel[key] ?? 0);
+        }
+        diagnostic.finalReplacementCandidateCount = Math.max(diagnostic.finalReplacementCandidateCount, funnel.finalReplacementCandidateCount ?? 0);
+        eligibleCount += diagnostic.finalReplacementCandidateCount;
+        rejectedCount += diagnostic.duplicateRejectedCount + diagnostic.petCompatibilityRejectedCount + diagnostic.sceneRejectedCount + diagnostic.chronologicalRejectedCount + diagnostic.qualityRejectedCount + diagnostic.sourceClippingRejectedCount + diagnostic.cropSafetyRejectedCount + diagnostic.candidateBudgetRejectedCount + diagnostic.otherEligibilityRejectedCount;
+      }
+      stats.unusedReplacementEligibleCount = eligibleCount;
+      stats.unusedReplacementRejectedCount = rejectedCount;
+    };
     try {
       editorial = buildEditorialDraft(
         plan.spreads,
@@ -397,11 +486,13 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
         eligibleReady,
         availablePhotoCountByPet,
       );
+      applyReplacementFunnel(editorial.recovery);
       const selectedEditorial = new Map(rankedPhotos.map((photo) => [photo.photoId, photo]));
       plan.selected = editorial.selectedPhotoIds.map((photoId) => selectedEditorial.get(photoId)).filter((photo): photo is EditorialPhoto => Boolean(photo));
       textByStory = textForStories(editorial.stories);
     } catch (recoveryError) {
       const stats = recoveryError instanceof EditorialGenerationError ? recoveryError.recoveryStats : error.recoveryStats;
+      applyReplacementFunnel(stats);
       if (stats) logAlbumLayoutRecovery(timing, plan.spreads.length, stats);
       return { error: "この条件ではアルバムを完成できませんでした。別の写真で組み直すか、写真を追加できます。", status: "action_required" };
     }
