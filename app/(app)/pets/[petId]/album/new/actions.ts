@@ -10,7 +10,8 @@ import { loadStoredGenerationInputs } from "@/lib/album-generation/stored-inputs
 import { generationPerformance } from "@/lib/album-generation/performance";
 import { createPhotoPreviewUrls } from "@/lib/photo-image-delivery";
 import { parseAlbumSetup } from "@/lib/album-setup";
-import { planEditorialAlbum, buildEditorialDraft, editorialPageText, EDITORIAL_VERSION, type EditorialPhoto } from "@/lib/album-draft/editorial";
+import { planEditorialAlbum, buildEditorialDraft, editorialPageText, EDITORIAL_VERSION, EditorialGenerationError, type EditorialPhoto } from "@/lib/album-draft/editorial";
+import { ALBUM_DRAFT_CONFIG } from "@/lib/album-draft/config";
 import type { LayoutPhotoInput } from "@/lib/smart-layout/types";
 import { createClient } from "@/lib/supabase/server";
 import { buildDraftSavePayload, toPersistableSpread } from "@/lib/album-persistence/payload";
@@ -41,6 +42,7 @@ function logAlbumAutoResume(input: {
 export type CreateAlbumState = {
   error: string | null;
   status?: "preparing" | "retryable" | "action_required" | "in_progress" | "failed" | "complete";
+  recoveryReason?: "layout";
   previewHref?: string;
   recoveryHref?: string;
 };
@@ -312,21 +314,70 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     if (!analysis || !preview) return { error: "写真の表示を確認しています。", status: "retryable" };
     layoutPhotos.push({ photoId: photo.photoId, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: photo.candidate, confidence: photo.confidence }, captionAvailable: true });
   }
-  const textByStory: Record<string, string> = {};
-  for (const story of plan.spreads)
-    if (story.photoIds.length === 1) {
-      const photo = candidateById.get(story.photoIds[0])!;
-      textByStory[story.id] = editorialPageText(photo.timeline_at, photo.caption);
-    }
+  const textForStories = (stories: typeof plan.spreads) => Object.fromEntries(stories.map((story) => {
+    const photo = candidateById.get(story.photoIds[0]);
+    return [story.id, photo ? editorialPageText(photo.timeline_at, photo.caption) : ""];
+  }));
+  let textByStory = textForStories(plan.spreads);
   let editorial;
   try {
     editorial = buildEditorialDraft(plan.spreads, layoutPhotos, textByStory, (event, itemCount) => {
       if (event === "started") timing.start("11_whole_album_rhythm_audit", itemCount);
       else timing.end("11_whole_album_rhythm_audit", itemCount);
     });
-  } catch {
-    return { error: "この写真を安全に配置できませんでした。ページ数や対象期間を変更できます。", status: "action_required" };
+  } catch (error) {
+    if (!(error instanceof EditorialGenerationError) || !error.unrecoveredSpreadIndices.length) {
+      return { error: "この条件ではアルバムを完成できませんでした。別の写真を見直すか、写真を追加できます。", status: "action_required", recoveryReason: "layout" };
+    }
+    const selectedIds = new Set(plan.selected.map((photo) => photo.photoId));
+    const replacementPhotoIdsBySpread: Record<string, string[]> = {};
+    const replacementIds: string[] = [];
+    for (const spreadIndex of error.unrecoveredSpreadIndices) {
+      const story = plan.spreads[spreadIndex];
+      if (!story) continue;
+      const options = rankedPhotos
+        .filter((photo) => story.sceneIds.includes(photo.groupId) && !selectedIds.has(photo.photoId) && photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25)
+        .sort((a, b) => b.candidate.scores.overall - a.candidate.scores.overall || a.photoId.localeCompare(b.photoId))
+        .slice(0, ALBUM_DRAFT_CONFIG.recovery.bestShotReplacementCandidates - replacementIds.length);
+      replacementPhotoIdsBySpread[story.id] = options.map((photo) => photo.photoId);
+      replacementIds.push(...options.map((photo) => photo.photoId));
+      if (replacementIds.length >= ALBUM_DRAFT_CONFIG.recovery.bestShotReplacementCandidates) break;
+    }
+    if (!replacementIds.length) {
+      const recoveryLog = { spreadCount: plan.spreads.length, initialUnsafeSpreadCount: error.recoveryStats?.initialUnsafeSpreadCount ?? error.unrecoveredSpreadIndices.length, templateFallbackCount: error.recoveryStats?.templateFallbackCount ?? 0, photoReassignmentCount: error.recoveryStats?.photoReassignmentCount ?? 0, bestShotReplacementCount: 0, densityFallbackCount: error.recoveryStats?.densityFallbackCount ?? 0, adjacentReflowCount: error.recoveryStats?.adjacentReflowCount ?? 0, safeFallbackUsedCount: error.recoveryStats?.safeFallbackUsedCount ?? 0, unrecoveredCount: error.unrecoveredSpreadIndices.length };
+      console.info("albumLayoutRecovery", recoveryLog);
+      timing.layoutRecovery(recoveryLog);
+      return { error: "この条件ではアルバムを完成できませんでした。別の写真を見直すか、写真を追加できます。", status: "action_required", recoveryReason: "layout" };
+    }
+    const replacementSources = replacementIds.map((photoId) => candidateById.get(photoId)!).filter(Boolean);
+    const replacementPreviews = await createPhotoPreviewUrls(supabase, replacementSources, true, false, user.id);
+    const replacementInputs: LayoutPhotoInput[] = replacementIds.flatMap((photoId) => {
+      const analysis = inputs.geometry.get(photoId);
+      const preview = replacementPreviews.get(photoId);
+      const ranked = rankedPhotos.find((photo) => photo.photoId === photoId);
+      if (!analysis || !preview || !ranked) return [];
+      return [{ photoId, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: ranked.candidate, confidence: ranked.confidence }, captionAvailable: true }];
+    });
+    try {
+      editorial = buildEditorialDraft(plan.spreads, [...layoutPhotos, ...replacementInputs], textByStory, (event, itemCount) => {
+        if (event === "started") timing.start("11_whole_album_rhythm_audit", itemCount);
+        else timing.end("11_whole_album_rhythm_audit", itemCount);
+      }, replacementPhotoIdsBySpread);
+      const selectedEditorial = new Map(rankedPhotos.map((photo) => [photo.photoId, photo]));
+      plan.selected = editorial.selectedPhotoIds.map((photoId) => selectedEditorial.get(photoId)).filter((photo): photo is EditorialPhoto => Boolean(photo));
+      textByStory = textForStories(editorial.stories);
+    } catch (recoveryError) {
+      const stats = recoveryError instanceof EditorialGenerationError ? recoveryError.recoveryStats : error.recoveryStats;
+      const recoveryLog = { spreadCount: plan.spreads.length, initialUnsafeSpreadCount: stats?.initialUnsafeSpreadCount ?? error.unrecoveredSpreadIndices.length, templateFallbackCount: stats?.templateFallbackCount ?? 0, photoReassignmentCount: stats?.photoReassignmentCount ?? 0, bestShotReplacementCount: stats?.bestShotReplacementCount ?? 0, densityFallbackCount: stats?.densityFallbackCount ?? 0, adjacentReflowCount: stats?.adjacentReflowCount ?? 0, safeFallbackUsedCount: stats?.safeFallbackUsedCount ?? 0, unrecoveredCount: recoveryError instanceof EditorialGenerationError ? recoveryError.unrecoveredSpreadIndices.length : 1 };
+      console.info("albumLayoutRecovery", recoveryLog);
+      timing.layoutRecovery(recoveryLog);
+      return { error: "この条件ではアルバムを完成できませんでした。別の写真で組み直すか、写真を追加できます。", status: "action_required" };
+    }
   }
+  const recoveryLog = { spreadCount: plan.spreads.length, initialUnsafeSpreadCount: editorial.recovery.initialUnsafeSpreadCount, templateFallbackCount: editorial.recovery.templateFallbackCount, photoReassignmentCount: editorial.recovery.photoReassignmentCount, bestShotReplacementCount: editorial.recovery.bestShotReplacementCount, densityFallbackCount: editorial.recovery.densityFallbackCount, adjacentReflowCount: editorial.recovery.adjacentReflowCount, safeFallbackUsedCount: editorial.recovery.safeFallbackUsedCount, unrecoveredCount: editorial.recovery.unrecoveredCount };
+  console.info("albumLayoutRecovery", recoveryLog);
+  timing.layoutRecovery(recoveryLog);
+  plan.spreads = editorial.stories;
   timing.end("09_layout_planning", editorial.spreads.length);
   timing.measured("10_crop_calculation", editorial.performance.cropStartedAt, editorial.performance.cropDurationMs, editorial.performance.cropItemCount);
   timing.work({ sourceQueryCount, analysisQueryCount: inputs.metadataQueryCount, cropCalculatedCount: editorial.performance.cropItemCount, cropReusedCount: editorial.performance.cropReusedCount, layoutCandidateCount: editorial.performance.layoutCandidateCount, visionCallCount: 0, originalDownloadCount: 0 });

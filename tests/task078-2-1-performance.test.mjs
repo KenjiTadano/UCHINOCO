@@ -148,12 +148,18 @@ test("all sixteen phases have safe duration/count records, aborted phases close 
     () => clock,
   );
   timing.counts({ eligiblePhotoCount: 28, selectedSourcePhotoCount: 24, existingIntelligenceCount: 24, missingIntelligenceCount: 4, cropAnalysisRequiredCount: 4, layoutPlanningSpreadCount: 24, metadataQueryCount: 1, legacyTechnicalFallbackCount: 0, failedAnalysisCount: 4, eligibleReady: 24, requiredEligible: 24, excludedFailedCount: 4, proceededWithFailedExcluded: true, queueQueryCount: 1, queueStatusAvailable: true });
+  timing.layoutRecovery({ spreadCount: 12, initialUnsafeSpreadCount: 1, templateFallbackCount: 1, photoReassignmentCount: 0, bestShotReplacementCount: 0, densityFallbackCount: 0, adjacentReflowCount: 0, safeFallbackUsedCount: 1, unrecoveredCount: 0 });
   const capacityLog = records[0];
   assert.equal(capacityLog.eligibleReady, 24);
   assert.equal(capacityLog.requiredEligible, 24);
   assert.equal(capacityLog.excludedFailedCount, 4);
   assert.equal(capacityLog.proceededWithFailedExcluded, true);
   assert.equal(Object.keys(capacityLog).some((key) => /photo.?id|email|caption/i.test(key)), false);
+  const recoveryLog = records[1];
+  assert.equal(recoveryLog.event, "layout_recovery");
+  assert.equal(recoveryLog.safeFallbackUsedCount, 1);
+  assert.equal(recoveryLog.unrecoveredCount, 0);
+  assert.equal(Object.keys(recoveryLog).some((key) => /photo.?id|email|caption/i.test(key)), false);
   for (const phase of GENERATION_PHASES) {
     timing.start(phase, 36);
     clock += 10;

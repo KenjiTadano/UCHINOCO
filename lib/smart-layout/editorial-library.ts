@@ -62,5 +62,31 @@ export const EDITORIAL_TEMPLATES: EditorialTemplate[] = [
   make("QUIET", [[.04,.14,.40,.72]], "quiet", "quiet"),
   make("CLOSING", [[.56,.14,.40,.72]], "quiet", "closing"),
 ];
+
+const SAFE_FALLBACK_RECTS: Record<number, Rect[]> = {
+  1: [[.05,.06,.38,.88]],
+  2: [[.05,.06,.38,.88],[.57,.06,.38,.88]],
+  3: [[.05,.06,.38,.88],[.55,.06,.20,.42],[.77,.52,.20,.42]],
+  4: [[.02,.04,.20,.44],[.26,.04,.20,.44],[.54,.52,.20,.44],[.78,.52,.20,.44]],
+  5: [[.02,.04,.20,.44],[.26,.52,.20,.44],[.54,.04,.20,.44],[.78,.04,.20,.44],[.54,.52,.44,.44]],
+  6: [[.02,.04,.20,.44],[.26,.04,.20,.44],[.02,.52,.20,.44],[.54,.04,.20,.44],[.78,.04,.20,.44],[.54,.52,.44,.44]],
+};
+
+const BASE_SAFE_FALLBACK_TEMPLATES: EditorialTemplate[] = Object.entries(SAFE_FALLBACK_RECTS).flatMap(([count, rects]) => {
+  const composition = Number(count) === 1 ? "quiet" : "editorial";
+  const mirrored = rects.map(([x, y, w, h]) => [1 - x - w, y, w, h] as Rect);
+  return [
+    make(`SAFE_FALLBACK_${count}`, rects, composition, `safe-fallback-${count}-a`),
+    make(`SAFE_FALLBACK_${count}_MIRRORED`, mirrored, composition, `safe-fallback-${count}-b`),
+  ];
+});
+
+export const SAFE_FALLBACK_TEMPLATES: EditorialTemplate[] = [
+  ...BASE_SAFE_FALLBACK_TEMPLATES,
+  make("SAFE_FALLBACK_1_LANDSCAPE", [[.02,.30,.44,.40]], "quiet", "safe-fallback-1-landscape-left"),
+  make("SAFE_FALLBACK_1_LANDSCAPE_MIRRORED", [[.54,.30,.44,.40]], "quiet", "safe-fallback-1-landscape-right"),
+];
+
+EDITORIAL_TEMPLATES.push(...SAFE_FALLBACK_TEMPLATES);
 export const EDITORIAL_LIBRARY_SIZE = EDITORIAL_TEMPLATES.length + COVER_TEMPLATES.length;
 export function editorialTemplate(id: string) { return EDITORIAL_TEMPLATES.find(t => t.id === id); }

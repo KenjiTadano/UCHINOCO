@@ -28,6 +28,16 @@ export const ALBUM_DRAFT_CONFIG = {
     /** One photo should fill a meaningful part of its page. */
     minSinglePageRatio: 0.32,
   },
+  recovery: {
+    initialLayoutCandidates: 6,
+    recoveryLayoutCandidates: 8,
+    roleReassignmentAttempts: 3,
+    bestShotReplacementCandidates: 8,
+    recoveryStrategyAttempts: 8,
+    densityFallbackAttempts: 2,
+    adjacentReflowRange: 1,
+    wholeAlbumRepairPasses: 2,
+  },
   book: {
     canvas: { width: 1076, height: 1264 },
     left: { x: 115, y: (1264 - 414 / ALBUM_PRINT_SPEC.pageAspectRatio) / 2, w: 414, h: 414 / ALBUM_PRINT_SPEC.pageAspectRatio },

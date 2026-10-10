@@ -44,6 +44,7 @@ export type LayoutEvaluationWork = {
   cropDurationMs: number;
   cropItemCount: number;
   cropReusedCount: number;
+  layoutCandidateCount?: number;
 };
 
 function buildMatchMatrix(photos: LayoutPhotoInput[], frames: AlbumFrameDefinition[], work?: LayoutEvaluationWork): Cell[][] {

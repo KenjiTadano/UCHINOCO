@@ -255,7 +255,10 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   }
 
   function rememberForPhotoAdd() {
-    if (intent) return;
+    if (intent) {
+      saveIntent({ ...intent, phase: "preparing" });
+      return;
+    }
     saveIntent({ id: crypto.randomUUID(), petId, petIds: selectedIds, period: selected, pageCount, periodFrom, periodTo, requestedAt: new Date().toISOString(), phase: "preparing" });
   }
 
@@ -391,9 +394,11 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
 
         {recovery ? (
           <RecoveryState
-            title="ここから続けられます"
+            title={state.recoveryReason === "layout" ? "別の写真でアルバムを完成できます" : "ここから続けられます"}
             description={recovery}
-            primaryAction={
+            primaryAction={state.recoveryReason === "layout"
+              ? { label: "別の写真を見直す", href: `/pets/${petId}`, onClick: cancelIntent }
+              :
               state.recoveryHref
                 ? { label: "ログインして続ける", href: state.recoveryHref }
                 : state.status === "failed" || state.status === "action_required"
@@ -408,7 +413,10 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
                       },
                     }
             }
-            secondaryAction={{ label: "アルバム一覧へ戻る", href: backHref }}
+            secondaryAction={state.recoveryReason === "layout"
+              ? { label: "写真を追加", href: `/pets/${petId}/photos/new?returnTo=${encodeURIComponent(`/pets/${petId}/album/new`)}`, onClick: rememberForPhotoAdd }
+              : { label: "アルバム一覧へ戻る", href: backHref }}
+            tertiaryAction={state.recoveryReason === "layout" ? { label: "作成条件を変更", onClick: cancelIntent } : undefined}
           />
         ) : shortage && readiness ? (
           <RecoveryState

@@ -32,10 +32,12 @@ test("capacity thresholds and recommendation share one exact page-count model", 
   assert.equal(recommendAlbumPageCount(11), null);
   assert.equal(recommendAlbumPageCount(12), 24);
   assert.equal(recommendAlbumPageCount(23), 24);
-  assert.equal(recommendAlbumPageCount(24), 48);
-  assert.equal(recommendAlbumPageCount(35), 48);
-  assert.equal(recommendAlbumPageCount(36), 72);
-  assert.equal(recommendAlbumPageCount(40), 72);
+  assert.equal(recommendAlbumPageCount(24), null);
+  assert.equal(recommendAlbumPageCount(35), null);
+  assert.equal(recommendAlbumPageCount(36), 48);
+  assert.equal(recommendAlbumPageCount(40), 48);
+  assert.equal(recommendAlbumPageCount(59), 48);
+  assert.equal(recommendAlbumPageCount(60), 72);
   assert.deepEqual(albumCapacities(40).map((capacity) => capacity.available), [true, true, true]);
   assert.equal(initialAlbumPageCount(48, 72, false), 72);
   assert.equal(initialAlbumPageCount(48, 72, true), 48);
@@ -161,6 +163,7 @@ test("ownership, frozen range, ID uniqueness and ready preflight are server enfo
   assert.match(action, /albumCapacityState\(eligibleReady, requiredEligible, pendingSourceCount\)/);
   assert.match(action, /excludedFailedCount/);
   assert.match(action, /proceededWithFailedExcluded/);
+  assert.match(action, /recoveryReason: "layout"/);
   assert.match(action, /console\.info\("albumAutoResume", input\)/);
   assert.match(action, /autoResumeTriggered = formData\.get\("autoResumeTriggered"\)/);
   assert.match(action, /duplicateSuppressed: status === "in_progress"/);
@@ -202,6 +205,10 @@ test("client reload, cancelled intent, blocked double-submit and all recoveries 
   assert.match(client, /manualPageSelection\.current = true/);
   assert.doesNotMatch(client, /pageCount \/ 2/);
   assert.match(client, /作成条件を変更/);
+  assert.match(client, /別の写真を見直す/);
+  assert.match(client, /写真を追加/);
+  assert.match(client, /tertiaryAction/);
+  assert.doesNotMatch(client, /Crop Safety|layout failed|template error|geometry|slot|spread validation/i);
   assert.match(recovery, /role="status" aria-live="polite"/);
   assert.match(recovery, /min-h-11/);
   assert.match(recovery, /min-w-0/);

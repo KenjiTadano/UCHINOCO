@@ -2,10 +2,10 @@ export const ALBUM_PAGE_COUNTS = [24, 48, 72] as const;
 export type AlbumPageCount = (typeof ALBUM_PAGE_COUNTS)[number];
 
 export const ALBUM_CAPACITIES = {
-  24: { pageCount: 24, requiredEligible: 12, description: "コンパクトに残す" },
-  48: { pageCount: 48, requiredEligible: 24, description: "思い出をしっかり残す" },
-  72: { pageCount: 72, requiredEligible: 36, description: "たっぷり残す" },
-} as const satisfies Record<AlbumPageCount, { pageCount: AlbumPageCount; requiredEligible: number; description: string }>;
+  24: { pageCount: 24, requiredEligible: 12, recommendedEligibleRange: { min: 12, max: 23 }, description: "コンパクトに残す" },
+  48: { pageCount: 48, requiredEligible: 24, recommendedEligibleRange: { min: 36, max: 59 }, description: "思い出をしっかり残す" },
+  72: { pageCount: 72, requiredEligible: 36, recommendedEligibleRange: { min: 60, max: null }, description: "たっぷり残す" },
+} as const satisfies Record<AlbumPageCount, { pageCount: AlbumPageCount; requiredEligible: number; recommendedEligibleRange: { min: number; max: number | null }; description: string }>;
 
 export function requiredEligiblePhotos(pageCount: AlbumPageCount) {
   return ALBUM_CAPACITIES[pageCount].requiredEligible;
@@ -16,10 +16,10 @@ export function albumCapacityState(eligible: number, required: number, pending: 
 }
 
 export function recommendAlbumPageCount(eligible: number): AlbumPageCount | null {
-  if (eligible >= requiredEligiblePhotos(72)) return 72;
-  if (eligible >= requiredEligiblePhotos(48)) return 48;
-  if (eligible >= requiredEligiblePhotos(24)) return 24;
-  return null;
+  return [...ALBUM_PAGE_COUNTS].reverse().find((pageCount) => {
+    const range = ALBUM_CAPACITIES[pageCount].recommendedEligibleRange;
+    return eligible >= range.min && (range.max === null || eligible <= range.max);
+  }) ?? null;
 }
 
 export function initialAlbumPageCount(current: AlbumPageCount, recommended: AlbumPageCount | null, manuallySelected: boolean) {

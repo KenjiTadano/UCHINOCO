@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import { parseAlbumSetup } from "../lib/album-setup.ts";
-import { planEditorialAlbum, buildEditorialDraft, auditAlbumRhythm, editorialPageText } from "../lib/album-draft/editorial.ts";
-import { EDITORIAL_TEMPLATES, EDITORIAL_LIBRARY_SIZE } from "../lib/smart-layout/editorial-library.ts";
+import { planEditorialAlbum, buildEditorialDraft, auditAlbumRhythm, editorialPageText, reflowAdjacentSpread, candidateDrafts } from "../lib/album-draft/editorial.ts";
+import { buildSpreadDraft } from "../lib/album-draft/draft.ts";
+import { EDITORIAL_TEMPLATES, EDITORIAL_LIBRARY_SIZE, SAFE_FALLBACK_TEMPLATES } from "../lib/smart-layout/editorial-library.ts";
 import { placeFrames } from "../lib/album-draft/pages.ts";
 import { findDraftLayout, toPreviewSpread } from "../lib/album-persistence/preview.ts";
 import { polishForLayout } from "../lib/album-polish/catalog.ts";
@@ -20,8 +21,12 @@ test("setup defaults to all pets and 48 body pages; subsets and Japan custom dat
  form.delete("petIds");form.append("petIds","pet1");form.set("periodTo","2026-02-30");assert.throws(()=>parseAlbumSetup(form,["pet1"]));
  form.set("period","3months");form.set("pageCount","36");assert.throws(()=>parseAlbumSetup(form,["pet1"]));
 });
-test("all 40 designs are registered; body slots retain geometry and do not cross the binding",()=>{
- assert.equal(EDITORIAL_LIBRARY_SIZE,40);assert.equal(new Set(EDITORIAL_TEMPLATES.map(t=>t.id)).size,34);
+test("editorial and mirrored safe-fallback designs are registered; body slots retain geometry and do not cross the binding",()=>{
+ assert.equal(EDITORIAL_LIBRARY_SIZE,54);assert.equal(new Set(EDITORIAL_TEMPLATES.map(t=>t.id)).size,48);
+ assert.deepEqual([...new Set(SAFE_FALLBACK_TEMPLATES.map(t=>t.photoCount))],[1,2,3,4,5,6]);
+ assert.ok(SAFE_FALLBACK_TEMPLATES.every(t=>SAFE_FALLBACK_TEMPLATES.filter(candidate=>candidate.photoCount===t.photoCount).length>=2));
+ assert.ok(SAFE_FALLBACK_TEMPLATES.some(t=>t.id==="E_SAFE_FALLBACK_1_LANDSCAPE"));
+ assert.ok(SAFE_FALLBACK_TEMPLATES.every(t=>t.printSafe&&t.cropSafety==="strict"));
  for(const t of EDITORIAL_TEMPLATES){assert.equal(findDraftLayout(t.id)?.id,t.id);assert.equal(t.frames.length,t.photoCount);assert.ok(t.similarGroup && t.cropSafety && t.avoidAfter.length);
   const slots=placeFrames(t.frames,new Map());assert.equal(slots.length,t.photoCount);
   for(const a of slots){assert.equal(a.crossesGutter,false);assert.ok(a.rect.w>0 && a.rect.h>0);assert.ok(a.gutterClearance>0);}
@@ -66,9 +71,57 @@ test("production layout candidates are crop-safe, persistable and audited as a w
   assert.deepEqual(saved.assignments.map(a=>a.cropFrame.aspectRatio),s.assignments.map(a=>a.cropFrame.aspectRatio));
  }
 });
+test("safe fallback layout for every density remains registered and passes normal crop gates",()=>{
+ const photo=ranked(1,1)[0];const story={id:"editorial-safe",sceneIds:[photo.groupId],photoIds:[photo.photoId],primaryPhotoIds:[photo.photoId],secondaryPhotoIds:[],startedAt:photo.timeline,endedAt:photo.timeline,storyType:"single",theme:{},coherenceScore:100,importance:95,recommendedDensity:"hero",warnings:[],analysisVersion:"fixture"};
+ const draft=buildEditorialDraft([story],layoutPhotos([photo]),{[story.id]:"2026年8月"});
+ assert.equal(draft.spreads.length,1);assert.equal(draft.recovery.unrecoveredCount,0);assert.ok(draft.spreads[0].status!=="unusable");
+ assert.deepEqual([...new Set(SAFE_FALLBACK_TEMPLATES.map(t=>t.photoCount))],[1,2,3,4,5,6]);
+ const fallback=buildSpreadDraft(story,layoutPhotos([photo]),undefined,["E_SAFE_FALLBACK_1"]);
+ assert.equal(fallback.layoutId,"E_SAFE_FALLBACK_1");assert.notEqual(fallback.status,"unusable");
+});
+test("bounded layout recovery tries ranked candidates then the safe fallback after initial candidates are unsafe",()=>{
+ const photo=ranked(1,1)[0];const story={id:"editorial-1",sceneIds:[photo.groupId],photoIds:[photo.photoId],primaryPhotoIds:[photo.photoId],secondaryPhotoIds:[],startedAt:photo.timeline,endedAt:photo.timeline,storyType:"single",theme:{},coherenceScore:100,importance:95,recommendedDensity:"hero",warnings:[],analysisVersion:"fixture"};
+ const calls=[];const evaluate=(_story,_photos,_context,layoutIds)=>{calls.push(layoutIds[0]);return {layoutId:layoutIds[0],status:layoutIds[0].startsWith("E_SAFE_FALLBACK_")?"ready":"unusable"};};
+ const work={cells:new Map(),cropDurationMs:0,cropItemCount:0,cropReusedCount:0};
+ assert.equal(candidateDrafts(story,layoutPhotos([photo]),work,false,evaluate).length,0);
+ const recovered=candidateDrafts(story,layoutPhotos([photo]),work,true,evaluate);
+ assert.ok(recovered.some(draft=>draft.layoutId==="E_SAFE_FALLBACK_1"));
+ assert.ok(calls.length<=16);
+});
+test("unrecoverable primary crop is replaced by a same-scene eligible Best Shot",()=>{
+ const photo=ranked(1,1)[0];const story={id:"editorial-1",sceneIds:[photo.groupId],photoIds:[photo.photoId],primaryPhotoIds:[photo.photoId],secondaryPhotoIds:[],startedAt:photo.timeline,endedAt:photo.timeline,storyType:"single",theme:{},coherenceScore:100,importance:95,recommendedDensity:"hero",warnings:[],analysisVersion:"fixture"};
+ const unsafe=layoutPhotos([photo])[0];unsafe.analysis.focalPoint={x:.98,y:.08};unsafe.analysis.pets=[{bbox:{x:.85,y:.01,width:.14,height:.98},face:{x:.9,y:.01,width:.1,height:.2},confidence:.95}];
+ const replacement={...ranked(1,1)[0],photoId:"replacement",groupId:photo.groupId,candidate:{...photo.candidate,photoId:"replacement"}};
+ const replacementLayout=layoutPhotos([replacement])[0];
+ const recovered=buildEditorialDraft([story],[unsafe,replacementLayout],{[story.id]:"2026年8月"},undefined,{[story.id]:[replacement.photoId]});
+ assert.equal(recovered.recovery.bestShotReplacementCount,1);
+ assert.deepEqual(recovered.selectedPhotoIds,["replacement"]);
+ assert.ok(!recovered.audit.issues.some(issue=>issue.blocking));
+ assert.equal(new Set(recovered.spreads.flatMap(spread=>spread.assignments.map(frame=>frame.photoId))).size,1);
+});
+test("exhausted safety recovery returns generic actionable failure metadata without crop terminology",()=>{
+ const photo=ranked(1,1)[0];const story={id:"editorial-1",sceneIds:[photo.groupId],photoIds:[photo.photoId],primaryPhotoIds:[photo.photoId],secondaryPhotoIds:[],startedAt:photo.timeline,endedAt:photo.timeline,storyType:"single",theme:{},coherenceScore:100,importance:95,recommendedDensity:"hero",warnings:[],analysisVersion:"fixture"};
+ const unsafe=layoutPhotos([photo])[0];unsafe.analysis.focalPoint={x:.98,y:.08};unsafe.analysis.pets=[{bbox:{x:.85,y:.01,width:.14,height:.98},face:{x:.9,y:.01,width:.1,height:.2},confidence:.95}];
+ assert.throws(()=>buildEditorialDraft([story],[unsafe],{[story.id]:"2026年8月"}),error=>{
+  assert.deepEqual(error.unrecoveredSpreadIndices,[0]);
+  assert.match(error.message,/アルバムを完成できませんでした/);
+  assert.doesNotMatch(error.message,/Crop|crop|Layout|template|配置|ページ数や対象期間/);
+  return true;
+ });
+});
+test("adjacent density fallback reflows 5+2 photos to 4+3 without duplicates or page loss",()=>{
+ const makeSpread=(id,count)=>({id,sceneIds:[id],photoIds:Array.from({length:count},(_,i)=>`${id}-p${i}`),primaryPhotoIds:[`${id}-p0`],secondaryPhotoIds:Array.from({length:count-1},(_,i)=>`${id}-p${i+1}`),startedAt:"2026-08-01",endedAt:"2026-08-01",storyType:"sequence",theme:{},coherenceScore:90,importance:80,recommendedDensity:"dense",warnings:[],analysisVersion:"fixture"});
+ const stories=[makeSpread("a",5),makeSpread("b",2)];const result=reflowAdjacentSpread(stories,0,1);
+ assert.deepEqual(result.map(story=>story.photoIds.length),[4,3]);
+ const ids=result.flatMap(story=>story.photoIds);assert.equal(ids.length,7);assert.equal(new Set(ids).size,7);
+ assert.equal(reflowAdjacentSpread([makeSpread("full",5),makeSpread("at-cap",6)],0,1),null);
+});
 test("creation saves multi-pet drafts, all source IDs and preview-first; Best Shot batching remains intact",()=>{
  const source=readFileSync(new URL("../app/(app)/pets/[petId]/album/new/actions.ts",import.meta.url),"utf8");
  assert.match(source,/buildEditorialDraft/);assert.match(source,/requested_body_pages/);assert.match(source,/generation_photo_ids/);assert.match(source,/\?view=preview/);assert.doesNotMatch(source,/if \(selectedPets.length === 1\)/);
+ assert.match(source,/story\.sceneIds\.includes\(photo\.groupId\)/);assert.match(source,/photo\.candidate\.role !== "alternate"/);assert.match(source,/photo\.candidate\.scores\.technical >= 25/);assert.match(source,/timing\.layoutRecovery\(/);
+ assert.match(source,/console\.info\("albumLayoutRecovery", recoveryLog\)/);
+ for(const key of ["spreadCount","initialUnsafeSpreadCount","templateFallbackCount","photoReassignmentCount","bestShotReplacementCount","densityFallbackCount","adjacentReflowCount","safeFallbackUsedCount","unrecoveredCount"]) assert.ok(source.includes(key));
  const shots=readFileSync(new URL("../app/(app)/dev/best-shot/actions.ts",import.meta.url),"utf8");assert.match(shots,/chunkPhotoIds\(photoIds\)/);assert.match(shots,/uniquePhotoIds\(grouped.groups/);
 });
 

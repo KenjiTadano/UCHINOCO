@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 type RecoveryAction = { label: string; href?: string; onClick?: () => void };
-export function RecoveryState({ title, description, progress, primaryAction, secondaryAction }: { title: string; description: string; progress?: { ready: number; total: number }; primaryAction?: RecoveryAction; secondaryAction?: RecoveryAction }) {
+export function RecoveryState({ title, description, progress, primaryAction, secondaryAction, tertiaryAction }: { title: string; description: string; progress?: { ready: number; total: number }; primaryAction?: RecoveryAction; secondaryAction?: RecoveryAction; tertiaryAction?: RecoveryAction }) {
   const action = (item: RecoveryAction, primary: boolean) =>
     item.href ? (
       <Link className={`ds-focus min-h-11 ${primary ? "app-button-primary" : "app-button-secondary"}`} href={item.href} onClick={item.onClick}>
@@ -25,6 +25,7 @@ export function RecoveryState({ title, description, progress, primaryAction, sec
       </div>
       {primaryAction ? action(primaryAction, true) : null}
       {secondaryAction ? action(secondaryAction, false) : null}
+      {tertiaryAction ? action(tertiaryAction, false) : null}
     </section>
   );
 }
