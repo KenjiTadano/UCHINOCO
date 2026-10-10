@@ -169,7 +169,7 @@ test("unrecoverable primary crop is replaced by a same-scene eligible Best Shot"
   unsafe.analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
   const replacement = { ...ranked(1, 1)[0], photoId: "replacement", groupId: photo.groupId, candidate: { ...photo.candidate, photoId: "replacement" } };
   const replacementLayout = layoutPhotos([replacement])[0];
-  const recovered = buildEditorialDraft([story], [unsafe, replacementLayout], { [story.id]: "2026年8月" }, undefined, { [story.id]: [replacement.photoId] });
+  const recovered = buildEditorialDraft([story], [unsafe, replacementLayout], { [story.id]: "2026年8月" }, undefined, { [story.id]: [replacement.photoId] }, { [replacement.photoId]: "same_scene_replacement" });
   assert.equal(recovered.recovery.bestShotReplacementCount, 1);
   assert.equal(recovered.recovery.bestShotReplacementAttemptCount, 1);
   assert.equal(recovered.recovery.globalReplacementAttemptCount, 0);
@@ -193,6 +193,20 @@ test("global Best Shot replacement is counted separately from same-scene recover
   assert.equal(result.recovery.usedPhotoCount, 1);
   assert.equal(result.recovery.unusedPhotoCount, 1);
   assert.deepEqual(result.selectedPhotoIds, [global.photoId]);
+});
+test("single-photo spread rescues via an unused eligible replacement even without a prebuilt replacement map", () => {
+  const photo = ranked(1, 1)[0];
+  const story = { id: "editorial-single-rescue", sceneIds: [photo.groupId], photoIds: [photo.photoId], primaryPhotoIds: [photo.photoId], secondaryPhotoIds: [], startedAt: photo.timeline, endedAt: photo.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" };
+  const unsafe = layoutPhotos([photo])[0];
+  unsafe.analysis.focalPoint = { x: 0.98, y: 0.08 };
+  unsafe.analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
+  const replacement = { ...ranked(1, 1)[0], photoId: "single-rescue", groupId: "other-scene", petId: "pet-b", candidate: { ...photo.candidate, photoId: "single-rescue", scores: { ...photo.candidate.scores, technical: 96, overall: 95 } } };
+  const replacementLayout = layoutPhotos([replacement])[0];
+  const result = buildEditorialDraft([story], [unsafe, replacementLayout], { [story.id]: "2026年8月" });
+  assert.equal(result.recovery.globalReplacementAttemptCount, 1);
+  assert.equal(result.recovery.globalReplacementSuccessCount, 1);
+  assert.deepEqual(result.selectedPhotoIds, ["single-rescue"]);
+  assert.equal(result.recovery.spreadDiagnostics[0].finalPhotoCount, 1);
 });
 test("three-photo unsafe spread drops the persistent unsafe contributor and rebuilds safely above minimum unique count", () => {
   const input = layoutPhotos(ranked(3, 1));
