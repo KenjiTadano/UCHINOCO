@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import { parseAlbumSetup } from "../lib/album-setup.ts";
-import { planEditorialAlbum, buildEditorialDraft, auditAlbumRhythm, editorialPageText, reflowAdjacentSpread, candidateDrafts } from "../lib/album-draft/editorial.ts";
+import { planEditorialAlbum, buildEditorialDraft, auditAlbumRhythm, editorialPageText, reflowAdjacentSpread, candidateDrafts, classifyLayoutRecoveryFailures, createSpreadLayoutRecoveryDiagnostic, evaluateSpreadLayoutCandidates, recordSpreadLayoutCandidates } from "../lib/album-draft/editorial.ts";
 import { buildSpreadDraft } from "../lib/album-draft/draft.ts";
 import { EDITORIAL_TEMPLATES, EDITORIAL_LIBRARY_SIZE, SAFE_FALLBACK_TEMPLATES } from "../lib/smart-layout/editorial-library.ts";
 import { placeFrames } from "../lib/album-draft/pages.ts";
@@ -106,6 +106,18 @@ test("exhausted safety recovery returns generic actionable failure metadata with
   assert.deepEqual(error.unrecoveredSpreadIndices,[0]);
   assert.match(error.message,/アルバムを完成できませんでした/);
   assert.doesNotMatch(error.message,/Crop|crop|Layout|template|配置|ページ数や対象期間/);
+  const diagnostic=error.recoveryStats.spreadDiagnostics[0];
+  assert.equal(diagnostic.spreadIndex,0);assert.equal(diagnostic.photoCount,1);assert.equal(diagnostic.initialCandidateCount,6);
+  assert.equal(diagnostic.safeFallbackCandidateCount,3);assert.equal(diagnostic.replacementAvailable,false);
+  assert.equal(diagnostic.outcome,"unrecovered");assert.equal(diagnostic.recoveryReached,"density_fallback");
+  assert.deepEqual(diagnostic.recoveryStagesReached,["initial","template_fallback","safe_fallback","role_reassignment","best_shot_replacement","density_fallback"]);
+  assert.ok(diagnostic.strictCandidateCount+diagnostic.fallbackCandidateCount>0);
+  assert.ok(diagnostic.failureReasonCounts.cropUnsafe>0);assert.ok(diagnostic.failureReasonCounts.sourceSubjectAlreadyClipped>0);
+  assert.equal(error.recoveryStats.templateFallbackAttemptCount,2);assert.equal(error.recoveryStats.safeFallbackAttemptCount,3);
+  assert.equal(error.recoveryStats.templateFallbackCount,0);assert.equal(error.recoveryStats.safeFallbackUsedCount,0);
+  assert.equal(error.recoveryStats.bestShotReplacementAttemptCount,0);assert.equal(error.recoveryStats.adjacentReflowAttemptCount,0);
+  assert.equal(error.recoveryStats.failureReasonCounts.noReplacementCandidate,1);assert.equal(error.recoveryStats.failureReasonCounts.reflowUnavailable,1);
+  assert.equal(error.recoveryStats.failureReasonCounts.noSafeFallback,0);
   return true;
  });
 });
@@ -116,12 +128,38 @@ test("adjacent density fallback reflows 5+2 photos to 4+3 without duplicates or 
  const ids=result.flatMap(story=>story.photoIds);assert.equal(ids.length,7);assert.equal(new Set(ids).size,7);
  assert.equal(reflowAdjacentSpread([makeSpread("full",5),makeSpread("at-cap",6)],0,1),null);
 });
+test("layout recovery failures are classified into aggregate reasons without identifiers",()=>{
+ const counts=classifyLayoutRecoveryFailures({warnings:["EAR_UNSAFE","GUTTER_CROSS","UNUSABLE_FRAME","SECONDARY_DOMINATES"],sourceSubjectAlreadyClipped:true,noReplacementCandidate:true,reflowUnavailable:true});
+ assert.equal(counts.cropUnsafe,1);assert.equal(counts.gutterViolation,1);assert.equal(counts.frameInvalid,1);assert.equal(counts.heroHierarchyViolation,1);
+ assert.equal(counts.sourceSubjectAlreadyClipped,1);assert.equal(counts.noReplacementCandidate,1);assert.equal(counts.reflowUnavailable,1);assert.equal(counts.other,0);
+ assert.equal(classifyLayoutRecoveryFailures({warnings:["NO_LAYOUT_FOR_COUNT"]}).noMatchingTemplate,1);
+ assert.equal(Object.keys(counts).some(key=>/photo.?id|email|caption/i.test(key)),false);
+});
+test("per-spread diagnostics distinguish evaluated rejected fallbacks from a missing fallback lookup",()=>{
+ const photo=ranked(1,1)[0];const story={id:"editorial-diag",sceneIds:[photo.groupId],photoIds:[photo.photoId],primaryPhotoIds:[photo.photoId],secondaryPhotoIds:[],startedAt:photo.timeline,endedAt:photo.timeline,storyType:"single",theme:{},coherenceScore:100,importance:95,recommendedDensity:"hero",warnings:[],analysisVersion:"fixture"};
+ const layout=SAFE_FALLBACK_TEMPLATES.find(item=>item.photoCount===1);const work={cells:new Map(),cropDurationMs:0,cropItemCount:0,cropReusedCount:0};
+ const rejected=awaitCandidates(layout,work);
+ const diagnostic=createSpreadLayoutRecoveryDiagnostic(2,story);recordSpreadLayoutCandidates(diagnostic,rejected.diagnostics,"safe_fallback");
+ assert.equal(diagnostic.spreadIndex,2);assert.equal(diagnostic.photoCount,1);assert.equal(diagnostic.safeFallbackCandidateCount,1);
+ assert.equal(diagnostic.fallbackCandidateCount,1);assert.equal(diagnostic.failureReasonCounts.cropUnsafe,1);assert.equal(diagnostic.failureReasonCounts.noSafeFallback,0);
+ const absent=createSpreadLayoutRecoveryDiagnostic(2,story);const missing=evaluateSpreadLayoutCandidates(story,layoutPhotos([photo]),[],work,undefined,"safe_fallback");recordSpreadLayoutCandidates(absent,missing.diagnostics,"safe_fallback");
+ assert.equal(absent.safeFallbackCandidateCount,0);assert.equal(absent.failureReasonCounts.noSafeFallback,1);
+ assert.equal(absent.failureReasonCounts.noMatchingTemplate,0);
+ const noTemplate=createSpreadLayoutRecoveryDiagnostic(2,story);const missingTemplate=evaluateSpreadLayoutCandidates(story,layoutPhotos([photo]),[],work,undefined,"initial",false);recordSpreadLayoutCandidates(noTemplate,missingTemplate.diagnostics,"initial");
+ assert.equal(noTemplate.failureReasonCounts.noMatchingTemplate,1);
+ assert.equal(Object.keys(diagnostic).some(key=>/photo.?id|email|caption/i.test(key)),false);
+ function awaitCandidates(candidateLayout,candidateWork) {
+  return evaluateSpreadLayoutCandidates(story,layoutPhotos([photo]),[candidateLayout],candidateWork,(_story,_photos,_context,layoutIds)=>({layoutId:layoutIds[0],status:"unusable",warnings:["EAR_UNSAFE"],selectedLayout:{tier:"FALLBACK"}}),"safe_fallback");
+ }
+});
 test("creation saves multi-pet drafts, all source IDs and preview-first; Best Shot batching remains intact",()=>{
  const source=readFileSync(new URL("../app/(app)/pets/[petId]/album/new/actions.ts",import.meta.url),"utf8");
+ const recoveryTypes=readFileSync(new URL("../lib/album-draft/editorial.ts",import.meta.url),"utf8");
  assert.match(source,/buildEditorialDraft/);assert.match(source,/requested_body_pages/);assert.match(source,/generation_photo_ids/);assert.match(source,/\?view=preview/);assert.doesNotMatch(source,/if \(selectedPets.length === 1\)/);
  assert.match(source,/story\.sceneIds\.includes\(photo\.groupId\)/);assert.match(source,/photo\.candidate\.role !== "alternate"/);assert.match(source,/photo\.candidate\.scores\.technical >= 25/);assert.match(source,/timing\.layoutRecovery\(/);
- assert.match(source,/console\.info\("albumLayoutRecovery", recoveryLog\)/);
- for(const key of ["spreadCount","initialUnsafeSpreadCount","templateFallbackCount","photoReassignmentCount","bestShotReplacementCount","densityFallbackCount","adjacentReflowCount","safeFallbackUsedCount","unrecoveredCount"]) assert.ok(source.includes(key));
+ assert.match(source,/function logAlbumLayoutRecovery\(/);assert.match(source,/console\.info\("albumLayoutRecovery", record\)/);
+ assert.match(source,/timing\.layoutRecovery\(record\)/);
+ for(const key of ["spreadCount","spreadDiagnostics","initialUnsafeSpreadCount","templateFallbackAttemptCount","templateFallbackCount","safeFallbackAttemptCount","photoReassignmentAttemptCount","photoReassignmentCount","bestShotReplacementAttemptCount","bestShotReplacementCount","densityFallbackAttemptCount","densityFallbackCount","adjacentReflowAttemptCount","adjacentReflowCount","safeFallbackUsedCount","unrecoveredCount","failureReasonCounts"]) assert.ok(recoveryTypes.includes(key));
  const shots=readFileSync(new URL("../app/(app)/dev/best-shot/actions.ts",import.meta.url),"utf8");assert.match(shots,/chunkPhotoIds\(photoIds\)/);assert.match(shots,/uniquePhotoIds\(grouped.groups/);
 });
 

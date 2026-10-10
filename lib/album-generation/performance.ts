@@ -58,7 +58,7 @@ export function generationPerformance(emit: (record: Record<string, unknown>) =>
     work(values: { sourceQueryCount: number; analysisQueryCount: number; cropCalculatedCount: number; cropReusedCount: number; layoutCandidateCount: number; visionCallCount: number; originalDownloadCount: number }) {
       emit({ runId, event: "work", ...values });
     },
-    layoutRecovery(values: { spreadCount: number; initialUnsafeSpreadCount: number; templateFallbackCount: number; photoReassignmentCount: number; bestShotReplacementCount: number; densityFallbackCount: number; adjacentReflowCount: number; safeFallbackUsedCount: number; unrecoveredCount: number }) {
+    layoutRecovery(values: Record<string, unknown>) {
       emit({ runId, event: "layout_recovery", ...values });
     },
   };

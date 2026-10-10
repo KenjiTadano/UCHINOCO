@@ -37,6 +37,7 @@ export const ALBUM_DRAFT_CONFIG = {
     densityFallbackAttempts: 2,
     adjacentReflowRange: 1,
     wholeAlbumRepairPasses: 2,
+    maxFallbackTemplatesPerSpread: 3,
   },
   book: {
     canvas: { width: 1076, height: 1264 },

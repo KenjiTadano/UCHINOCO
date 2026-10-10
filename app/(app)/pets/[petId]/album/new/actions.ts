@@ -10,7 +10,7 @@ import { loadStoredGenerationInputs } from "@/lib/album-generation/stored-inputs
 import { generationPerformance } from "@/lib/album-generation/performance";
 import { createPhotoPreviewUrls } from "@/lib/photo-image-delivery";
 import { parseAlbumSetup } from "@/lib/album-setup";
-import { planEditorialAlbum, buildEditorialDraft, editorialPageText, EDITORIAL_VERSION, EditorialGenerationError, type EditorialPhoto } from "@/lib/album-draft/editorial";
+import { planEditorialAlbum, buildEditorialDraft, editorialPageText, EDITORIAL_VERSION, EditorialGenerationError, type EditorialPhoto, type LayoutRecoveryStats } from "@/lib/album-draft/editorial";
 import { ALBUM_DRAFT_CONFIG } from "@/lib/album-draft/config";
 import type { LayoutPhotoInput } from "@/lib/smart-layout/types";
 import { createClient } from "@/lib/supabase/server";
@@ -37,6 +37,12 @@ function logAlbumAutoResume(input: {
   duplicateSuppressed: boolean;
 }) {
   console.info("albumAutoResume", input);
+}
+
+function logAlbumLayoutRecovery(timing: ReturnType<typeof generationPerformance>, spreadCount: number, recovery: LayoutRecoveryStats) {
+  const record = { spreadCount, ...recovery };
+  console.info("albumLayoutRecovery", record);
+  timing.layoutRecovery(record);
 }
 
 export type CreateAlbumState = {
@@ -344,9 +350,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       if (replacementIds.length >= ALBUM_DRAFT_CONFIG.recovery.bestShotReplacementCandidates) break;
     }
     if (!replacementIds.length) {
-      const recoveryLog = { spreadCount: plan.spreads.length, initialUnsafeSpreadCount: error.recoveryStats?.initialUnsafeSpreadCount ?? error.unrecoveredSpreadIndices.length, templateFallbackCount: error.recoveryStats?.templateFallbackCount ?? 0, photoReassignmentCount: error.recoveryStats?.photoReassignmentCount ?? 0, bestShotReplacementCount: 0, densityFallbackCount: error.recoveryStats?.densityFallbackCount ?? 0, adjacentReflowCount: error.recoveryStats?.adjacentReflowCount ?? 0, safeFallbackUsedCount: error.recoveryStats?.safeFallbackUsedCount ?? 0, unrecoveredCount: error.unrecoveredSpreadIndices.length };
-      console.info("albumLayoutRecovery", recoveryLog);
-      timing.layoutRecovery(recoveryLog);
+      if (error.recoveryStats) logAlbumLayoutRecovery(timing, plan.spreads.length, error.recoveryStats);
       return { error: "この条件ではアルバムを完成できませんでした。別の写真を見直すか、写真を追加できます。", status: "action_required", recoveryReason: "layout" };
     }
     const replacementSources = replacementIds.map((photoId) => candidateById.get(photoId)!).filter(Boolean);
@@ -368,15 +372,11 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       textByStory = textForStories(editorial.stories);
     } catch (recoveryError) {
       const stats = recoveryError instanceof EditorialGenerationError ? recoveryError.recoveryStats : error.recoveryStats;
-      const recoveryLog = { spreadCount: plan.spreads.length, initialUnsafeSpreadCount: stats?.initialUnsafeSpreadCount ?? error.unrecoveredSpreadIndices.length, templateFallbackCount: stats?.templateFallbackCount ?? 0, photoReassignmentCount: stats?.photoReassignmentCount ?? 0, bestShotReplacementCount: stats?.bestShotReplacementCount ?? 0, densityFallbackCount: stats?.densityFallbackCount ?? 0, adjacentReflowCount: stats?.adjacentReflowCount ?? 0, safeFallbackUsedCount: stats?.safeFallbackUsedCount ?? 0, unrecoveredCount: recoveryError instanceof EditorialGenerationError ? recoveryError.unrecoveredSpreadIndices.length : 1 };
-      console.info("albumLayoutRecovery", recoveryLog);
-      timing.layoutRecovery(recoveryLog);
+      if (stats) logAlbumLayoutRecovery(timing, plan.spreads.length, stats);
       return { error: "この条件ではアルバムを完成できませんでした。別の写真で組み直すか、写真を追加できます。", status: "action_required" };
     }
   }
-  const recoveryLog = { spreadCount: plan.spreads.length, initialUnsafeSpreadCount: editorial.recovery.initialUnsafeSpreadCount, templateFallbackCount: editorial.recovery.templateFallbackCount, photoReassignmentCount: editorial.recovery.photoReassignmentCount, bestShotReplacementCount: editorial.recovery.bestShotReplacementCount, densityFallbackCount: editorial.recovery.densityFallbackCount, adjacentReflowCount: editorial.recovery.adjacentReflowCount, safeFallbackUsedCount: editorial.recovery.safeFallbackUsedCount, unrecoveredCount: editorial.recovery.unrecoveredCount };
-  console.info("albumLayoutRecovery", recoveryLog);
-  timing.layoutRecovery(recoveryLog);
+  logAlbumLayoutRecovery(timing, plan.spreads.length, editorial.recovery);
   plan.spreads = editorial.stories;
   timing.end("09_layout_planning", editorial.spreads.length);
   timing.measured("10_crop_calculation", editorial.performance.cropStartedAt, editorial.performance.cropDurationMs, editorial.performance.cropItemCount);

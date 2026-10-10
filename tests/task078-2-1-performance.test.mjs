@@ -148,7 +148,22 @@ test("all sixteen phases have safe duration/count records, aborted phases close 
     () => clock,
   );
   timing.counts({ eligiblePhotoCount: 28, selectedSourcePhotoCount: 24, existingIntelligenceCount: 24, missingIntelligenceCount: 4, cropAnalysisRequiredCount: 4, layoutPlanningSpreadCount: 24, metadataQueryCount: 1, legacyTechnicalFallbackCount: 0, failedAnalysisCount: 4, eligibleReady: 24, requiredEligible: 24, excludedFailedCount: 4, proceededWithFailedExcluded: true, queueQueryCount: 1, queueStatusAvailable: true });
-  timing.layoutRecovery({ spreadCount: 12, initialUnsafeSpreadCount: 1, templateFallbackCount: 1, photoReassignmentCount: 0, bestShotReplacementCount: 0, densityFallbackCount: 0, adjacentReflowCount: 0, safeFallbackUsedCount: 1, unrecoveredCount: 0 });
+  const spreadDiagnostics = Array.from({ length: 12 }, (_, spreadIndex) => ({
+    spreadIndex,
+    photoCount: spreadIndex % 3 + 1,
+    outcome: spreadIndex === 3 ? "recovered" : spreadIndex < 5 ? "unrecovered" : "not_needed",
+    initialCandidateCount: 6,
+    strictCandidateCount: spreadIndex === 3 ? 1 : 0,
+    fallbackCandidateCount: spreadIndex === 3 ? 3 : 2,
+    safeFallbackCandidateCount: spreadIndex < 5 ? 3 : 0,
+    reassignmentCandidateCount: spreadIndex < 5 ? 1 : 0,
+    replacementCandidateCount: spreadIndex < 5 ? 1 : 0,
+      recoveryReached: spreadIndex === 3 ? "safe_fallback" : spreadIndex < 5 ? "density_fallback" : "initial",
+      recoveryStagesReached: spreadIndex === 3 ? ["initial", "template_fallback", "safe_fallback"] : spreadIndex < 5 ? ["initial", "template_fallback", "safe_fallback", "role_reassignment", "best_shot_replacement", "density_fallback", "adjacent_reflow"] : ["initial"],
+    replacementAvailable: spreadIndex < 5,
+    failureReasonCounts: spreadIndex < 5 ? { cropUnsafe: 4, sourceSubjectAlreadyClipped: spreadIndex % 2 } : {},
+  }));
+  timing.layoutRecovery({ spreadCount: 12, initialUnsafeSpreadCount: 5, templateFallbackAttemptCount: 10, templateFallbackCount: 1, safeFallbackAttemptCount: 15, photoReassignmentAttemptCount: 3, photoReassignmentCount: 1, bestShotReplacementAttemptCount: 2, bestShotReplacementCount: 1, densityFallbackAttemptCount: 1, densityFallbackCount: 1, adjacentReflowAttemptCount: 1, adjacentReflowCount: 1, safeFallbackUsedCount: 1, unrecoveredCount: 4, failureReasonCounts: { cropUnsafe: 12, sourceSubjectAlreadyClipped: 3, noReplacementCandidate: 2 }, spreadDiagnostics });
   const capacityLog = records[0];
   assert.equal(capacityLog.eligibleReady, 24);
   assert.equal(capacityLog.requiredEligible, 24);
@@ -157,8 +172,17 @@ test("all sixteen phases have safe duration/count records, aborted phases close 
   assert.equal(Object.keys(capacityLog).some((key) => /photo.?id|email|caption/i.test(key)), false);
   const recoveryLog = records[1];
   assert.equal(recoveryLog.event, "layout_recovery");
+  assert.equal(recoveryLog.initialUnsafeSpreadCount, 5);
+  assert.equal(recoveryLog.templateFallbackAttemptCount, 10);
+  assert.equal(recoveryLog.templateFallbackCount, 1);
   assert.equal(recoveryLog.safeFallbackUsedCount, 1);
-  assert.equal(recoveryLog.unrecoveredCount, 0);
+  assert.equal(recoveryLog.safeFallbackAttemptCount, 15);
+  assert.equal(recoveryLog.spreadDiagnostics[3].recoveryReached, "safe_fallback");
+  assert.deepEqual(recoveryLog.spreadDiagnostics[3].recoveryStagesReached, ["initial", "template_fallback", "safe_fallback"]);
+  assert.equal(recoveryLog.spreadDiagnostics.length, 12);
+  assert.equal(recoveryLog.spreadDiagnostics.filter((spread) => spread.outcome === "unrecovered").length, 4);
+  assert.equal(Object.keys(recoveryLog.spreadDiagnostics[0]).some((key) => /photo.?id|user.?id|album.?id/i.test(key)), false);
+  assert.equal(recoveryLog.unrecoveredCount, 4);
   assert.equal(Object.keys(recoveryLog).some((key) => /photo.?id|email|caption/i.test(key)), false);
   for (const phase of GENERATION_PHASES) {
     timing.start(phase, 36);
