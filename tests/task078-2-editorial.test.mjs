@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import { parseAlbumSetup } from "../lib/album-setup.ts";
-import { planEditorialAlbum, buildEditorialDraft, auditAlbumRhythm, editorialPageText, reflowAdjacentSpread, canDropUnsafePhoto, candidateDrafts, classifyLayoutRecoveryFailures, createSpreadLayoutRecoveryDiagnostic, evaluateSpreadLayoutCandidates, recordSpreadLayoutCandidates } from "../lib/album-draft/editorial.ts";
+import { planEditorialAlbum, buildEditorialDraft, auditAlbumRhythm, editorialPageText, reflowAdjacentSpread, canDropUnsafePhoto, candidateDrafts, classifyLayoutRecoveryFailures, createSpreadLayoutRecoveryDiagnostic, evaluateSpreadLayoutCandidates, recordSpreadLayoutCandidates, EditorialGenerationError } from "../lib/album-draft/editorial.ts";
 import { buildSpreadDraft } from "../lib/album-draft/draft.ts";
 import { EDITORIAL_TEMPLATES, EDITORIAL_LIBRARY_SIZE, SAFE_FALLBACK_TEMPLATES } from "../lib/smart-layout/editorial-library.ts";
+import { ALBUM_DRAFT_CONFIG } from "../lib/album-draft/config.ts";
 import { placeFrames } from "../lib/album-draft/pages.ts";
 import { findDraftLayout, toPreviewSpread } from "../lib/album-persistence/preview.ts";
 import { polishForLayout } from "../lib/album-polish/catalog.ts";
@@ -190,6 +191,9 @@ test("global Best Shot replacement is counted separately from same-scene recover
   const result = buildEditorialDraft([story], [unsafe, replacement], { [story.id]: "2026年8月" }, undefined, { [story.id]: [global.photoId] }, { [global.photoId]: "global_replacement" }, 1, 2);
   assert.equal(result.recovery.globalReplacementAttemptCount, 1);
   assert.equal(result.recovery.globalReplacementSuccessCount, 1);
+  assert.equal(result.recovery.spreadDiagnostics[0].handoffReplacementCandidateCount, 1);
+  assert.equal(result.recovery.spreadDiagnostics[0].editorialReceivedReplacementCandidateCount, 1);
+  assert.equal(result.recovery.spreadDiagnostics[0].candidateListSource, "handoff");
   assert.equal(result.recovery.usedPhotoCount, 1);
   assert.equal(result.recovery.unusedPhotoCount, 1);
   assert.deepEqual(result.selectedPhotoIds, [global.photoId]);
@@ -224,8 +228,33 @@ test("single-photo fallback evaluates unused eligible photos when the prebuilt r
   assert.equal(result.recovery.spreadDiagnostics[0].finalPhotoCount, 1);
   assert.equal(result.recovery.spreadDiagnostics[0].replacedOutPhotoCount, 1);
   assert.equal(result.recovery.spreadDiagnostics[0].replacedInPhotoCount, 1);
+  assert.equal(result.recovery.spreadDiagnostics[0].explicitCandidateListProvided, true);
+  assert.equal(result.recovery.spreadDiagnostics[0].fallbackBuilderUsed, true);
+  assert.equal(result.recovery.spreadDiagnostics[0].candidateListSource, "fallback_empty");
   const diagnostic = result.recovery.spreadDiagnostics[0];
   assert.equal(diagnostic.finalPhotoCount, diagnostic.originalPhotoCount - diagnostic.movedOutPhotoCount + diagnostic.movedInPhotoCount - diagnostic.replacedOutPhotoCount + diagnostic.replacedInPhotoCount);
+});
+test("three handed-off candidates reach recovery while a clipped unused photo is rejected", () => {
+  const photo = ranked(1, 1)[0];
+  const story = { id: "editorial-three-candidate-handoff", sceneIds: [photo.groupId], photoIds: [photo.photoId], primaryPhotoIds: [photo.photoId], secondaryPhotoIds: [], startedAt: photo.timeline, endedAt: photo.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" };
+  const unsafe = layoutPhotos([photo])[0];
+  unsafe.analysis.focalPoint = { x: 0.98, y: 0.08 };
+  unsafe.analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
+  const candidates = ranked(3, 1).map((candidate, index) => ({ ...candidate, photoId: `handoff-${index}`, groupId: `new-scene-${index}`, candidate: { ...candidate.candidate, photoId: `handoff-${index}` } }));
+  const clipped = { ...ranked(1, 1)[0], photoId: "clipped-unused", candidate: { ...photo.candidate, photoId: "clipped-unused" } };
+  const clippedLayout = layoutPhotos([clipped])[0];
+  clippedLayout.analysis.pets = [{ bbox: { x: 0, y: 0.2, width: 0.4, height: 0.4 }, confidence: 0.95 }];
+  const replacementIds = candidates.map((candidate) => candidate.photoId);
+  const result = buildEditorialDraft([story], [unsafe, ...layoutPhotos(candidates), clippedLayout], { [story.id]: "2026年8月" }, undefined, { [story.id]: replacementIds }, Object.fromEntries(replacementIds.map((photoId) => [photoId, "global_replacement"])), 1, 5);
+  const diagnostic = result.recovery.spreadDiagnostics[0];
+  assert.equal(diagnostic.finalReplacementCandidateCount, 3);
+  assert.equal(diagnostic.handoffReplacementCandidateCount, 3);
+  assert.equal(diagnostic.editorialReceivedReplacementCandidateCount, 3);
+  assert.equal(diagnostic.sourceClippingRejectedCount, 1);
+  assert.ok(diagnostic.replacementCandidateCount > 0);
+  assert.ok(result.recovery.globalReplacementAttemptCount > 0);
+  assert.ok(result.recovery.globalReplacementSuccessCount > 0);
+  assert.equal(diagnostic.outcome, "recovered");
 });
 test("source-clipped unused photo is rejected before replacement candidate evaluation", () => {
   const photo = ranked(1, 1)[0];
@@ -263,9 +292,9 @@ test("duplicate replacement photo is rejected when already assigned to another s
   const input = layoutPhotos(ranked(2, 1));
   input[0].analysis.focalPoint = { x: 0.98, y: 0.08 };
   input[0].analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
-  const makeStory = (id, item) => ({ id, sceneIds: [item.groupId], photoIds: [item.photoId], primaryPhotoIds: [item.photoId], secondaryPhotoIds: [], startedAt: item.timeline, endedAt: item.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" });
+  const makeStory = (id, item) => ({ id: `editorial-${id}`, sceneIds: [item.groupId], photoIds: [item.photoId], primaryPhotoIds: [item.photoId], secondaryPhotoIds: [], startedAt: item.timeline, endedAt: item.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" });
   const stories = [makeStory("duplicate-source", ranked(2, 1)[0]), makeStory("duplicate-owner", ranked(2, 1)[1])];
-  assert.throws(() => buildEditorialDraft(stories, input, { "duplicate-source": "2026年8月", "duplicate-owner": "2026年8月" }, undefined, { "duplicate-source": [input[1].photoId] }, { [input[1].photoId]: "global_replacement" }, 2, 2), (error) => {
+  assert.throws(() => buildEditorialDraft(stories, input, { [stories[0].id]: "2026年8月", [stories[1].id]: "2026年8月" }, undefined, { [stories[0].id]: [input[1].photoId] }, { [input[1].photoId]: "global_replacement" }, 2, 2), (error) => {
     assert.equal(error.recoveryStats.spreadDiagnostics[0].duplicateRejectedCount, 1);
     assert.equal(error.recoveryStats.spreadDiagnostics[0].replacementCandidateCount, 0);
     return true;
@@ -295,6 +324,59 @@ test("single-photo fallback keeps replacement evaluation within the candidate bu
   assert.ok(result.recovery.spreadDiagnostics[0].finalReplacementCandidateCount <= 8);
   assert.equal(result.recovery.spreadDiagnostics[0].candidateBudgetRejectedCount, 4);
 });
+test("released photo checkpoint is handed off without reassigning still-used photos", () => {
+  const input = ranked(3, 1);
+  const makeStory = (id, item) => ({ id: `editorial-${id}`, sceneIds: [item.groupId], photoIds: [item.photoId], primaryPhotoIds: [item.photoId], secondaryPhotoIds: [], startedAt: item.timeline, endedAt: item.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" });
+  const unsafe = layoutPhotos([input[1]])[0];
+  unsafe.analysis.focalPoint = { x: 0.98, y: 0.08 };
+  unsafe.analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
+  const checkpointStories = [makeStory("checkpoint-owner", input[0]), makeStory("checkpoint-target", input[1])];
+  const checkpoint = new EditorialGenerationError("retry", [1], undefined, [input[0].photoId, input[1].photoId], checkpointStories);
+  const result = buildEditorialDraft(checkpoint.currentStories, [...layoutPhotos([input[0]]), unsafe, ...layoutPhotos([input[2]])], { "editorial-checkpoint-owner": "2026年8月", "editorial-checkpoint-target": "2026年8月" }, undefined, { "editorial-checkpoint-target": [input[0].photoId, input[2].photoId] }, { [input[2].photoId]: "global_replacement", [input[0].photoId]: "global_replacement" }, 2, 3);
+  assert.equal(result.recovery.globalReplacementAttemptCount, 1);
+  assert.deepEqual(new Set(result.selectedPhotoIds), new Set([input[0].photoId, input[2].photoId]));
+  assert.equal(result.recovery.spreadDiagnostics[1].duplicateRejectedCount, 1);
+  assert.equal(result.recovery.spreadDiagnostics[1].replacementCandidateCount, 1);
+});
+for (const spreadIndex of [4, 5, 11]) {
+  test(`spread ${spreadIndex} sparse photo-drop recovery remains active`, () => {
+    const input = ranked(38, 1);
+    const plan = planEditorialAlbum(input, 24);
+    const target = plan.spreads[spreadIndex];
+    assert.ok(target.photoIds.length > 1);
+    const safePhotoId = target.photoIds.at(-1);
+    const unsafePhotoIds = target.photoIds.slice(0, -1);
+    const stories = plan.spreads.map((story, index) => index === spreadIndex ? {
+      ...story,
+      id: `editorial-sparse-target-${spreadIndex}`,
+      photoIds: [safePhotoId, ...unsafePhotoIds],
+      primaryPhotoIds: [safePhotoId],
+      secondaryPhotoIds: unsafePhotoIds,
+    } : { ...story, id: `editorial-sparse-safe-${index}` });
+    const layouts = layoutPhotos(plan.selected);
+    for (const photo of layouts.filter((item) => unsafePhotoIds.includes(item.photoId))) {
+      photo.analysis.focalPoint = { x: 0.98, y: 0.08 };
+      photo.analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
+    }
+    const previousReflowBudget = ALBUM_DRAFT_CONFIG.recovery.densityFallbackAttempts;
+    ALBUM_DRAFT_CONFIG.recovery.densityFallbackAttempts = 0;
+    try {
+      const result = buildEditorialDraft(stories, layouts, Object.fromEntries(stories.map((story) => [story.id, "2026年8月"])), undefined, {}, {}, 12, plan.selected.length);
+      const diagnostic = result.recovery.spreadDiagnostics[spreadIndex];
+      assert.ok(result.recovery.initialUnsafeSpreadCount > 0);
+      assert.ok(diagnostic.initialCandidateCount > 0);
+      assert.ok(diagnostic.safeFallbackCandidateCount > 0);
+      assert.equal(diagnostic.photoDropCandidateCount, unsafePhotoIds.length);
+      assert.equal(diagnostic.finalPhotoCount, 1);
+      assert.equal(diagnostic.outcome, "recovered");
+      assert.equal(diagnostic.finalRecoveryMethod, "safe_sparse_layout");
+      assert.equal(result.recovery.finalSparseLayoutAttemptCount, 1);
+      assert.equal(result.recovery.finalSparseLayoutSuccessCount, 1);
+    } finally {
+      ALBUM_DRAFT_CONFIG.recovery.densityFallbackAttempts = previousReflowBudget;
+    }
+  });
+}
 test("three-photo unsafe spread drops the persistent unsafe contributor and rebuilds safely above minimum unique count", () => {
   const input = layoutPhotos(ranked(3, 1));
   input[0].analysis.focalPoint = { x: 0.98, y: 0.08 };
@@ -339,6 +421,7 @@ test("exhausted safety recovery returns generic actionable failure metadata with
     (error) => {
       assert.deepEqual(error.unrecoveredSpreadIndices, [0]);
       assert.deepEqual(error.currentPhotoIds, [photo.photoId]);
+      assert.deepEqual(error.currentStories[0].photoIds, [photo.photoId]);
       assert.match(error.message, /アルバムを完成できませんでした/);
       assert.doesNotMatch(error.message, /Crop|crop|Layout|template|配置|ページ数や対象期間/);
       const diagnostic = error.recoveryStats.spreadDiagnostics[0];
@@ -456,10 +539,11 @@ test("creation saves multi-pet drafts, all source IDs and preview-first; Best Sh
   assert.match(source, /candidateBudgetRejectedCount/);
   assert.match(source, /sourceSubjectClipped\(\{ analysis \}\)/);
   assert.match(source, /timeDistance <= 30 \* 24 \* 60 \* 60 \* 1000/);
-  assert.match(source, /new Set\(error\.currentPhotoIds\)/);
-  assert.match(source, /candidateBudgetRejectedCount/);
-  assert.match(source, /sourceSubjectClipped\(\{ analysis \}\)/);
-  assert.match(source, /timeDistance <= 30 \* 24 \* 60 \* 60 \* 1000/);
+  assert.match(source, /error\.currentStories\[spreadIndex\]/);
+  assert.match(source, /buildEditorialDraft\(\s*error\.currentStories/);
+  assert.match(source, /mergeRecoveryStats\(error\.recoveryStats, editorial\.recovery\)/);
+  assert.match(source, /initialUnsafeSpreadCount: previous\.initialUnsafeSpreadCount/);
+  assert.match(source, /"photoDropAttemptCount",\s*"photoDropSuccessCount"/);
   assert.match(source, /timing\.layoutRecovery\(/);
   assert.match(source, /function logAlbumLayoutRecovery\(/);
   assert.match(source, /console\.info\("albumLayoutRecovery", record\)/);
@@ -480,19 +564,11 @@ test("creation saves multi-pet drafts, all source IDs and preview-first; Best Sh
     "finalReplacementCandidateCount",
     "unusedReplacementEligibleCount",
     "unusedReplacementRejectedCount",
-    "unusedPoolCount",
-    "duplicateRejectedCount",
-    "petCompatibilityRejectedCount",
-    "sceneRejectedCount",
-    "chronologicalRejectedCount",
-    "qualityRejectedCount",
-    "sourceClippingRejectedCount",
-    "cropSafetyRejectedCount",
-    "candidateBudgetRejectedCount",
-    "otherEligibilityRejectedCount",
-    "finalReplacementCandidateCount",
-    "unusedReplacementEligibleCount",
-    "unusedReplacementRejectedCount",
+    "handoffReplacementCandidateCount",
+    "editorialReceivedReplacementCandidateCount",
+    "fallbackBuilderUsed",
+    "explicitCandidateListProvided",
+    "candidateListSource",
     "initialUnsafeSpreadCount",
     "templateFallbackAttemptCount",
     "templateFallbackCount",

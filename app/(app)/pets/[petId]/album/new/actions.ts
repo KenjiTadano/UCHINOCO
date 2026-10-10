@@ -10,7 +10,7 @@ import { loadStoredGenerationInputs } from "@/lib/album-generation/stored-inputs
 import { generationPerformance } from "@/lib/album-generation/performance";
 import { createPhotoPreviewUrls } from "@/lib/photo-image-delivery";
 import { parseAlbumSetup } from "@/lib/album-setup";
-import { planEditorialAlbum, buildEditorialDraft, editorialPageText, EDITORIAL_VERSION, EditorialGenerationError, sourceSubjectClipped, type EditorialPhoto, type LayoutRecoveryStats, type ReplacementMethod, type SpreadLayoutRecoveryDiagnostic } from "@/lib/album-draft/editorial";
+import { planEditorialAlbum, buildEditorialDraft, editorialPageText, EDITORIAL_VERSION, EditorialGenerationError, sourceSubjectClipped, type EditorialPhoto, type LayoutRecoveryStage, type LayoutRecoveryStats, type ReplacementMethod, type SpreadLayoutRecoveryDiagnostic } from "@/lib/album-draft/editorial";
 import { ALBUM_DRAFT_CONFIG } from "@/lib/album-draft/config";
 import type { LayoutPhotoInput } from "@/lib/smart-layout/types";
 import { createClient } from "@/lib/supabase/server";
@@ -34,6 +34,59 @@ function logAlbumLayoutRecovery(timing: ReturnType<typeof generationPerformance>
   const record = { spreadCount, ...recovery };
   console.info("albumLayoutRecovery", record);
   timing.layoutRecovery(record);
+}
+
+function mergeRecoveryStats(previous: LayoutRecoveryStats | undefined, current: LayoutRecoveryStats): LayoutRecoveryStats {
+  if (!previous) return current;
+  const merged: LayoutRecoveryStats = {
+    ...current,
+    initialUnsafeSpreadCount: previous.initialUnsafeSpreadCount,
+    usedPhotoCount: current.usedPhotoCount,
+    unusedPhotoCount: current.unusedPhotoCount,
+    unrecoveredCount: current.unrecoveredCount,
+    failureReasonCounts: Object.fromEntries(Object.keys(current.failureReasonCounts).map((key) => [key, current.failureReasonCounts[key as keyof LayoutRecoveryStats["failureReasonCounts"]] + previous.failureReasonCounts[key as keyof LayoutRecoveryStats["failureReasonCounts"]]])) as LayoutRecoveryStats["failureReasonCounts"],
+    spreadDiagnostics: current.spreadDiagnostics.map((diagnostic, index) => {
+      const prior = previous.spreadDiagnostics[index];
+      if (!prior) return diagnostic;
+      const combined = { ...diagnostic };
+      const countKeys = [
+        "initialCandidateCount", "strictCandidateCount", "fallbackCandidateCount", "safeFallbackCandidateCount",
+        "reassignmentCandidateCount", "replacementCandidateCount", "replacementCount", "reflowCandidateCount",
+        "photoDropCandidateCount", "droppedPhotoCount", "redistributedPhotoCount", "unusedPoolCount",
+        "duplicateRejectedCount", "petCompatibilityRejectedCount", "sceneRejectedCount", "chronologicalRejectedCount",
+        "qualityRejectedCount", "sourceClippingRejectedCount", "cropSafetyRejectedCount", "candidateBudgetRejectedCount",
+        "otherEligibilityRejectedCount", "compatiblePetGroupingCandidateCount", "handoffReplacementCandidateCount",
+        "editorialReceivedReplacementCandidateCount", "globalReplacementCandidateCount", "sameSceneReplacementCandidateCount",
+        "samePetReplacementCandidateCount", "chronologicalReplacementCandidateCount", "globalUnusedCandidateCount",
+        "movedOutPhotoCount", "movedInPhotoCount", "replacedOutPhotoCount", "replacedInPhotoCount",
+      ] as const;
+      for (const key of countKeys) Reflect.set(combined, key, prior[key] + diagnostic[key]);
+      combined.finalReplacementCandidateCount = Math.max(prior.finalReplacementCandidateCount, diagnostic.finalReplacementCandidateCount);
+      combined.originalPhotoCount = prior.originalPhotoCount;
+      combined.photoCount = prior.photoCount;
+      combined.finalPhotoCount = diagnostic.finalPhotoCount;
+      combined.replacementAvailable = prior.replacementAvailable || diagnostic.replacementAvailable;
+      combined.fallbackBuilderUsed = prior.fallbackBuilderUsed || diagnostic.fallbackBuilderUsed;
+      combined.explicitCandidateListProvided = prior.explicitCandidateListProvided || diagnostic.explicitCandidateListProvided;
+      combined.candidateListSource = diagnostic.candidateListSource;
+      combined.outcome = prior.outcome === "recovered" || diagnostic.outcome === "recovered" ? "recovered" : diagnostic.outcome;
+      combined.finalRecoveryMethod = diagnostic.finalRecoveryMethod ?? prior.finalRecoveryMethod;
+      const stageOrder: LayoutRecoveryStage[] = ["initial", "template_fallback", "safe_fallback", "role_reassignment", "best_shot_replacement", "global_replacement", "density_fallback", "adjacent_reflow", "adjacent_redistribution", "photo_drop", "safe_sparse_layout"];
+      combined.recoveryStagesReached = stageOrder.filter((stage) => prior.recoveryStagesReached.includes(stage) || diagnostic.recoveryStagesReached.includes(stage));
+      combined.recoveryReached = combined.recoveryStagesReached.at(-1) ?? diagnostic.recoveryReached;
+      combined.failureReasonCounts = Object.fromEntries(Object.keys(diagnostic.failureReasonCounts).map((key) => [key, diagnostic.failureReasonCounts[key as keyof SpreadLayoutRecoveryDiagnostic["failureReasonCounts"]] + prior.failureReasonCounts[key as keyof SpreadLayoutRecoveryDiagnostic["failureReasonCounts"]]])) as SpreadLayoutRecoveryDiagnostic["failureReasonCounts"];
+      return combined;
+    }),
+  };
+  const summedKeys = [
+    "templateFallbackAttemptCount", "templateFallbackCount", "safeFallbackAttemptCount", "photoReassignmentAttemptCount",
+    "photoReassignmentCount", "bestShotReplacementAttemptCount", "bestShotReplacementCount", "densityFallbackAttemptCount",
+    "densityFallbackCount", "adjacentReflowAttemptCount", "adjacentReflowCount", "photoDropAttemptCount",
+    "photoDropSuccessCount", "adjacentRedistributionAttemptCount", "adjacentRedistributionSuccessCount",
+    "globalReplacementAttemptCount", "globalReplacementSuccessCount", "finalSparseLayoutAttemptCount", "finalSparseLayoutSuccessCount",
+  ] as const;
+  for (const key of summedKeys) Reflect.set(merged, key, previous[key] + current[key]);
+  return merged;
 }
 
 export type CreateAlbumState = {
@@ -363,7 +416,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       if (petId) usedByPet.set(petId, (usedByPet.get(petId) ?? 0) + 1);
     }
     for (const spreadIndex of error.unrecoveredSpreadIndices) {
-      const story = plan.spreads[spreadIndex];
+      const story = error.currentStories[spreadIndex];
       if (!story) continue;
       const funnel: Partial<SpreadLayoutRecoveryDiagnostic> = {
         unusedPoolCount: rankedPhotos.filter((photo) => !currentPhotoIds.has(photo.photoId)).length,
@@ -473,9 +526,9 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     };
     try {
       editorial = buildEditorialDraft(
-        plan.spreads,
+        error.currentStories,
         [...layoutPhotos, ...replacementInputs],
-        textByStory,
+        textForStories(error.currentStories),
         (event, itemCount) => {
           if (event === "started") timing.start("11_whole_album_rhythm_audit", itemCount);
           else timing.end("11_whole_album_rhythm_audit", itemCount);
@@ -486,12 +539,14 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
         eligibleReady,
         availablePhotoCountByPet,
       );
+      editorial.recovery = mergeRecoveryStats(error.recoveryStats, editorial.recovery);
       applyReplacementFunnel(editorial.recovery);
       const selectedEditorial = new Map(rankedPhotos.map((photo) => [photo.photoId, photo]));
       plan.selected = editorial.selectedPhotoIds.map((photoId) => selectedEditorial.get(photoId)).filter((photo): photo is EditorialPhoto => Boolean(photo));
       textByStory = textForStories(editorial.stories);
     } catch (recoveryError) {
-      const stats = recoveryError instanceof EditorialGenerationError ? recoveryError.recoveryStats : error.recoveryStats;
+      const currentStats = recoveryError instanceof EditorialGenerationError ? recoveryError.recoveryStats : undefined;
+      const stats = currentStats ? mergeRecoveryStats(error.recoveryStats, currentStats) : error.recoveryStats;
       applyReplacementFunnel(stats);
       if (stats) logAlbumLayoutRecovery(timing, plan.spreads.length, stats);
       return { error: "この条件ではアルバムを完成できませんでした。別の写真で組み直すか、写真を追加できます。", status: "action_required" };
