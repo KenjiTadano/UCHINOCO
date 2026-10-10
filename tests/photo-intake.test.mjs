@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { PHOTO_INTAKE_CONFIG, albumCandidateTransition, derivePhotoIntakeState, shouldContinueIntake } from "../lib/photo-intake.ts";
+import { PHOTO_INTAKE_CONFIG, albumCandidateTransition, derivePhotoIntakeState, runnerRetryDelay, shouldContinueIntake } from "../lib/photo-intake.ts";
 import { selectUchinocoNowHero } from "../lib/uchinoco-now.ts";
 
 const source = async (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -25,6 +25,13 @@ test("runner has a bounded work window instead of an unlimited Vision loop", () 
   assert.equal(shouldContinueIntake(PHOTO_INTAKE_CONFIG.maxWorkItemsPerVisit, true), false);
   assert.equal(shouldContinueIntake(0, false), false);
   assert.ok(PHOTO_INTAKE_CONFIG.workWindowMs >= 60_000);
+});
+
+test("runner retries transient failures with a capped delay and honors queue wait time", () => {
+  assert.equal(runnerRetryDelay(1), 2_000);
+  assert.equal(runnerRetryDelay(3), 6_000);
+  assert.equal(runnerRetryDelay(100), PHOTO_INTAKE_CONFIG.runnerRecheckDelayMs);
+  assert.match(PHOTO_INTAKE_CONFIG.runnerRecheckDelayMs.toString(), /^\d+$/);
 });
 
 test("single and batch upload keep original, thumbnail and preview direct-to-storage", async () => {

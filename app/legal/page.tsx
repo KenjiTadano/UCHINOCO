@@ -1,11 +1,7 @@
 import { PublicSiteFrame } from "../_components/public-site";
 import { publicMetadata } from "@/lib/public-metadata";
 
-export const metadata = publicMetadata(
-  "事業者情報・特定商取引法に基づく表記",
-  "UCHINOCOの運営者情報、販売価格、支払方法、提供時期、解約・返金条件の公開状況です。",
-  "/legal",
-);
+export const metadata = publicMetadata("事業者情報・特定商取引法に基づく表記", "UCHINOCOの運営者情報、販売価格、支払方法、提供時期、解約・返金条件の公開状況です。", "/legal");
 
 const disclosures = [
   ["サービス名", "UCHINOCO"],

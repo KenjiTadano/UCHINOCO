@@ -10,6 +10,47 @@ export type AlbumReadiness = {
   action?: "login";
 };
 
+export type AlbumPreparationPhoto = {
+  ready: boolean;
+  failed: boolean;
+  staleVersion: boolean;
+  staleFingerprint: boolean;
+  missingSemantic: boolean;
+  missingGeometry: boolean;
+  queueMissing: boolean;
+  lastProgressAt: string | null;
+};
+
+export function summarizeAlbumPreparation(input: {
+  photos: AlbumPreparationPhoto[];
+  eligibleReady: number;
+  requiredEligible: number;
+  requestedAt: string;
+  queueStatusAvailable?: boolean;
+}) {
+  const requestedAt = Date.parse(input.requestedAt);
+  const progress = input.photos
+    .map((photo) => photo.lastProgressAt)
+    .filter((timestamp): timestamp is string => timestamp !== null && Date.parse(timestamp) >= requestedAt);
+  return {
+    totalSource: input.photos.length,
+    ready: input.photos.filter((photo) => photo.ready).length,
+    pending: input.photos.filter((photo) => !photo.ready && !photo.failed).length,
+    failed: input.photos.filter((photo) => photo.failed).length,
+    stale: input.photos.filter((photo) => photo.staleVersion || photo.staleFingerprint).length,
+    staleVersion: input.photos.filter((photo) => photo.staleVersion).length,
+    staleFingerprint: input.photos.filter((photo) => photo.staleFingerprint).length,
+    missingSemantic: input.photos.filter((photo) => photo.missingSemantic).length,
+    missingGeometry: input.photos.filter((photo) => photo.missingGeometry).length,
+    queueMissing: input.photos.filter((photo) => photo.queueMissing).length,
+    eligibleReady: input.eligibleReady,
+    requiredEligible: input.requiredEligible,
+    runnerWorkCount: progress.length,
+    lastProgressAt: progress.reduce<string | null>((latest, timestamp) => !latest || timestamp > latest ? timestamp : latest, null),
+    queueStatusAvailable: input.queueStatusAvailable ?? true,
+  };
+}
+
 export function albumReadiness(input: { total: number; ready: number; failed: number; pages: number; eligible?: number }): AlbumReadiness {
   const required = input.pages / 2;
   const pending = Math.max(0, input.total - input.ready - input.failed);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { canClaimAnalysis } from "../lib/photo-analysis-policy.ts";
+import { canClaimAnalysis, hasScheduledAnalysisRetry } from "../lib/photo-analysis-policy.ts";
 
 const queue = readFileSync(new URL("../lib/photo-analysis-queue.ts", import.meta.url), "utf8");
 const route = readFileSync(new URL("../app/api/photo-analysis/route.ts", import.meta.url), "utf8");
@@ -15,6 +15,8 @@ test("queue lookup does not use a comma-nested PostgREST or() filter", () => {
 test("photo-analysis GET does not answer 503 when the queue cannot be read", () => {
   assert.equal(route.includes(", 503"), false);
   assert.match(route, /ready: false, stopped: true, waitMs: 0/);
+  assert.match(route, /return \{ work: null, waitMs \}/);
+  assert.match(route, /waitMs: next\.waitMs/);
 });
 
 test("a failed analysis is not claimed again until the retry delay", () => {
@@ -36,4 +38,12 @@ test("a failed analysis is not claimed again until the retry delay", () => {
     updated_at: "2026-09-28T00:00:00.000Z",
     error_code: "storage_missing",
   }, now), false);
+});
+
+test("only recoverable failed or processing work keeps the runner waiting", () => {
+  assert.equal(hasScheduledAnalysisRetry({ status: "failed", attempts: 1 }), true);
+  assert.equal(hasScheduledAnalysisRetry({ status: "processing", attempts: 2 }), true);
+  assert.equal(hasScheduledAnalysisRetry({ status: "failed", attempts: 3 }), false);
+  assert.equal(hasScheduledAnalysisRetry({ status: "failed", attempts: 1, error_code: "storage_missing" }), false);
+  assert.equal(hasScheduledAnalysisRetry({ status: "completed", attempts: 1 }), false);
 });

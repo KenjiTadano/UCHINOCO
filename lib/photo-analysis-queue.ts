@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { canClaimAnalysis } from "@/lib/photo-analysis-policy";
+import { canClaimAnalysis, hasScheduledAnalysisRetry } from "@/lib/photo-analysis-policy";
 
 // Queries are always bounded. Photo RLS verifies pet access, while the explicit
 // uploader filter ensures a family member only runs analysis for their uploads.
@@ -36,12 +36,11 @@ export async function findAnalysisWork(
   if (legacyError) throw new Error("analysis_queue_unavailable");
   if (legacy) return { photo: legacy, waitMs: 1000 };
 
-  const waiting = (candidates ?? []).some((row) => !canClaimAnalysis({
+  const waiting = (candidates ?? []).some((row) => hasScheduledAnalysisRetry({
     status: row.status,
     attempts: row.attempts,
-    updated_at: row.updated_at,
     error_code: row.error_code,
-  }, now));
+  }));
   // Poll only while a retry/lease remains; an empty queue stops completely.
   return { photo: null, waitMs: waiting ? 30_000 : 0 };
 }

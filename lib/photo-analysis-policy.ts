@@ -9,6 +9,12 @@ export function isTerminalAnalysisError(code: string | null | undefined) {
   return TERMINAL_ANALYSIS_ERRORS.some((value) => value === code);
 }
 
+export function hasScheduledAnalysisRetry(analysis: { status: string; attempts: number; error_code?: string | null }) {
+  return (analysis.status === "failed" || analysis.status === "processing") &&
+    analysis.attempts < MAX_ANALYSIS_ATTEMPTS &&
+    !isTerminalAnalysisError(analysis.error_code);
+}
+
 export function canClaimAnalysis(
   analysis: { status: string; attempts: number; updated_at: string; error_code?: string | null },
   now = Date.now(),

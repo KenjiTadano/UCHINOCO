@@ -28,6 +28,7 @@ type AnalysisRow = {
   source_fingerprint: string;
   result_status: string;
   result: unknown;
+  created_at?: string;
 };
 
 export function storedGenerationInputs(photos: GenerationSourcePhoto[], rows: AnalysisRow[]) {
@@ -36,13 +37,26 @@ export function storedGenerationInputs(photos: GenerationSourcePhoto[], rows: An
   const geometry = new Map<string, SmartCropPhotoAnalysis>();
   const sharpness = new Map<string, number>();
   const grouping: GroupingPhoto[] = [];
+  const preparationByPhoto = new Map<string, { ready: boolean; failed: boolean; staleVersion: boolean; staleFingerprint: boolean; missingSemantic: boolean; missingGeometry: boolean; lastProgressAt: string | null }>();
   let existingIntelligenceCount = 0;
+  let missingSemanticCount = 0;
   let missingGeometryCount = 0;
+  let staleVersionCount = 0;
+  let staleFingerprintCount = 0;
   let legacyTechnicalFallbackCount = 0;
   let failedAnalysisCount = 0;
   for (const photo of photos) {
-    const current = (byId.get(photo.id) ?? []).filter((row) => row.source_fingerprint === sourceFingerprint(photo));
-    if (current.some((row) => row.result_status === "failed" && ((row.analysis_type === PHOTO_INTELLIGENCE_SEMANTIC && row.analysis_version === PHOTO_INTELLIGENCE_VERSION) || (row.analysis_type === SUBJECT_GEOMETRY && row.analysis_version === SUBJECT_GEOMETRY_VERSION)))) failedAnalysisCount++;
+    const photoRows = byId.get(photo.id) ?? [];
+    const fingerprint = sourceFingerprint(photo);
+    const current = photoRows.filter((row) => row.source_fingerprint === fingerprint);
+    const hasSemantic = current.some((row) => row.analysis_type === PHOTO_INTELLIGENCE_SEMANTIC && row.analysis_version === PHOTO_INTELLIGENCE_VERSION && ["success", "fallback"].includes(row.result_status));
+    const hasGeometry = current.some((row) => row.analysis_type === SUBJECT_GEOMETRY && row.analysis_version === SUBJECT_GEOMETRY_VERSION && ["success", "fallback"].includes(row.result_status));
+    const staleVersion = (!hasSemantic && photoRows.some((row) => row.analysis_type === PHOTO_INTELLIGENCE_SEMANTIC && row.source_fingerprint === fingerprint && row.analysis_version !== PHOTO_INTELLIGENCE_VERSION)) || (!hasGeometry && photoRows.some((row) => row.analysis_type === SUBJECT_GEOMETRY && row.source_fingerprint === fingerprint && row.analysis_version !== SUBJECT_GEOMETRY_VERSION));
+    const staleFingerprint = (!hasSemantic && photoRows.some((row) => row.analysis_type === PHOTO_INTELLIGENCE_SEMANTIC && row.analysis_version === PHOTO_INTELLIGENCE_VERSION && row.source_fingerprint !== fingerprint)) || (!hasGeometry && photoRows.some((row) => row.analysis_type === SUBJECT_GEOMETRY && row.analysis_version === SUBJECT_GEOMETRY_VERSION && row.source_fingerprint !== fingerprint));
+    const failed = current.some((row) => row.result_status === "failed" && ((row.analysis_type === PHOTO_INTELLIGENCE_SEMANTIC && row.analysis_version === PHOTO_INTELLIGENCE_VERSION) || (row.analysis_type === SUBJECT_GEOMETRY && row.analysis_version === SUBJECT_GEOMETRY_VERSION)));
+    if (staleVersion) staleVersionCount++;
+    if (staleFingerprint) staleFingerprintCount++;
+    if (failed) failedAnalysisCount++;
     const semanticRow = current.find((row) => row.analysis_type === PHOTO_INTELLIGENCE_SEMANTIC && row.analysis_version === PHOTO_INTELLIGENCE_VERSION && ["success", "fallback"].includes(row.result_status));
     const geometryRow = current.find((row) => row.analysis_type === SUBJECT_GEOMETRY && row.analysis_version === SUBJECT_GEOMETRY_VERSION && ["success", "fallback"].includes(row.result_status));
     const vision = parseStoredSemantic(semanticRow?.result);
@@ -50,8 +64,19 @@ export function storedGenerationInputs(photos: GenerationSourcePhoto[], rows: An
     const fallbackReady = semanticRow?.result_status === "fallback" && ["vision_failed", "vision_skipped"].includes(saved?.reason ?? "");
     const analysis = parseStoredGeometry(geometryRow?.result);
     if (vision || fallbackReady) existingIntelligenceCount++;
+    if (!vision && !fallbackReady) missingSemanticCount++;
     if (analysis) geometry.set(photo.id, analysis);
     else missingGeometryCount++;
+    const lastProgressAt = photoRows.reduce<string | null>((latest, row) => row.created_at && (!latest || row.created_at > latest) ? row.created_at : latest, null);
+    preparationByPhoto.set(photo.id, {
+      ready: Boolean((vision || fallbackReady) && analysis),
+      failed,
+      staleVersion: Boolean(staleVersion),
+      staleFingerprint: Boolean(staleFingerprint),
+      missingSemantic: !vision && !fallbackReady,
+      missingGeometry: !analysis,
+      lastProgressAt,
+    });
     if ((!vision && !fallbackReady) || !analysis) continue;
     const technical = parseStoredTechnical(saved?.technical);
     const cached = getPhotoIntelligenceCache(intelligenceMemoryKey(photo));
@@ -66,7 +91,7 @@ export function storedGenerationInputs(photos: GenerationSourcePhoto[], rows: An
     const intelligence = cached?.intelligence ?? buildPhotoIntelligence({ photoId: photo.id, analysis, technical: technical ?? conservative, vision, visionFailed: fallbackReady });
     grouping.push({ photoId: photo.id, capturedAt: photo.taken_at ?? photo.created_at, width: analysis.width, height: analysis.height, intelligence, analysis, visual: getDescriptorCache(descriptorCacheKey(photo.id, photo.storage_path, PHOTO_GROUPING_VERSION)) ?? null });
   }
-  return { grouping, geometry, sharpness, existingIntelligenceCount, missingIntelligenceCount: photos.length - existingIntelligenceCount, missingGeometryCount, legacyTechnicalFallbackCount, failedAnalysisCount };
+  return { grouping, geometry, sharpness, preparationByPhoto, existingIntelligenceCount, missingIntelligenceCount: photos.length - existingIntelligenceCount, missingSemanticCount, missingGeometryCount, staleVersionCount, staleFingerprintCount, legacyTechnicalFallbackCount, failedAnalysisCount };
 }
 
 export async function loadStoredGenerationInputs(client: SupabaseClient, photos: GenerationSourcePhoto[]) {
@@ -75,7 +100,7 @@ export async function loadStoredGenerationInputs(client: SupabaseClient, photos:
   for (let offset = 0; offset < photos.length; offset += 200) {
     const result = await client
       .from("photo_analysis_results")
-      .select("photo_id,analysis_type,analysis_version,source_fingerprint,result_status,result")
+      .select("photo_id,analysis_type,analysis_version,source_fingerprint,result_status,result,created_at")
       .in(
         "photo_id",
         photos.slice(offset, offset + 200).map((photo) => photo.id),

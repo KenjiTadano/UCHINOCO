@@ -24,20 +24,24 @@ type IntakeWork = {
   geometryRequired?: boolean;
 };
 
-async function findWork(supabase: Awaited<ReturnType<typeof createClient>>, userId: string, preferred?: IntakeWork["stage"]): Promise<IntakeWork | null> {
-  const semanticWork = async () => {
-    const semantic = await findAnalysisWork(supabase, userId);
-    return semantic.photo ? { stage: "semantic" as const, photo: semantic.photo, waitMs: semantic.waitMs, reusedCount: 0 } : null;
+type WorkLookup = { work: IntakeWork | null; waitMs: number };
+
+async function findWork(supabase: Awaited<ReturnType<typeof createClient>>, userId: string, preferred?: IntakeWork["stage"]): Promise<WorkLookup> {
+  let waitMs = 0;
+  const semantic = async () => {
+    const result = await findAnalysisWork(supabase, userId);
+    waitMs = Math.max(waitMs, result.waitMs);
+    return result.photo ? { stage: "semantic" as const, photo: result.photo, waitMs: result.waitMs, reusedCount: 0 } : null;
   };
-  const intelligenceWork = async () => {
-    const intelligence = await findPhotoIntelligenceWork(supabase, userId);
-    return intelligence.photo ? { stage: "intelligence" as const, photo: intelligence.photo, waitMs: 1_000, reusedCount: intelligence.reusedCount, geometryRequired: intelligence.geometryRequired } : null;
+  const intelligence = async () => {
+    const result = await findPhotoIntelligenceWork(supabase, userId);
+    return result.photo ? { stage: "intelligence" as const, photo: result.photo, waitMs: 1_000, reusedCount: result.reusedCount, geometryRequired: result.geometryRequired } : null;
   };
-  const first = preferred === "intelligence" ? await intelligenceWork() : await semanticWork();
-  if (first) return first;
-  const second = preferred === "intelligence" ? await semanticWork() : await intelligenceWork();
-  if (second) return second;
-  return null;
+  const first = preferred === "intelligence" ? await intelligence() : await semantic();
+  if (first) return { work: first, waitMs: first.waitMs };
+  const second = preferred === "intelligence" ? await semantic() : await intelligence();
+  if (second) return { work: second, waitMs: second.waitMs };
+  return { work: null, waitMs };
 }
 
 async function handle(run: boolean, preferred?: IntakeWork["stage"]) {
@@ -52,7 +56,8 @@ async function handle(run: boolean, preferred?: IntakeWork["stage"]) {
       // Keep pending durable, spend no attempts and resume after server configuration.
       return json({ ready: false, waitMs: 0, stopped: true });
     }
-    const work = await findWork(supabase, user.id, preferred);
+    const lookup = await findWork(supabase, user.id, preferred);
+    const work = lookup.work;
     let changed = false;
     let visionCalled = false;
     let analysisReused = work?.reusedCount ?? 0;
@@ -92,7 +97,7 @@ async function handle(run: boolean, preferred?: IntakeWork["stage"]) {
         analysisFailed = after.data?.status === "failed";
       }
     }
-    const next = run && work ? await findWork(supabase, user.id) : work;
+    const next = run && work ? await findWork(supabase, user.id) : lookup;
     if (run && process.env.NODE_ENV !== "production") {
       console.info("Photo intake analysis", {
         stage: work?.stage ?? null,
@@ -103,8 +108,8 @@ async function handle(run: boolean, preferred?: IntakeWork["stage"]) {
       });
     }
     return json({
-      ready: Boolean(next),
-      waitMs: next?.waitMs ?? 0,
+      ready: Boolean(next.work),
+      waitMs: next.waitMs,
       changed,
       stage: work?.stage ?? null,
       analysisReused,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { albumReadiness, validAlbumIntent, intentFormData, nextAlbumIntentStep, boundedAlbumRecovery, ALBUM_INTENT_TTL_MS } from "../lib/album-readiness.ts";
+import { albumReadiness, summarizeAlbumPreparation, validAlbumIntent, intentFormData, nextAlbumIntentStep, boundedAlbumRecovery, ALBUM_INTENT_TTL_MS } from "../lib/album-readiness.ts";
 import { readFile } from "node:fs/promises";
 
 const intent = { id: "00000000-0000-4000-8000-000000000001", petId: "pet", petIds: ["pet"], period: "3months", periodFrom: "", periodTo: "", pageCount: 48, requestedAt: "2026-10-09T12:00:00Z", phase: "preparing" };
@@ -17,6 +17,37 @@ test("photo shortage includes exact deficit and smaller-page recovery", () => {
   assert.equal(shortage.missingPhotos, 7);
   assert.equal(shortage.suggestedPages, 24);
   assert.equal(albumReadiness({ total: 36, ready: 36, eligible: 17, failed: 0, pages: 48 }).state, "shortage");
+});
+test("preparation diagnostics classify readiness, stale inputs, missing work and progress without identifiers", () => {
+  const summary = summarizeAlbumPreparation({
+    requestedAt: "2026-10-10T00:00:00.000Z",
+    eligibleReady: 24,
+    requiredEligible: 24,
+    queueStatusAvailable: true,
+    photos: [
+      { ready: true, failed: false, staleVersion: false, staleFingerprint: false, missingSemantic: false, missingGeometry: false, queueMissing: false, lastProgressAt: "2026-10-10T00:00:02.000Z" },
+      { ready: false, failed: false, staleVersion: true, staleFingerprint: false, missingSemantic: true, missingGeometry: true, queueMissing: false, lastProgressAt: "2026-10-09T23:59:00.000Z" },
+      { ready: false, failed: true, staleVersion: false, staleFingerprint: true, missingSemantic: false, missingGeometry: true, queueMissing: true, lastProgressAt: "2026-10-10T00:00:03.000Z" },
+    ],
+  });
+  assert.deepEqual(summary, {
+    totalSource: 3,
+    ready: 1,
+    pending: 1,
+    failed: 1,
+    stale: 2,
+    staleVersion: 1,
+    staleFingerprint: 1,
+    missingSemantic: 1,
+    missingGeometry: 2,
+    queueMissing: 1,
+    eligibleReady: 24,
+    requiredEligible: 24,
+    runnerWorkCount: 2,
+    lastProgressAt: "2026-10-10T00:00:03.000Z",
+    queueStatusAvailable: true,
+  });
+  assert.equal(Object.keys(summary).some((key) => /photo.?id|email|caption/i.test(key)), false);
 });
 test("pending intent auto-resumes only when ready and is locked during execution", () => {
   const current = { ...intent, requestedAt: new Date().toISOString() };
@@ -62,6 +93,10 @@ test("ownership, frozen range, ID uniqueness and ready preflight are server enfo
   assert.match(preflight, /\.eq\("owner_user_id", user.id\)/);
   assert.match(preflight, /pets\?\.some\(\(?pet\)?\s*=>\s*pet\.id === petId\)/);
   assert.match(preflight, /offset \+= 200/);
+  assert.match(preflight, /photo_ai_analyses/);
+  assert.match(preflight, /queueStatusAvailable = false;\s*break/);
+  assert.match(preflight, /console\.info\("albumPreparation", preparation\)/);
+  assert.match(preflight, /summarizeAlbumPreparation/);
   assert.match(action, /id: intentId/);
   assert.match(action, /generation_intent_key/);
   assert.match(action, /albumError\?\.code === "23505"/);

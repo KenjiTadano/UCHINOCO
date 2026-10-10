@@ -76,8 +76,12 @@ test("stored input validates versions/fingerprints, supports legacy and terminal
   assert.equal(ready.sharpness.get(photos[35].id), 92);
   rows[0].source_fingerprint = "stale";
   rows[3].analysis_version = "old";
-  assert.equal(storedGenerationInputs(photos, rows).missingIntelligenceCount, 1);
-  assert.equal(storedGenerationInputs(photos, rows).missingGeometryCount, 1);
+  const stale = storedGenerationInputs(photos, rows);
+  assert.equal(stale.missingIntelligenceCount, 1);
+  assert.equal(stale.missingGeometryCount, 1);
+  assert.equal(stale.missingSemanticCount, 1);
+  assert.equal(stale.staleFingerprintCount, 1);
+  assert.equal(stale.staleVersionCount, 1);
   rows[0].source_fingerprint = sourceFingerprint(photos[0]);
   rows[0].result_status = "fallback";
   rows[0].result = { reason: "vision_failed" };

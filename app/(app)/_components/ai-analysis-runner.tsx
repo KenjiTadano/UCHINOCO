@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { PHOTO_INTAKE_CONFIG, shouldContinueIntake } from "@/lib/photo-intake";
+import { PHOTO_INTAKE_CONFIG, runnerRetryDelay, shouldContinueIntake } from "@/lib/photo-intake";
 
 type QueueState = {
   ready?: boolean;
@@ -31,6 +31,7 @@ export function AIAnalysisRunner() {
   const router = useRouter();
   const [organizing, setOrganizing] = useState(false);
   const processed = useRef(0);
+  const consecutiveFailures = useRef(0);
   const lastStage = useRef<"semantic" | "intelligence" | null>(null);
   const uploading = pathname.endsWith("/photos/new");
 
@@ -68,18 +69,30 @@ export function AIAnalysisRunner() {
         finally { if (activeRequest === request) activeRequest = null; }
         if (disposed) return;
         setOrganizing(false);
+        if (state.stopped) {
+          consecutiveFailures.current += 1;
+          schedule(PHOTO_INTAKE_CONFIG.runnerRecheckDelayMs);
+          return;
+        }
+        consecutiveFailures.current = 0;
         if (state.changed) router.refresh();
+        const waitMs = state.waitMs ?? 0;
         if (shouldContinueIntake(processed.current, Boolean(state.ready), state.stopped)) {
-          schedule(state.waitMs ?? PHOTO_INTAKE_CONFIG.runnerDelayMs);
+          schedule(waitMs || PHOTO_INTAKE_CONFIG.runnerDelayMs);
         } else if (!state.stopped && state.ready) {
           timer = setTimeout(() => {
             processed.current = 0;
             void tick();
           }, PHOTO_INTAKE_CONFIG.workWindowMs);
+        } else if (waitMs > 0) {
+          schedule(waitMs);
         }
       } catch {
-        // Stop on auth/network/schema errors. A visit or visibility change resumes.
-        if (!disposed) setOrganizing(false);
+        if (!disposed) {
+          setOrganizing(false);
+          consecutiveFailures.current += 1;
+          schedule(runnerRetryDelay(consecutiveFailures.current));
+        }
       } finally { running = false; }
     }
     const wake = () => { if (document.visibilityState === "visible") schedule(1000); };

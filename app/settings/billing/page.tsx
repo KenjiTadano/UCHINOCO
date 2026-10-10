@@ -10,17 +10,12 @@ import { createClient } from "@/lib/supabase/server";
 
 export default async function BillingPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) redirect("/login?next=%2Fsettings%2Fbilling");
 
-  const [{ data: subscription }, entitlements] = await Promise.all([
-    supabase
-      .from("user_subscriptions")
-      .select("status,current_period_end,cancel_at_period_end,stripe_customer_id")
-      .eq("user_id", user.id)
-      .maybeSingle(),
-    loadUserEntitlements(supabase, user.id),
-  ]);
+  const [{ data: subscription }, entitlements] = await Promise.all([supabase.from("user_subscriptions").select("status,current_period_end,cancel_at_period_end,stripe_customer_id").eq("user_id", user.id).maybeSingle(), loadUserEntitlements(supabase, user.id)]);
   const isPlus = entitlements.plan === "PLUS";
   const presentation = getBillingSubscriptionPresentation({
     plan: entitlements.plan,
@@ -32,7 +27,9 @@ export default async function BillingPage() {
   return (
     <AppShell analysis={<AIAnalysisRunner key={user.id} />}>
       <main className="app-page-narrow">
-        <Link className="app-back-link" href="/home">ホームへ戻る</Link>
+        <Link className="app-back-link" href="/home">
+          ホームへ戻る
+        </Link>
         <header>
           <p className="app-eyebrow">ACCOUNT</p>
           <h1 className="app-title">プラン・お支払い</h1>
@@ -40,7 +37,9 @@ export default async function BillingPage() {
 
         <section className="grid gap-4 rounded-(--radius-medium) border border-border bg-surface p-5" aria-labelledby="current-plan-heading">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <h2 id="current-plan-heading" className="ds-heading">現在のプラン</h2>
+            <h2 id="current-plan-heading" className="ds-heading">
+              現在のプラン
+            </h2>
             <span className="text-sm font-semibold">{isPlus ? "PLUS" : "FREE"}</span>
           </div>
 

@@ -4,8 +4,13 @@ export const PHOTO_INTAKE_CONFIG = {
   maxWorkItemsPerVisit: 4,
   workWindowMs: 5 * 60_000,
   runnerDelayMs: 1_000,
+  runnerRecheckDelayMs: 30_000,
   minimumAlbumPhotos: ALBUM_CANDIDATES_CONFIG.budget.minPhotos,
 } as const;
+
+export function runnerRetryDelay(attempt: number) {
+  return Math.min(PHOTO_INTAKE_CONFIG.runnerRecheckDelayMs, Math.max(1, attempt) * 2_000);
+}
 
 export type PhotoIntakeState =
   | "UPLOADED"
