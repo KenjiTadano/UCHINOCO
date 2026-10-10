@@ -25,17 +25,9 @@ export type AlbumPreparationPhoto = {
   lastProgressAt: string | null;
 };
 
-export function summarizeAlbumPreparation(input: {
-  photos: AlbumPreparationPhoto[];
-  eligibleReady: number;
-  requiredEligible: number;
-  requestedAt: string;
-  queueStatusAvailable?: boolean;
-}) {
+export function summarizeAlbumPreparation(input: { photos: AlbumPreparationPhoto[]; eligibleReady: number; requiredEligible: number; requestedAt: string; queueStatusAvailable?: boolean }) {
   const requestedAt = Date.parse(input.requestedAt);
-  const progress = input.photos
-    .map((photo) => photo.lastProgressAt)
-    .filter((timestamp): timestamp is string => timestamp !== null && Date.parse(timestamp) >= requestedAt);
+  const progress = input.photos.map((photo) => photo.lastProgressAt).filter((timestamp): timestamp is string => timestamp !== null && Date.parse(timestamp) >= requestedAt);
   return {
     totalSource: input.photos.length,
     ready: input.photos.filter((photo) => photo.ready).length,
@@ -50,7 +42,7 @@ export function summarizeAlbumPreparation(input: {
     eligibleReady: input.eligibleReady,
     requiredEligible: input.requiredEligible,
     runnerWorkCount: progress.length,
-    lastProgressAt: progress.reduce<string | null>((latest, timestamp) => !latest || timestamp > latest ? timestamp : latest, null),
+    lastProgressAt: progress.reduce<string | null>((latest, timestamp) => (!latest || timestamp > latest ? timestamp : latest), null),
     queueStatusAvailable: input.queueStatusAvailable ?? true,
   };
 }
@@ -110,20 +102,18 @@ export function validAlbumIntent(value: unknown, petId: string, ownedPetIds: str
   );
 }
 
-export function albumIntentMatchesSetup(intent: AlbumIntent, setup: {
-  petId: string;
-  petIds: string[];
-  period: string;
-  pageCount: AlbumPageCount;
-  periodFrom: string;
-  periodTo: string;
-}) {
-  return intent.petId === setup.petId &&
-    JSON.stringify([...intent.petIds].sort()) === JSON.stringify([...setup.petIds].sort()) &&
-    intent.period === setup.period &&
-    intent.pageCount === setup.pageCount &&
-    intent.periodFrom === setup.periodFrom &&
-    intent.periodTo === setup.periodTo;
+export function albumIntentMatchesSetup(
+  intent: AlbumIntent,
+  setup: {
+    petId: string;
+    petIds: string[];
+    period: string;
+    pageCount: AlbumPageCount;
+    periodFrom: string;
+    periodTo: string;
+  },
+) {
+  return intent.petId === setup.petId && JSON.stringify([...intent.petIds].sort()) === JSON.stringify([...setup.petIds].sort()) && intent.period === setup.period && intent.pageCount === setup.pageCount && intent.periodFrom === setup.periodFrom && intent.periodTo === setup.periodTo;
 }
 
 export function intentFormData(intent: AlbumIntent) {
@@ -147,17 +137,8 @@ export function nextAlbumIntentStep(intent: AlbumIntent, readiness: AlbumReadine
   return "recover";
 }
 
-export function shouldAutoResumeAlbum(input: {
-  intentPresent: boolean;
-  intentValid: boolean;
-  readiness: AlbumReadiness | null;
-  generationRunning: boolean;
-}) {
-  return input.intentPresent &&
-    input.intentValid &&
-    !input.generationRunning &&
-    input.readiness?.state === "ready" &&
-    input.readiness.eligibleReady >= input.readiness.required;
+export function shouldAutoResumeAlbum(input: { intentPresent: boolean; intentValid: boolean; readiness: AlbumReadiness | null; generationRunning: boolean }) {
+  return input.intentPresent && input.intentValid && !input.generationRunning && input.readiness?.state === "ready" && input.readiness.eligibleReady >= input.readiness.required;
 }
 
 export async function boundedAlbumRecovery<T>(operation: () => Promise<T>, delay: (attempt: number) => Promise<void>) {

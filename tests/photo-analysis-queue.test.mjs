@@ -28,16 +28,28 @@ test("a failed analysis is not claimed again until the retry delay", () => {
     error_code: null,
   };
   assert.equal(canClaimAnalysis(recent, now), false);
-  assert.equal(canClaimAnalysis({
-    ...recent,
-    updated_at: "2026-09-28T00:08:00.000Z",
-  }, now), true);
-  assert.equal(canClaimAnalysis({
-    status: "failed",
-    attempts: 1,
-    updated_at: "2026-09-28T00:00:00.000Z",
-    error_code: "storage_missing",
-  }, now), false);
+  assert.equal(
+    canClaimAnalysis(
+      {
+        ...recent,
+        updated_at: "2026-09-28T00:08:00.000Z",
+      },
+      now,
+    ),
+    true,
+  );
+  assert.equal(
+    canClaimAnalysis(
+      {
+        status: "failed",
+        attempts: 1,
+        updated_at: "2026-09-28T00:00:00.000Z",
+        error_code: "storage_missing",
+      },
+      now,
+    ),
+    false,
+  );
 });
 
 test("only recoverable failed or processing work keeps the runner waiting", () => {

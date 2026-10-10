@@ -57,7 +57,10 @@ export async function checkAlbumReadiness(petId: string, form: FormData): Promis
       const result = await supabase
         .from("photo_ai_analyses")
         .select("photo_id,status,attempts,updated_at,error_code")
-        .in("photo_id", photos.slice(offset, offset + 200).map((photo) => photo.id));
+        .in(
+          "photo_id",
+          photos.slice(offset, offset + 200).map((photo) => photo.id),
+        );
       if (result.error) {
         queueStatusAvailable = false;
         break;
@@ -65,21 +68,24 @@ export async function checkAlbumReadiness(petId: string, form: FormData): Promis
       queueRows.push(...(result.data ?? []));
     }
     const queueByPhoto = new Map(queueRows.map((row) => [row.photo_id, row]));
-    const eligibleReady = new Set(rankStoredAlbumInputs(inputs, photos, setup.petIds)
-      .filter((photo) => photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25)
-      .map((photo) => photo.photoId)).size;
+    const eligibleReady = new Set(
+      rankStoredAlbumInputs(inputs, photos, setup.petIds)
+        .filter((photo) => photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25)
+        .map((photo) => photo.photoId),
+    ).size;
     const preparationPhotos = photos.map((photo) => {
       const analysis = inputs.preparationByPhoto.get(photo.id)!;
       const queue = queueByPhoto.get(photo.id);
       const terminalQueueFailure = Boolean(queue && isTerminalAnalysisFailure(queue));
       const retryableFailure = Boolean(queue && queue.status === "failed" && !terminalQueueFailure);
       const retryableQueue = Boolean(queue && ["pending", "processing"].includes(queue.status) && !terminalQueueFailure);
-      const retryable = !queueStatusAvailable || !queue || retryableQueue || retryableFailure || queue.status === "completed" && !analysis.failed;
-      const failed = !analysis.ready && queueStatusAvailable && (terminalQueueFailure || analysis.failed && !retryable);
-      const progressAt = [analysis.lastProgressAt, queue?.updated_at]
-        .filter((timestamp): timestamp is string => timestamp != null && Date.parse(timestamp) >= requestedAt.getTime())
-        .sort()
-        .at(-1) ?? null;
+      const retryable = !queueStatusAvailable || !queue || retryableQueue || retryableFailure || (queue.status === "completed" && !analysis.failed);
+      const failed = !analysis.ready && queueStatusAvailable && (terminalQueueFailure || (analysis.failed && !retryable));
+      const progressAt =
+        [analysis.lastProgressAt, queue?.updated_at]
+          .filter((timestamp): timestamp is string => timestamp != null && Date.parse(timestamp) >= requestedAt.getTime())
+          .sort()
+          .at(-1) ?? null;
       return {
         ...analysis,
         failed,

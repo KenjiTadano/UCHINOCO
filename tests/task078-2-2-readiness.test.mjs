@@ -22,13 +22,16 @@ test("eligible threshold controls readiness even while other source photos faile
 });
 test("server readiness uses ranked quality-eligible candidates without waiting for all sources", async () => {
   const source = await readFile("app/(app)/pets/[petId]/album/new/readiness-actions.ts", "utf8");
-  assert.match(source, /const eligibleReady = new Set\(rankStoredAlbumInputs\(inputs, photos, setup\.petIds\)/);
+  assert.match(source, /const eligibleReady = new Set\(\s*rankStoredAlbumInputs\(inputs, photos, setup\.petIds\)/);
   assert.match(source, /ready, pending: preparation\.pending, pages: setup\.pageCount, eligible: eligibleReady/);
   assert.match(source, /requiredEligiblePhotos\(setup\.pageCount\)/);
   assert.doesNotMatch(source, /ready === photos\.length/);
 });
 test("capacity thresholds and recommendation share one exact page-count model", () => {
-  assert.deepEqual([24, 48, 72].map((pages) => requiredEligiblePhotos(pages)), [12, 24, 36]);
+  assert.deepEqual(
+    [24, 48, 72].map((pages) => requiredEligiblePhotos(pages)),
+    [12, 24, 36],
+  );
   assert.equal(recommendAlbumPageCount(11), null);
   assert.equal(recommendAlbumPageCount(12), 24);
   assert.equal(recommendAlbumPageCount(23), 24);
@@ -38,7 +41,10 @@ test("capacity thresholds and recommendation share one exact page-count model", 
   assert.equal(recommendAlbumPageCount(40), 48);
   assert.equal(recommendAlbumPageCount(59), 48);
   assert.equal(recommendAlbumPageCount(60), 72);
-  assert.deepEqual(albumCapacities(40).map((capacity) => capacity.available), [true, true, true]);
+  assert.deepEqual(
+    albumCapacities(40).map((capacity) => capacity.available),
+    [true, true, true],
+  );
   assert.equal(initialAlbumPageCount(48, 72, false), 72);
   assert.equal(initialAlbumPageCount(48, 72, true), 48);
   assert.equal(initialAlbumPageCount(48, null, false), 48);
@@ -82,7 +88,10 @@ test("preparation diagnostics classify readiness, stale inputs, missing work and
     lastProgressAt: "2026-10-10T00:00:03.000Z",
     queueStatusAvailable: true,
   });
-  assert.equal(Object.keys(summary).some((key) => /photo.?id|email|caption/i.test(key)), false);
+  assert.equal(
+    Object.keys(summary).some((key) => /photo.?id|email|caption/i.test(key)),
+    false,
+  );
 });
 test("pending intent auto-resumes only when ready and is locked during execution", () => {
   const current = { ...intent, requestedAt: new Date().toISOString() };
@@ -192,7 +201,7 @@ test("client reload, cancelled intent, blocked double-submit and all recoveries 
   assert.match(client, /albumIntentMatchesSetup/);
   assert.match(client, /form\.set\("autoResumeTriggered"/);
   assert.match(client, /console\.info\("albumAutoResume"/);
-  assert.match(client, /intent\?\.phase === "generating" \|\| intent && readiness\?\.state === "ready"/);
+  assert.match(client, /intent\?\.phase === "generating" \|\| \(intent && readiness\?\.state === "ready"\)/);
   assert.doesNotMatch(client, /resumeIntent\(intent\)/);
   assert.match(client, /if \(executing.current \|\| pending \|\| intent\) return/);
   assert.match(client, /validAlbumIntent/);

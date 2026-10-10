@@ -26,16 +26,7 @@ import { isTerminalAnalysisFailure } from "@/lib/photo-analysis-policy";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function logAlbumAutoResume(input: {
-  intentPresent: boolean;
-  readinessStatus: string | null;
-  eligibleReady: number | null;
-  requiredEligible: number | null;
-  autoResumeTriggered: boolean;
-  generationStarted: boolean;
-  generationCompleted: boolean;
-  duplicateSuppressed: boolean;
-}) {
+function logAlbumAutoResume(input: { intentPresent: boolean; readinessStatus: string | null; eligibleReady: number | null; requiredEligible: number | null; autoResumeTriggered: boolean; generationStarted: boolean; generationCompleted: boolean; duplicateSuppressed: boolean }) {
   console.info("albumAutoResume", input);
 }
 
@@ -175,7 +166,10 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     const result = await supabase
       .from("photo_ai_analyses")
       .select("photo_id,status,attempts,error_code")
-      .in("photo_id", rawPhotos.slice(offset, offset + 200).map((photo) => photo.id));
+      .in(
+        "photo_id",
+        rawPhotos.slice(offset, offset + 200).map((photo) => photo.id),
+      );
     queueQueryCount++;
     if (result.error) {
       queueStatusAvailable = false;
@@ -237,20 +231,18 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
   }
   timing.end("06_best_shot_preparation", rankedPhotos.length);
   const readySourceIds = new Set(inputs.grouping.map((photo) => photo.photoId));
-  const excludedFailedIds = new Set([...inputs.preparationByPhoto]
-    .filter(([photoId, preparation]) => {
-      if (readySourceIds.has(photoId) || !queueStatusAvailable) return false;
-      const queue = queueByPhoto.get(photoId);
-      return isTerminalAnalysisFailure(queue ?? { status: "", attempts: 0 }) || queue?.status === "completed" && preparation.failed;
-    })
-    .map(([photoId]) => photoId));
+  const excludedFailedIds = new Set(
+    [...inputs.preparationByPhoto]
+      .filter(([photoId, preparation]) => {
+        if (readySourceIds.has(photoId) || !queueStatusAvailable) return false;
+        const queue = queueByPhoto.get(photoId);
+        return isTerminalAnalysisFailure(queue ?? { status: "", attempts: 0 }) || (queue?.status === "completed" && preparation.failed);
+      })
+      .map(([photoId]) => photoId),
+  );
   const excludedFailedCount = excludedFailedIds.size;
-  const pendingSourceCount = queueStatusAvailable
-    ? Math.max(0, rawPhotos.length - readySourceIds.size - excludedFailedCount)
-    : Math.max(0, rawPhotos.length - readySourceIds.size);
-  const eligibleReady = new Set(rankedPhotos
-    .filter((photo) => photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25)
-    .map((photo) => photo.photoId)).size;
+  const pendingSourceCount = queueStatusAvailable ? Math.max(0, rawPhotos.length - readySourceIds.size - excludedFailedCount) : Math.max(0, rawPhotos.length - readySourceIds.size);
+  const eligibleReady = new Set(rankedPhotos.filter((photo) => photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25).map((photo) => photo.photoId)).size;
   const requiredEligible = requiredEligiblePhotos(setup.pageCount);
   const proceededWithFailedExcluded = excludedFailedCount > 0 && eligibleReady >= requiredEligible;
   timing.counts({
@@ -318,55 +310,93 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     const analysis = inputs.geometry.get(photo.photoId);
     const preview = previews.get(photo.photoId);
     if (!analysis || !preview) return { error: "写真の表示を確認しています。", status: "retryable" };
-    layoutPhotos.push({ photoId: photo.photoId, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: photo.candidate, confidence: photo.confidence }, captionAvailable: true });
+    layoutPhotos.push({ photoId: photo.photoId, petId: photo.petId, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: photo.candidate, confidence: photo.confidence }, captionAvailable: true });
   }
-  const textForStories = (stories: typeof plan.spreads) => Object.fromEntries(stories.map((story) => {
-    const photo = candidateById.get(story.photoIds[0]);
-    return [story.id, photo ? editorialPageText(photo.timeline_at, photo.caption) : ""];
-  }));
+  const textForStories = (stories: typeof plan.spreads) =>
+    Object.fromEntries(
+      stories.map((story) => {
+        const photo = candidateById.get(story.photoIds[0]);
+        return [story.id, photo ? editorialPageText(photo.timeline_at, photo.caption) : ""];
+      }),
+    );
   let textByStory = textForStories(plan.spreads);
+  const minimumUniquePhotoCount = requiredEligible;
+    const availablePhotoCountByPet = Object.fromEntries(setup.petIds.map((petId) => [
+      petId,
+      new Set(rankedPhotos.filter((photo) => photo.petId === petId && photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25).map((photo) => photo.photoId)).size,
+    ]));
   let editorial;
   try {
-    editorial = buildEditorialDraft(plan.spreads, layoutPhotos, textByStory, (event, itemCount) => {
-      if (event === "started") timing.start("11_whole_album_rhythm_audit", itemCount);
-      else timing.end("11_whole_album_rhythm_audit", itemCount);
-    });
+    editorial = buildEditorialDraft(
+      plan.spreads,
+      layoutPhotos,
+      textByStory,
+      (event, itemCount) => {
+        if (event === "started") timing.start("11_whole_album_rhythm_audit", itemCount);
+        else timing.end("11_whole_album_rhythm_audit", itemCount);
+      },
+      {},
+      {},
+      minimumUniquePhotoCount,
+      eligibleReady,
+      availablePhotoCountByPet,
+    );
   } catch (error) {
     if (!(error instanceof EditorialGenerationError) || !error.unrecoveredSpreadIndices.length) {
+      if (error instanceof EditorialGenerationError && error.recoveryStats) logAlbumLayoutRecovery(timing, plan.spreads.length, error.recoveryStats);
       return { error: "この条件ではアルバムを完成できませんでした。別の写真を見直すか、写真を追加できます。", status: "action_required", recoveryReason: "layout" };
     }
     const selectedIds = new Set(plan.selected.map((photo) => photo.photoId));
     const replacementPhotoIdsBySpread: Record<string, string[]> = {};
+    const replacementMethodByPhotoId: Record<string, "same_scene_replacement" | "global_replacement"> = {};
     const replacementIds: string[] = [];
+    const replacementIdSet = new Set<string>();
     for (const spreadIndex of error.unrecoveredSpreadIndices) {
       const story = plan.spreads[spreadIndex];
       if (!story) continue;
+      const storyPetIds = new Set(plan.selected.filter((photo) => story.sceneIds.includes(photo.groupId)).map((photo) => photo.petId));
       const options = rankedPhotos
-        .filter((photo) => story.sceneIds.includes(photo.groupId) && !selectedIds.has(photo.photoId) && photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25)
-        .sort((a, b) => b.candidate.scores.overall - a.candidate.scores.overall || a.photoId.localeCompare(b.photoId))
-        .slice(0, ALBUM_DRAFT_CONFIG.recovery.bestShotReplacementCandidates - replacementIds.length);
-      replacementPhotoIdsBySpread[story.id] = options.map((photo) => photo.photoId);
-      replacementIds.push(...options.map((photo) => photo.photoId));
-      if (replacementIds.length >= ALBUM_DRAFT_CONFIG.recovery.bestShotReplacementCandidates) break;
+        .filter((photo) => !selectedIds.has(photo.photoId) && !replacementIdSet.has(photo.photoId) && setup.petIds.includes(photo.petId) && photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25)
+        .map((photo) => ({ photo, category: story.sceneIds.includes(photo.groupId) ? 0 : storyPetIds.has(photo.petId) ? 1 : 2, timeDistance: Math.abs(Date.parse(photo.timeline) - Date.parse(story.startedAt)) }))
+        .sort((a, b) => a.category - b.category || a.timeDistance - b.timeDistance || b.photo.candidate.scores.overall - a.photo.candidate.scores.overall || a.photo.photoId.localeCompare(b.photo.photoId));
+      const idsForSpread: string[] = [];
+      for (const { photo, category } of options) {
+        if (replacementIds.length >= ALBUM_DRAFT_CONFIG.recovery.globalReplacementCandidatesPerAlbum || idsForSpread.length >= ALBUM_DRAFT_CONFIG.recovery.bestShotReplacementCandidates) break;
+        replacementIdSet.add(photo.photoId);
+        replacementIds.push(photo.photoId);
+        idsForSpread.push(photo.photoId);
+        replacementMethodByPhotoId[photo.photoId] = category === 0 ? "same_scene_replacement" : "global_replacement";
+      }
+      replacementPhotoIdsBySpread[story.id] = idsForSpread;
     }
     if (!replacementIds.length) {
       if (error.recoveryStats) logAlbumLayoutRecovery(timing, plan.spreads.length, error.recoveryStats);
       return { error: "この条件ではアルバムを完成できませんでした。別の写真を見直すか、写真を追加できます。", status: "action_required", recoveryReason: "layout" };
     }
     const replacementSources = replacementIds.map((photoId) => candidateById.get(photoId)!).filter(Boolean);
-    const replacementPreviews = await createPhotoPreviewUrls(supabase, replacementSources, true, false, user.id);
+    const replacementPreviews = replacementSources.length ? await createPhotoPreviewUrls(supabase, replacementSources, true, false, user.id) : new Map();
     const replacementInputs: LayoutPhotoInput[] = replacementIds.flatMap((photoId) => {
       const analysis = inputs.geometry.get(photoId);
       const preview = replacementPreviews.get(photoId);
       const ranked = rankedPhotos.find((photo) => photo.photoId === photoId);
       if (!analysis || !preview || !ranked) return [];
-      return [{ photoId, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: ranked.candidate, confidence: ranked.confidence }, captionAvailable: true }];
+      return [{ photoId, petId: ranked.petId, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: ranked.candidate, confidence: ranked.confidence }, captionAvailable: true }];
     });
     try {
-      editorial = buildEditorialDraft(plan.spreads, [...layoutPhotos, ...replacementInputs], textByStory, (event, itemCount) => {
-        if (event === "started") timing.start("11_whole_album_rhythm_audit", itemCount);
-        else timing.end("11_whole_album_rhythm_audit", itemCount);
-      }, replacementPhotoIdsBySpread);
+      editorial = buildEditorialDraft(
+        plan.spreads,
+        [...layoutPhotos, ...replacementInputs],
+        textByStory,
+        (event, itemCount) => {
+          if (event === "started") timing.start("11_whole_album_rhythm_audit", itemCount);
+          else timing.end("11_whole_album_rhythm_audit", itemCount);
+        },
+        replacementPhotoIdsBySpread,
+        replacementMethodByPhotoId,
+        minimumUniquePhotoCount,
+        eligibleReady,
+        availablePhotoCountByPet,
+      );
       const selectedEditorial = new Map(rankedPhotos.map((photo) => [photo.photoId, photo]));
       plan.selected = editorial.selectedPhotoIds.map((photoId) => selectedEditorial.get(photoId)).filter((photo): photo is EditorialPhoto => Boolean(photo));
       textByStory = textForStories(editorial.stories);

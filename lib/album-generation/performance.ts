@@ -27,7 +27,23 @@ export function generationPerformance(emit: (record: Record<string, unknown>) =>
     context(values: { selectedPetIds: string[]; petCount: number; periodPreset: string; periodStart: string; periodEnd: string; requestedBodyPages: number }) {
       emit({ runId, event: "conditions", ...values });
     },
-    counts(values: { eligiblePhotoCount: number; selectedSourcePhotoCount: number; existingIntelligenceCount: number; missingIntelligenceCount: number; cropAnalysisRequiredCount: number; layoutPlanningSpreadCount: number; metadataQueryCount: number; legacyTechnicalFallbackCount: number; failedAnalysisCount: number; eligibleReady: number; requiredEligible: number; excludedFailedCount: number; proceededWithFailedExcluded: boolean; queueQueryCount: number; queueStatusAvailable: boolean }) {
+    counts(values: {
+      eligiblePhotoCount: number;
+      selectedSourcePhotoCount: number;
+      existingIntelligenceCount: number;
+      missingIntelligenceCount: number;
+      cropAnalysisRequiredCount: number;
+      layoutPlanningSpreadCount: number;
+      metadataQueryCount: number;
+      legacyTechnicalFallbackCount: number;
+      failedAnalysisCount: number;
+      eligibleReady: number;
+      requiredEligible: number;
+      excludedFailedCount: number;
+      proceededWithFailedExcluded: boolean;
+      queueQueryCount: number;
+      queueStatusAvailable: boolean;
+    }) {
       emit({ runId, event: "counts", ...values });
     },
     start(phase: GenerationPhase, itemCount = 0) {

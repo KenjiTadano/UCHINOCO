@@ -16,10 +16,12 @@ export function albumCapacityState(eligible: number, required: number, pending: 
 }
 
 export function recommendAlbumPageCount(eligible: number): AlbumPageCount | null {
-  return [...ALBUM_PAGE_COUNTS].reverse().find((pageCount) => {
-    const range = ALBUM_CAPACITIES[pageCount].recommendedEligibleRange;
-    return eligible >= range.min && (range.max === null || eligible <= range.max);
-  }) ?? null;
+  return (
+    [...ALBUM_PAGE_COUNTS].reverse().find((pageCount) => {
+      const range = ALBUM_CAPACITIES[pageCount].recommendedEligibleRange;
+      return eligible >= range.min && (range.max === null || eligible <= range.max);
+    }) ?? null
+  );
 }
 
 export function initialAlbumPageCount(current: AlbumPageCount, recommended: AlbumPageCount | null, manuallySelected: boolean) {

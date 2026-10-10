@@ -272,7 +272,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   const locked = Boolean(intent);
   const blocked = !readiness || shortage || readiness.state === "action_required";
 
-  if (pending || (!recovery && (intent?.phase === "generating" || intent && readiness?.state === "ready"))) {
+  if (pending || (!recovery && (intent?.phase === "generating" || (intent && readiness?.state === "ready")))) {
     return (
       <div role="status" aria-live="polite">
         <AlbumGeneratingScreen petName={selectedPetLabel} photoCount={readiness?.total ?? selectedPhotoCount} backHref={backHref} activeStep={generatingStep} />
@@ -387,7 +387,11 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
                 );
               })}
             </div>
-            {readiness ? <p className="app-help" aria-live="polite">アルバムに使える写真：{readiness.eligibleReady}枚</p> : null}
+            {readiness ? (
+              <p className="app-help" aria-live="polite">
+                アルバムに使える写真：{readiness.eligibleReady}枚
+              </p>
+            ) : null}
             <p className="app-help">似た写真や画質の低い写真は自動で整理されます。</p>
           </fieldset>
         </fieldset>
@@ -396,26 +400,24 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
           <RecoveryState
             title={state.recoveryReason === "layout" ? "別の写真でアルバムを完成できます" : "ここから続けられます"}
             description={recovery}
-            primaryAction={state.recoveryReason === "layout"
-              ? { label: "別の写真を見直す", href: `/pets/${petId}`, onClick: cancelIntent }
-              :
-              state.recoveryHref
-                ? { label: "ログインして続ける", href: state.recoveryHref }
-                : state.status === "failed" || state.status === "action_required"
-                  ? { label: "作成条件を変更", onClick: cancelIntent }
-                  : {
-                      label: "もう一度確認する",
-                      onClick: () => {
-                        polls.current = 0;
-                        generationRetries.current = 0;
-                        setRecovery(null);
-                        setRefreshKey((value) => value + 1);
-                      },
-                    }
+            primaryAction={
+              state.recoveryReason === "layout"
+                ? { label: "別の写真を見直す", href: `/pets/${petId}`, onClick: cancelIntent }
+                : state.recoveryHref
+                  ? { label: "ログインして続ける", href: state.recoveryHref }
+                  : state.status === "failed" || state.status === "action_required"
+                    ? { label: "作成条件を変更", onClick: cancelIntent }
+                    : {
+                        label: "もう一度確認する",
+                        onClick: () => {
+                          polls.current = 0;
+                          generationRetries.current = 0;
+                          setRecovery(null);
+                          setRefreshKey((value) => value + 1);
+                        },
+                      }
             }
-            secondaryAction={state.recoveryReason === "layout"
-              ? { label: "写真を追加", href: `/pets/${petId}/photos/new?returnTo=${encodeURIComponent(`/pets/${petId}/album/new`)}`, onClick: rememberForPhotoAdd }
-              : { label: "アルバム一覧へ戻る", href: backHref }}
+            secondaryAction={state.recoveryReason === "layout" ? { label: "写真を追加", href: `/pets/${petId}/photos/new?returnTo=${encodeURIComponent(`/pets/${petId}/album/new`)}`, onClick: rememberForPhotoAdd } : { label: "アルバム一覧へ戻る", href: backHref }}
             tertiaryAction={state.recoveryReason === "layout" ? { label: "作成条件を変更", onClick: cancelIntent } : undefined}
           />
         ) : shortage && readiness ? (

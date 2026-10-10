@@ -87,6 +87,7 @@ export type AlbumLayoutDefinition = {
 
 export type LayoutPhotoInput = {
   photoId: string;
+  petId?: string;
   /** Full original URL (optional for analysis continuity). */
   imageUrl: string;
   /** Thumbnail-preferred URL for layout preview rendering. */

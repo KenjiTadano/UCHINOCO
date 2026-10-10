@@ -33,6 +33,8 @@ export const ALBUM_DRAFT_CONFIG = {
     recoveryLayoutCandidates: 8,
     roleReassignmentAttempts: 3,
     bestShotReplacementCandidates: 8,
+    globalReplacementCandidatesPerAlbum: 8,
+    photoDropAttemptsPerSpread: 6,
     recoveryStrategyAttempts: 8,
     densityFallbackAttempts: 2,
     adjacentReflowRange: 1,
