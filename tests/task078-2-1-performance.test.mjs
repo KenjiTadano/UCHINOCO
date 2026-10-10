@@ -147,6 +147,13 @@ test("all sixteen phases have safe duration/count records, aborted phases close 
     (record) => records.push(record),
     () => clock,
   );
+  timing.counts({ eligiblePhotoCount: 28, selectedSourcePhotoCount: 24, existingIntelligenceCount: 24, missingIntelligenceCount: 4, cropAnalysisRequiredCount: 4, layoutPlanningSpreadCount: 24, metadataQueryCount: 1, legacyTechnicalFallbackCount: 0, failedAnalysisCount: 4, eligibleReady: 24, requiredEligible: 24, excludedFailedCount: 4, proceededWithFailedExcluded: true, queueQueryCount: 1, queueStatusAvailable: true });
+  const capacityLog = records[0];
+  assert.equal(capacityLog.eligibleReady, 24);
+  assert.equal(capacityLog.requiredEligible, 24);
+  assert.equal(capacityLog.excludedFailedCount, 4);
+  assert.equal(capacityLog.proceededWithFailedExcluded, true);
+  assert.equal(Object.keys(capacityLog).some((key) => /photo.?id|email|caption/i.test(key)), false);
   for (const phase of GENERATION_PHASES) {
     timing.start(phase, 36);
     clock += 10;

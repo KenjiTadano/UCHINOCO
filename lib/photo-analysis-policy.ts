@@ -9,6 +9,11 @@ export function isTerminalAnalysisError(code: string | null | undefined) {
   return TERMINAL_ANALYSIS_ERRORS.some((value) => value === code);
 }
 
+export function isTerminalAnalysisFailure(analysis: { status: string; attempts: number; error_code?: string | null }) {
+  return ["pending", "failed", "processing"].includes(analysis.status) &&
+    (analysis.attempts >= MAX_ANALYSIS_ATTEMPTS || isTerminalAnalysisError(analysis.error_code));
+}
+
 export function hasScheduledAnalysisRetry(analysis: { status: string; attempts: number; error_code?: string | null }) {
   return (analysis.status === "failed" || analysis.status === "processing") &&
     analysis.attempts < MAX_ANALYSIS_ATTEMPTS &&

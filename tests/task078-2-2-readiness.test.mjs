@@ -1,22 +1,55 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { albumReadiness, summarizeAlbumPreparation, validAlbumIntent, intentFormData, nextAlbumIntentStep, boundedAlbumRecovery, ALBUM_INTENT_TTL_MS } from "../lib/album-readiness.ts";
+import { albumCapacities, albumCapacityState, initialAlbumPageCount, recommendAlbumPageCount, requiredEligiblePhotos } from "../lib/album-capacity.ts";
 import { readFile } from "node:fs/promises";
 
 const intent = { id: "00000000-0000-4000-8000-000000000001", petId: "pet", petIds: ["pet"], period: "3months", periodFrom: "", periodTo: "", pageCount: 48, requestedAt: "2026-10-09T12:00:00Z", phase: "preparing" };
-test("ready, pending and failure states distinguish sufficient photos from preparation", () => {
-  assert.equal(albumReadiness({ total: 36, ready: 36, failed: 0, pages: 48 }).state, "ready");
-  const pending = albumReadiness({ total: 32, ready: 24, failed: 0, pages: 48 });
+test("eligible threshold controls readiness even while other source photos failed", () => {
+  const ready = albumReadiness({ total: 28, ready: 24, pending: 0, eligible: 24, pages: 48 });
+  assert.equal(ready.state, "ready");
+  assert.equal(ready.failed, undefined);
+  assert.equal(ready.eligibleReady, 24);
+  const pending = albumReadiness({ total: 24, ready: 20, pending: 4, eligible: 20, pages: 48 });
   assert.equal(pending.state, "preparing");
-  assert.equal(pending.pending, 8);
-  assert.equal(albumReadiness({ total: 32, ready: 24, failed: 1, pages: 48 }).state, "action_required");
+  assert.equal(pending.pending, 4);
+  const shortage = albumReadiness({ total: 24, ready: 20, pending: 0, eligible: 20, pages: 48 });
+  assert.equal(shortage.state, "shortage");
+  assert.equal(shortage.missingPhotos, 4);
+  assert.equal(albumCapacityState(24, 24, 4), "ready");
+  assert.equal(albumCapacityState(20, 24, 4), "preparing");
+  assert.equal(albumCapacityState(20, 24, 0), "shortage");
+});
+test("server readiness uses ranked quality-eligible candidates without waiting for all sources", async () => {
+  const source = await readFile("app/(app)/pets/[petId]/album/new/readiness-actions.ts", "utf8");
+  assert.match(source, /const eligibleReady = new Set\(rankStoredAlbumInputs\(inputs, photos, setup\.petIds\)/);
+  assert.match(source, /ready, pending: preparation\.pending, pages: setup\.pageCount, eligible: eligibleReady/);
+  assert.match(source, /requiredEligiblePhotos\(setup\.pageCount\)/);
+  assert.doesNotMatch(source, /ready === photos\.length/);
+});
+test("capacity thresholds and recommendation share one exact page-count model", () => {
+  assert.deepEqual([24, 48, 72].map((pages) => requiredEligiblePhotos(pages)), [12, 24, 36]);
+  assert.equal(recommendAlbumPageCount(11), null);
+  assert.equal(recommendAlbumPageCount(12), 24);
+  assert.equal(recommendAlbumPageCount(23), 24);
+  assert.equal(recommendAlbumPageCount(24), 48);
+  assert.equal(recommendAlbumPageCount(35), 48);
+  assert.equal(recommendAlbumPageCount(36), 72);
+  assert.equal(recommendAlbumPageCount(40), 72);
+  assert.deepEqual(albumCapacities(40).map((capacity) => capacity.available), [true, true, true]);
+  assert.equal(initialAlbumPageCount(48, 72, false), 72);
+  assert.equal(initialAlbumPageCount(48, 72, true), 48);
+  assert.equal(initialAlbumPageCount(48, null, false), 48);
 });
 test("photo shortage includes exact deficit and smaller-page recovery", () => {
-  const shortage = albumReadiness({ total: 17, ready: 10, failed: 0, pages: 48 });
+  const shortage = albumReadiness({ total: 17, ready: 10, pending: 0, eligible: 10, pages: 48 });
   assert.equal(shortage.state, "shortage");
-  assert.equal(shortage.missingPhotos, 7);
-  assert.equal(shortage.suggestedPages, 24);
-  assert.equal(albumReadiness({ total: 36, ready: 36, eligible: 17, failed: 0, pages: 48 }).state, "shortage");
+  assert.equal(shortage.missingPhotos, 14);
+  assert.equal(shortage.suggestedPages, null);
+  assert.equal(albumReadiness({ total: 36, ready: 36, pending: 0, eligible: 17, pages: 48 }).state, "shortage");
+  const pageFallback = albumReadiness({ total: 28, ready: 28, pending: 0, eligible: 28, pages: 72 });
+  assert.equal(pageFallback.missingPhotos, 8);
+  assert.equal(pageFallback.suggestedPages, 48);
 });
 test("preparation diagnostics classify readiness, stale inputs, missing work and progress without identifiers", () => {
   const summary = summarizeAlbumPreparation({
@@ -51,7 +84,7 @@ test("preparation diagnostics classify readiness, stale inputs, missing work and
 });
 test("pending intent auto-resumes only when ready and is locked during execution", () => {
   const current = { ...intent, requestedAt: new Date().toISOString() };
-  const ready = albumReadiness({ total: 36, ready: 36, failed: 0, pages: 48 });
+  const ready = albumReadiness({ total: 36, ready: 36, pending: 0, eligible: 36, pages: 48 });
   assert.equal(nextAlbumIntentStep(current, ready, false), "generate");
   assert.equal(nextAlbumIntentStep(current, ready, true), "wait");
   assert.equal(nextAlbumIntentStep(current, { ...ready, state: "preparing" }, false), "wait");
@@ -94,6 +127,7 @@ test("ownership, frozen range, ID uniqueness and ready preflight are server enfo
   assert.match(preflight, /pets\?\.some\(\(?pet\)?\s*=>\s*pet\.id === petId\)/);
   assert.match(preflight, /offset \+= 200/);
   assert.match(preflight, /photo_ai_analyses/);
+  assert.match(preflight, /isTerminalAnalysisFailure/);
   assert.match(preflight, /queueStatusAvailable = false;\s*break/);
   assert.match(preflight, /console\.info\("albumPreparation", preparation\)/);
   assert.match(preflight, /summarizeAlbumPreparation/);
@@ -102,6 +136,10 @@ test("ownership, frozen range, ID uniqueness and ready preflight are server enfo
   assert.match(action, /albumError\?\.code === "23505"/);
   assert.match(action, /status:.*"in_progress"/);
   assert.match(action, /requestedAt,/);
+  assert.match(action, /albumCapacityState\(eligibleReady, requiredEligible, pendingSourceCount\)/);
+  assert.match(action, /excludedFailedCount/);
+  assert.match(action, /proceededWithFailedExcluded/);
+  assert.doesNotMatch(action, /if \(inputs\.missingIntelligenceCount \|\| inputs\.missingGeometryCount\)/);
   assert.doesNotMatch(action, /同期|analyzeSmartCropPhoto|OpenAI|\.download\(/);
   assert.doesNotMatch(action, /ホームで整理が終わってから/);
 });
@@ -120,6 +158,10 @@ test("client reload, cancelled intent, blocked double-submit and all recoveries 
   assert.match(client, /ALBUM_PREPARE_MAX_POLLS/);
   assert.match(client, /写真を追加/);
   assert.match(client, /suggestedPages/);
+  assert.match(client, /ALBUM_PAGE_COUNTS\.map/);
+  assert.match(client, /initialAlbumPageCount/);
+  assert.match(client, /manualPageSelection\.current = true/);
+  assert.doesNotMatch(client, /pageCount \/ 2/);
   assert.match(client, /作成条件を変更/);
   assert.match(recovery, /role="status" aria-live="polite"/);
   assert.match(recovery, /min-h-11/);

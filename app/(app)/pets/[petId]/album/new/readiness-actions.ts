@@ -6,10 +6,11 @@ import { albumReadiness, summarizeAlbumPreparation, type AlbumReadiness } from "
 import { loadStoredGenerationInputs, type GenerationSourcePhoto } from "@/lib/album-generation/stored-inputs";
 import { rankStoredAlbumInputs } from "@/lib/album-generation/ranked-inputs";
 import { ALBUM_INTENT_TTL_MS } from "@/lib/album-readiness";
-import { isTerminalAnalysisError } from "@/lib/photo-analysis-policy";
+import { requiredEligiblePhotos } from "@/lib/album-capacity";
+import { isTerminalAnalysisFailure } from "@/lib/photo-analysis-policy";
 
 export async function checkAlbumReadiness(petId: string, form: FormData): Promise<AlbumReadiness> {
-  const unavailable: AlbumReadiness = { state: "unavailable", total: 0, ready: 0, pending: 0, failed: 0, required: 24, missingPhotos: 0, suggestedPages: null };
+  const unavailable: AlbumReadiness = { ...albumReadiness({ total: 0, ready: 0, pending: 0, pages: 48, eligible: 0 }), state: "unavailable" };
   const supabase = await createClient();
   const {
     data: { user },
@@ -64,15 +65,17 @@ export async function checkAlbumReadiness(petId: string, form: FormData): Promis
       queueRows.push(...(result.data ?? []));
     }
     const queueByPhoto = new Map(queueRows.map((row) => [row.photo_id, row]));
-    const eligibleReady = rankStoredAlbumInputs(inputs, photos, setup.petIds)
+    const eligibleReady = new Set(rankStoredAlbumInputs(inputs, photos, setup.petIds)
       .filter((photo) => photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25)
-      .length;
+      .map((photo) => photo.photoId)).size;
     const preparationPhotos = photos.map((photo) => {
       const analysis = inputs.preparationByPhoto.get(photo.id)!;
       const queue = queueByPhoto.get(photo.id);
-      const retryableFailure = queue?.status === "failed" && queue.attempts < 3 && !isTerminalAnalysisError(queue.error_code);
-      const retryable = !queueStatusAvailable || !queue || queue.status === "pending" || queue.status === "processing" || retryableFailure;
-      const failed = queueStatusAvailable && (queue?.status === "failed" && !retryableFailure || analysis.failed && !retryable);
+      const terminalQueueFailure = Boolean(queue && isTerminalAnalysisFailure(queue));
+      const retryableFailure = Boolean(queue && queue.status === "failed" && !terminalQueueFailure);
+      const retryableQueue = Boolean(queue && ["pending", "processing"].includes(queue.status) && !terminalQueueFailure);
+      const retryable = !queueStatusAvailable || !queue || retryableQueue || retryableFailure || queue.status === "completed" && !analysis.failed;
+      const failed = !analysis.ready && queueStatusAvailable && (terminalQueueFailure || analysis.failed && !retryable);
       const progressAt = [analysis.lastProgressAt, queue?.updated_at]
         .filter((timestamp): timestamp is string => timestamp != null && Date.parse(timestamp) >= requestedAt.getTime())
         .sort()
@@ -87,14 +90,13 @@ export async function checkAlbumReadiness(petId: string, form: FormData): Promis
     const preparation = summarizeAlbumPreparation({
       photos: preparationPhotos,
       eligibleReady,
-      requiredEligible: setup.pageCount / 2,
+      requiredEligible: requiredEligiblePhotos(setup.pageCount),
       requestedAt: requestedAt.toISOString(),
       queueStatusAvailable,
     });
     console.info("albumPreparation", preparation);
     const ready = inputs.grouping.length;
-    const eligible = ready === photos.length ? eligibleReady : undefined;
-    return albumReadiness({ total: photos.length, ready, failed: inputs.failedAnalysisCount, pages: setup.pageCount, eligible });
+    return albumReadiness({ total: photos.length, ready, pending: preparation.pending, pages: setup.pageCount, eligible: eligibleReady });
   } catch {
     return unavailable;
   }

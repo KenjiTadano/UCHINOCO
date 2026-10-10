@@ -1,12 +1,16 @@
+import { albumCapacities, albumCapacityState, recommendAlbumPageCount, requiredEligiblePhotos, type AlbumPageCount } from "./album-capacity.ts";
+
 export type AlbumReadiness = {
   state: "ready" | "preparing" | "shortage" | "action_required" | "unavailable";
   total: number;
   ready: number;
   pending: number;
-  failed: number;
+  eligibleReady: number;
   required: number;
   missingPhotos: number;
-  suggestedPages: 24 | 48 | null;
+  suggestedPages: AlbumPageCount | null;
+  recommendedPageCount: AlbumPageCount | null;
+  capacities: ReturnType<typeof albumCapacities>;
   action?: "login";
 };
 
@@ -51,20 +55,22 @@ export function summarizeAlbumPreparation(input: {
   };
 }
 
-export function albumReadiness(input: { total: number; ready: number; failed: number; pages: number; eligible?: number }): AlbumReadiness {
-  const required = input.pages / 2;
-  const pending = Math.max(0, input.total - input.ready - input.failed);
-  const available = input.eligible ?? input.total;
+export function albumReadiness(input: { total: number; ready: number; pending: number; pages: AlbumPageCount; eligible: number }): AlbumReadiness {
+  const required = requiredEligiblePhotos(input.pages);
+  const available = input.eligible;
   const missingPhotos = Math.max(0, required - available);
+  const capacities = albumCapacities(available);
   return {
-    state: input.total < required || (pending === 0 && input.failed === 0 && available < required) ? "shortage" : input.failed > 0 ? "action_required" : pending > 0 ? "preparing" : "ready",
+    state: albumCapacityState(available, required, input.pending),
     total: input.total,
     ready: input.ready,
-    pending,
-    failed: input.failed,
+    pending: input.pending,
+    eligibleReady: available,
     required,
     missingPhotos,
-    suggestedPages: available >= 24 && input.pages > 48 ? 48 : available >= 12 && input.pages > 24 ? 24 : null,
+    suggestedPages: [...capacities].reverse().find((capacity) => capacity.pageCount < input.pages && capacity.available)?.pageCount ?? null,
+    recommendedPageCount: recommendAlbumPageCount(available),
+    capacities,
   };
 }
 
@@ -75,7 +81,7 @@ export type AlbumIntent = {
   period: string;
   periodFrom: string;
   periodTo: string;
-  pageCount: number;
+  pageCount: AlbumPageCount;
   requestedAt: string;
   phase: "preparing" | "generating";
 };

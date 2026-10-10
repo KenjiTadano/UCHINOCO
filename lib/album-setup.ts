@@ -1,4 +1,4 @@
-import { ALBUM_PAGE_COUNTS, type AlbumPageCount } from "./album-draft/editorial.ts";
+import { ALBUM_PAGE_COUNTS, type AlbumPageCount } from "./album-capacity.ts";
 export type AlbumSetup = { petIds: string[]; pageCount: AlbumPageCount; from: Date; to: Date; label: string };
 export function parseAlbumSetup(form: FormData, ownedPetIds: string[], now=new Date()): AlbumSetup {
   const all = form.get("petSelection") == null || form.get("petSelection") === "all";

@@ -9,6 +9,7 @@ import { AlbumGeneratingScreen, useGeneratingStep } from "./album-generating-scr
 import { checkAlbumReadiness } from "./readiness-actions";
 import { RecoveryState } from "./recovery-state";
 import { ALBUM_PREPARE_MAX_POLLS, ALBUM_RECOVERY_MAX_RETRIES, boundedAlbumRecovery, intentFormData, nextAlbumIntentStep, validAlbumIntent, type AlbumIntent, type AlbumReadiness } from "@/lib/album-readiness";
+import { ALBUM_CAPACITIES, ALBUM_PAGE_COUNTS, initialAlbumPageCount, type AlbumPageCount } from "@/lib/album-capacity";
 
 const PERIOD_OPTIONS = [
   { value: "3months", label: "最近3か月" },
@@ -33,7 +34,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   const [selected, setSelected] = useState<string>("3months");
   const [petSelection, setPetSelection] = useState("all");
   const [petIds, setPetIds] = useState(petOptions.map((pet) => pet.id));
-  const [pageCount, setPageCount] = useState(48);
+  const [pageCount, setPageCount] = useState<AlbumPageCount>(48);
   const [periodFrom, setPeriodFrom] = useState("");
   const [periodTo, setPeriodTo] = useState("");
   const [intent, setIntent] = useState<AlbumIntent | null>(null);
@@ -43,6 +44,8 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   const executing = useRef(false);
   const polls = useRef(0);
   const generationRetries = useRef(0);
+  const manualPageSelection = useRef(false);
+  const initialRecommendationApplied = useRef(false);
   const mounted = useRef(false);
   const storageKey = `uchinoco:album-intent:${petId}`;
   const ownedPetKey = petOptions.map((pet) => pet.id).join(",");
@@ -146,7 +149,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
     if (pending || executing.current || recovery) return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
-    const settings = JSON.parse(settingsKey) as { selectedIds: string[]; selected: string; pageCount: number; periodFrom: string; periodTo: string };
+    const settings = JSON.parse(settingsKey) as { selectedIds: string[]; selected: string; pageCount: AlbumPageCount; periodFrom: string; periodTo: string };
     const currentSettings = intent ?? { id: crypto.randomUUID(), petId, petIds: settings.selectedIds, period: settings.selected, pageCount: settings.pageCount, periodFrom: settings.periodFrom, periodTo: settings.periodTo, requestedAt: new Date().toISOString(), phase: "preparing" as const };
     async function check() {
       try {
@@ -163,6 +166,10 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
         );
         if (disposed) return;
         setReadiness(result);
+        if (!intent && !manualPageSelection.current && !initialRecommendationApplied.current && result.recommendedPageCount) {
+          initialRecommendationApplied.current = true;
+          setPageCount((current) => initialAlbumPageCount(current, result.recommendedPageCount, manualPageSelection.current));
+        }
         if (intent) {
           if (!validAlbumIntent(intent, petId, ownedPetKey.split(","))) {
             setRecovery("準備の有効期限が過ぎました。作成条件を確認して続けられます。");
@@ -212,7 +219,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
     saveIntent({ id: crypto.randomUUID(), petId, petIds: selectedIds, period: selected, pageCount, periodFrom, periodTo, requestedAt: new Date().toISOString(), phase: "preparing" });
   }
 
-  function selectSmallerPages(pages: 24 | 48) {
+  function selectSmallerPages(pages: 24 | 48 | 72) {
     if (intent) saveIntent({ ...intent, pageCount: pages, phase: "preparing" });
     else cancelIntent();
     setPageCount(pages);
@@ -307,15 +314,38 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
           ) : null}
           <fieldset className="ai-gen-period">
             <legend>本文のページ数（表紙・裏表紙は別）</legend>
-            <div className="ai-gen-period-grid">
-              {[24, 48, 72].map((count) => (
-                <label key={count} className={`ai-gen-period-option${pageCount === count ? " is-selected" : ""}`}>
-                  <input type="radio" name="pageCount" value={count} checked={pageCount === count} onChange={() => setPageCount(count)} />
-                  {count}P{count === 48 ? "（おすすめ）" : ""}
-                </label>
-              ))}
+            <div className="ai-gen-capacity-grid" role="radiogroup" aria-label="アルバムのページ数と作成可否">
+              {ALBUM_PAGE_COUNTS.map((count) => {
+                const capacity = readiness?.capacities.find((item) => item.pageCount === count);
+                const available = capacity?.available ?? false;
+                const description = ALBUM_CAPACITIES[count].description;
+                const availability = available ? "今の写真で作れます" : capacity ? `あと${capacity.shortage}枚追加すると作れます` : "写真を確認しています";
+                return (
+                  <label key={count} className={`ai-gen-capacity-card${pageCount === count ? " is-selected" : ""}${available ? "" : " is-unavailable"}`}>
+                    <input
+                      type="radio"
+                      name="pageCount"
+                      value={count}
+                      checked={pageCount === count}
+                      disabled={locked}
+                      aria-label={`${count}ページ、${description}${capacity?.recommended ? "、おすすめ" : ""}、${availability}`}
+                      onChange={() => {
+                        manualPageSelection.current = true;
+                        initialRecommendationApplied.current = true;
+                        setPageCount(count);
+                        setReadiness(null);
+                      }}
+                    />
+                    <span className="ai-gen-capacity-title">{count}ページ</span>
+                    {capacity?.recommended ? <span className="ai-gen-capacity-badge">おすすめ</span> : null}
+                    <span className="ai-gen-capacity-description">{description}</span>
+                    <span className="ai-gen-capacity-status">{availability}</span>
+                  </label>
+                );
+              })}
             </div>
-            <p className="app-help">良い写真を大きく使い、日付やことばと組み合わせます。少なくとも{pageCount / 2}枚の異なる写真が必要です。</p>
+            {readiness ? <p className="app-help" aria-live="polite">アルバムに使える写真：{readiness.eligibleReady}枚</p> : null}
+            <p className="app-help">似た写真や画質の低い写真は自動で整理されます。</p>
           </fieldset>
         </fieldset>
 

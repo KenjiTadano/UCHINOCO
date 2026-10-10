@@ -6,10 +6,12 @@ import type { BestShotCandidate } from "../best-shot/types.ts";
 import type { LayoutPhotoInput } from "../smart-layout/types.ts";
 import { EDITORIAL_TEMPLATES, editorialTemplate } from "../smart-layout/editorial-library.ts";
 import type { LayoutEvaluationWork } from "../smart-layout/assign.ts";
+import { ALBUM_PAGE_COUNTS, requiredEligiblePhotos } from "../album-capacity.ts";
+import type { AlbumPageCount } from "../album-capacity.ts";
 
 export const EDITORIAL_VERSION = "album-editorial-v1";
-export const ALBUM_PAGE_COUNTS = [24, 48, 72] as const;
-export type AlbumPageCount = (typeof ALBUM_PAGE_COUNTS)[number];
+export { ALBUM_PAGE_COUNTS };
+export type { AlbumPageCount };
 export type EditorialPhoto = { photoId: string; petId: string; groupId: string; timeline: string; scene?: string; activity?: string; candidate: BestShotCandidate; confidence: number };
 export type RhythmIssue = { code: string; index: number; blocking: boolean };
 export type RhythmAudit = { score: number; issues: RhythmIssue[]; layoutCount: number; densityCount: number; heroCount: number; repairedSpreadCount: number };
@@ -27,7 +29,7 @@ export function editorialPageText(timeline: string, caption: string | null): str
 export function planEditorialAlbum(input: EditorialPhoto[], pageCount: AlbumPageCount): { selected: EditorialPhoto[]; spreads: StorySpread[] } {
   if (!ALBUM_PAGE_COUNTS.includes(pageCount)) throw new EditorialGenerationError("ページ数を選択してください。");
   const eligible = [...new Map(input.filter((p) => p.candidate.role !== "alternate" && p.candidate.scores.technical >= 25).map((p) => [p.photoId, p])).values()];
-  const spreadCount = pageCount / 2;
+  const spreadCount = requiredEligiblePhotos(pageCount);
   if (eligible.length < spreadCount) throw new EditorialGenerationError(`${pageCount}Pには少なくとも${spreadCount}枚の異なる写真が必要です。写真を追加するか、ページ数・期間を変更してください。`);
   const target = Math.min(eligible.length, Math.round(pageCount * 1.35));
   const chosen: EditorialPhoto[] = [];

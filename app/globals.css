@@ -2559,6 +2559,56 @@ button:disabled,
     background: var(--brand-terracotta-soft);
     color: var(--brand-terracotta-strong);
   }
+  .ai-gen-capacity-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .ai-gen-capacity-card {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    min-height: 154px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 7px;
+    padding: 12px 10px;
+    cursor: pointer;
+    border: 1px solid #eadfd8;
+    border-radius: 8px;
+    background: #fff;
+    text-align: left;
+  }
+  .ai-gen-capacity-card:focus-within {
+    outline: 2px solid var(--brand-terracotta);
+    outline-offset: 2px;
+  }
+  .ai-gen-capacity-card.is-selected {
+    border-color: var(--brand-terracotta);
+    background: var(--brand-terracotta-soft);
+  }
+  .ai-gen-capacity-card.is-unavailable .ai-gen-capacity-status {
+    color: var(--muted);
+  }
+  .ai-gen-capacity-title {
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .ai-gen-capacity-badge {
+    color: var(--brand-terracotta-strong);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .ai-gen-capacity-description,
+  .ai-gen-capacity-status {
+    font-size: 11px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  .ai-gen-capacity-status {
+    margin-top: auto;
+    font-weight: 600;
+  }
 
   /* —— 06.2 AIアルバム完成 —— */
   .ai-complete-page {

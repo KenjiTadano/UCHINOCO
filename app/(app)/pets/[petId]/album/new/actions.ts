@@ -20,6 +20,8 @@ import { loadCoverEditor } from "@/app/(app)/album-draft-service";
 import { buildAlbumCompositionPlan } from "@/lib/album-draft/composition";
 import { formatAlbumPeriodLabels } from "@/lib/album-cover-title";
 import { recordAlbumAnalyticsEvent } from "@/lib/album-analytics-server";
+import { albumCapacityState, requiredEligiblePhotos } from "@/lib/album-capacity";
+import { isTerminalAnalysisFailure } from "@/lib/photo-analysis-policy";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -139,24 +141,25 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     timing.finish("failed");
     return { error: "写真の解析情報を取得できませんでした。" };
   }
+  const queueRows: Array<{ photo_id: string; status: string; attempts: number; error_code: string | null }> = [];
+  let queueQueryCount = 0;
+  let queueStatusAvailable = true;
+  for (let offset = 0; offset < rawPhotos.length; offset += 200) {
+    const result = await supabase
+      .from("photo_ai_analyses")
+      .select("photo_id,status,attempts,error_code")
+      .in("photo_id", rawPhotos.slice(offset, offset + 200).map((photo) => photo.id));
+    queueQueryCount++;
+    if (result.error) {
+      queueStatusAvailable = false;
+      break;
+    }
+    queueRows.push(...(result.data ?? []));
+  }
+  const queueByPhoto = new Map(queueRows.map((row) => [row.photo_id, row]));
   timing.end("04_intelligence_metadata_query", rawPhotos.length);
   timing.start("07_missing_analysis_intelligence", rawPhotos.length);
-  timing.counts({
-    eligiblePhotoCount: rawPhotos.length,
-    selectedSourcePhotoCount: 0,
-    existingIntelligenceCount: inputs.existingIntelligenceCount,
-    missingIntelligenceCount: inputs.missingIntelligenceCount,
-    cropAnalysisRequiredCount: inputs.missingGeometryCount,
-    layoutPlanningSpreadCount: setup.pageCount / 2,
-    metadataQueryCount: inputs.metadataQueryCount,
-    legacyTechnicalFallbackCount: inputs.legacyTechnicalFallbackCount,
-    failedAnalysisCount: inputs.failedAnalysisCount,
-  });
   timing.end("07_missing_analysis_intelligence", inputs.missingIntelligenceCount + inputs.missingGeometryCount);
-  if (inputs.missingIntelligenceCount || inputs.missingGeometryCount) {
-    timing.finish("analysis_pending");
-    return { error: inputs.failedAnalysisCount ? "一部の写真を確認できませんでした。写真を選び直すか、対象期間を変更できます。" : null, status: inputs.failedAnalysisCount ? "action_required" : "preparing" };
-  }
 
   const candidates: AlbumCandidate[] = rawPhotos.map((photo) => {
     return {
@@ -206,6 +209,49 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     }
   }
   timing.end("06_best_shot_preparation", rankedPhotos.length);
+  const readySourceIds = new Set(inputs.grouping.map((photo) => photo.photoId));
+  const excludedFailedIds = new Set([...inputs.preparationByPhoto]
+    .filter(([photoId, preparation]) => {
+      if (readySourceIds.has(photoId) || !queueStatusAvailable) return false;
+      const queue = queueByPhoto.get(photoId);
+      return isTerminalAnalysisFailure(queue ?? { status: "", attempts: 0 }) || queue?.status === "completed" && preparation.failed;
+    })
+    .map(([photoId]) => photoId));
+  const excludedFailedCount = excludedFailedIds.size;
+  const pendingSourceCount = queueStatusAvailable
+    ? Math.max(0, rawPhotos.length - readySourceIds.size - excludedFailedCount)
+    : Math.max(0, rawPhotos.length - readySourceIds.size);
+  const eligibleReady = new Set(rankedPhotos
+    .filter((photo) => photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25)
+    .map((photo) => photo.photoId)).size;
+  const requiredEligible = requiredEligiblePhotos(setup.pageCount);
+  const proceededWithFailedExcluded = excludedFailedCount > 0 && eligibleReady >= requiredEligible;
+  timing.counts({
+    eligiblePhotoCount: rawPhotos.length,
+    selectedSourcePhotoCount: 0,
+    existingIntelligenceCount: inputs.existingIntelligenceCount,
+    missingIntelligenceCount: inputs.missingIntelligenceCount,
+    cropAnalysisRequiredCount: inputs.missingGeometryCount,
+    layoutPlanningSpreadCount: requiredEligible,
+    metadataQueryCount: inputs.metadataQueryCount,
+    legacyTechnicalFallbackCount: inputs.legacyTechnicalFallbackCount,
+    failedAnalysisCount: excludedFailedCount,
+    eligibleReady,
+    requiredEligible,
+    excludedFailedCount,
+    proceededWithFailedExcluded,
+    queueQueryCount,
+    queueStatusAvailable,
+  });
+  const capacityState = albumCapacityState(eligibleReady, requiredEligible, pendingSourceCount);
+  if (capacityState !== "ready") {
+    if (capacityState === "preparing") {
+      timing.finish("analysis_pending");
+      return { error: null, status: "preparing" };
+    }
+    timing.finish("failed");
+    return { error: `${setup.pageCount}ページには、あと${requiredEligible - eligibleReady}枚の写真が必要です。写真を追加するか、ページ数を変更できます。`, status: "action_required" };
+  }
   timing.start("08_photo_ranking_selection", rankedPhotos.length);
   let plan;
   try {
@@ -223,7 +269,13 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     layoutPlanningSpreadCount: plan.spreads.length,
     metadataQueryCount: inputs.metadataQueryCount,
     legacyTechnicalFallbackCount: inputs.legacyTechnicalFallbackCount,
-    failedAnalysisCount: inputs.failedAnalysisCount,
+    failedAnalysisCount: excludedFailedCount,
+    eligibleReady,
+    requiredEligible,
+    excludedFailedCount,
+    proceededWithFailedExcluded,
+    queueQueryCount,
+    queueStatusAvailable,
   });
   const layoutPhotos: LayoutPhotoInput[] = [];
   timing.start("09_layout_planning", plan.spreads.length);
@@ -351,7 +403,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       return { error: "アルバムの初稿を保存できませんでした。もう一度お試しください。" };
     }
     const { data: savedSpreads, error: savedSpreadsError } = await supabase.from("album_draft_spreads").select("id, story_spread_id").eq("draft_version_id", String(savedDraft.data));
-    if (savedSpreadsError || !savedSpreads || savedSpreads.length !== setup.pageCount / 2) {
+    if (savedSpreadsError || !savedSpreads || savedSpreads.length !== requiredEligible) {
       await supabase.from("albums").delete().eq("id", album.id);
       return { error: "アルバムのページを確認できませんでした。" };
     }

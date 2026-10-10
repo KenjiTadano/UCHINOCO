@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { canClaimAnalysis, hasScheduledAnalysisRetry } from "../lib/photo-analysis-policy.ts";
+import { canClaimAnalysis, hasScheduledAnalysisRetry, isTerminalAnalysisFailure } from "../lib/photo-analysis-policy.ts";
 
 const queue = readFileSync(new URL("../lib/photo-analysis-queue.ts", import.meta.url), "utf8");
 const route = readFileSync(new URL("../app/api/photo-analysis/route.ts", import.meta.url), "utf8");
@@ -46,4 +46,12 @@ test("only recoverable failed or processing work keeps the runner waiting", () =
   assert.equal(hasScheduledAnalysisRetry({ status: "failed", attempts: 3 }), false);
   assert.equal(hasScheduledAnalysisRetry({ status: "failed", attempts: 1, error_code: "storage_missing" }), false);
   assert.equal(hasScheduledAnalysisRetry({ status: "completed", attempts: 1 }), false);
+});
+
+test("terminal failure requires an exhausted attempt budget or non-recoverable error code", () => {
+  assert.equal(isTerminalAnalysisFailure({ status: "failed", attempts: 1 }), false);
+  assert.equal(isTerminalAnalysisFailure({ status: "failed", attempts: 3 }), true);
+  assert.equal(isTerminalAnalysisFailure({ status: "failed", attempts: 1, error_code: "storage_missing" }), true);
+  assert.equal(isTerminalAnalysisFailure({ status: "pending", attempts: 3 }), true);
+  assert.equal(isTerminalAnalysisFailure({ status: "processing", attempts: 3 }), true);
 });
