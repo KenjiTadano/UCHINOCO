@@ -8,7 +8,7 @@ import { createAlbumDraft, type CreateAlbumState } from "./actions";
 import { AlbumGeneratingScreen, useGeneratingStep } from "./album-generating-screen";
 import { checkAlbumReadiness } from "./readiness-actions";
 import { RecoveryState } from "./recovery-state";
-import { ALBUM_PREPARE_MAX_POLLS, ALBUM_RECOVERY_MAX_RETRIES, boundedAlbumRecovery, intentFormData, nextAlbumIntentStep, validAlbumIntent, type AlbumIntent, type AlbumReadiness } from "@/lib/album-readiness";
+import { ALBUM_PREPARE_MAX_POLLS, ALBUM_RECOVERY_MAX_RETRIES, albumIntentMatchesSetup, boundedAlbumRecovery, intentFormData, nextAlbumIntentStep, shouldAutoResumeAlbum, validAlbumIntent, type AlbumIntent, type AlbumReadiness } from "@/lib/album-readiness";
 import { ALBUM_CAPACITIES, ALBUM_PAGE_COUNTS, initialAlbumPageCount, type AlbumPageCount } from "@/lib/album-capacity";
 
 const PERIOD_OPTIONS = [
@@ -77,11 +77,35 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
     setRefreshKey((value) => value + 1);
   }
 
-  function beginGeneration(current: AlbumIntent) {
-    if (executing.current || !mounted.current) return;
+  function logAutoResume(current: AlbumIntent | null, currentReadiness: AlbumReadiness | null, values: { autoResumeTriggered: boolean; generationStarted: boolean; generationCompleted: boolean; duplicateSuppressed: boolean }) {
+    console.info("albumAutoResume", {
+      intentPresent: Boolean(current),
+      readinessStatus: currentReadiness?.state ?? null,
+      eligibleReady: currentReadiness?.eligibleReady ?? 0,
+      requiredEligible: currentReadiness?.required ?? 0,
+      ...values,
+    });
+  }
+
+  function beginGeneration(current: AlbumIntent, autoResumeTriggered = true) {
+    const valid = validAlbumIntent(current, petId, ownedPetKey.split(","));
+    const matchesSetup = albumIntentMatchesSetup(current, { petId, petIds: selectedIds, period: selected, pageCount, periodFrom, periodTo });
+    if (!valid || !matchesSetup) {
+      logAutoResume(current, readiness, { autoResumeTriggered, generationStarted: false, generationCompleted: false, duplicateSuppressed: false });
+      setRecovery("作成条件が変わりました。条件を確認して続けられます。");
+      return;
+    }
+    if (executing.current || pending || !mounted.current) {
+      logAutoResume(current, readiness, { autoResumeTriggered, generationStarted: false, generationCompleted: false, duplicateSuppressed: true });
+      return;
+    }
+    if (autoResumeTriggered && !shouldAutoResumeAlbum({ intentPresent: true, intentValid: valid, readiness, generationRunning: false })) return;
     executing.current = true;
     saveIntent({ ...current, phase: "generating" });
-    startTransition(() => formAction(intentFormData(current)));
+    const form = intentFormData(current);
+    form.set("autoResumeTriggered", String(autoResumeTriggered));
+    logAutoResume(current, readiness, { autoResumeTriggered, generationStarted: true, generationCompleted: false, duplicateSuppressed: false });
+    startTransition(() => formAction(form));
   }
 
   const restoreIntent = useEffectEvent(() => {
@@ -114,6 +138,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
     if (!state.status && !state.error) return;
     executing.current = false;
     if (state.status === "complete" && state.previewHref) {
+      logAutoResume(intent, readiness, { autoResumeTriggered: true, generationStarted: true, generationCompleted: true, duplicateSuppressed: false });
       saveIntent(null);
       router.replace(state.previewHref);
       return;
@@ -143,8 +168,23 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
     };
   }, [state]);
 
-  const resumeIntent = useEffectEvent((current: AlbumIntent) => beginGeneration(current));
   const checkReadiness = useEffectEvent((data: FormData) => (services?.readiness ?? checkAlbumReadiness)(petId, data));
+  const observeReadyIntent = useEffectEvent((current: AlbumIntent | null, currentReadiness: AlbumReadiness) => {
+    const valid = Boolean(current && validAlbumIntent(current, petId, ownedPetKey.split(",")));
+    const matchesSetup = Boolean(current && albumIntentMatchesSetup(current, { petId, petIds: selectedIds, period: selected, pageCount, periodFrom, periodTo }));
+    const canResume = shouldAutoResumeAlbum({ intentPresent: Boolean(current), intentValid: valid && matchesSetup, readiness: currentReadiness, generationRunning: pending || executing.current });
+    logAutoResume(current, currentReadiness, {
+      autoResumeTriggered: canResume,
+      generationStarted: false,
+      generationCompleted: false,
+      duplicateSuppressed: Boolean(current && currentReadiness.state === "ready" && (pending || executing.current)),
+    });
+    if (canResume && current) beginGeneration(current);
+  });
+  useEffect(() => {
+    if (readiness?.state !== "ready") return;
+    observeReadyIntent(intent, readiness);
+  }, [intent, readiness, pending, recovery, settingsKey, petId, ownedPetKey]);
   useEffect(() => {
     if (pending || executing.current || recovery) return;
     let disposed = false;
@@ -177,7 +217,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
           }
           const next = nextAlbumIntentStep(intent, result, executing.current);
           if (next === "generate") {
-            resumeIntent(intent);
+            polls.current = 0;
             return;
           }
           if (next === "recover") {
@@ -229,7 +269,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   const locked = Boolean(intent);
   const blocked = !readiness || shortage || readiness.state === "action_required";
 
-  if (pending || (intent?.phase === "generating" && !recovery)) {
+  if (pending || (!recovery && (intent?.phase === "generating" || intent && readiness?.state === "ready"))) {
     return (
       <div role="status" aria-live="polite">
         <AlbumGeneratingScreen petName={selectedPetLabel} photoCount={readiness?.total ?? selectedPhotoCount} backHref={backHref} activeStep={generatingStep} />

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { albumReadiness, summarizeAlbumPreparation, validAlbumIntent, intentFormData, nextAlbumIntentStep, boundedAlbumRecovery, ALBUM_INTENT_TTL_MS } from "../lib/album-readiness.ts";
+import { albumReadiness, albumIntentMatchesSetup, summarizeAlbumPreparation, validAlbumIntent, intentFormData, nextAlbumIntentStep, shouldAutoResumeAlbum, boundedAlbumRecovery, ALBUM_INTENT_TTL_MS } from "../lib/album-readiness.ts";
 import { albumCapacities, albumCapacityState, initialAlbumPageCount, recommendAlbumPageCount, requiredEligiblePhotos } from "../lib/album-capacity.ts";
 import { readFile } from "node:fs/promises";
 
@@ -89,6 +89,26 @@ test("pending intent auto-resumes only when ready and is locked during execution
   assert.equal(nextAlbumIntentStep(current, ready, true), "wait");
   assert.equal(nextAlbumIntentStep(current, { ...ready, state: "preparing" }, false), "wait");
 });
+test("ready transition auto-resumes valid creation intents exactly at eligible capacity", () => {
+  const current = { ...intent, requestedAt: new Date().toISOString(), pageCount: 24 };
+  const ready = albumReadiness({ total: 28, ready: 24, pending: 0, eligible: 24, pages: 24 });
+  const eligible = { intentPresent: true, intentValid: true, readiness: ready, generationRunning: false };
+  assert.equal(ready.required, 12);
+  assert.equal(shouldAutoResumeAlbum(eligible), true);
+  assert.equal(shouldAutoResumeAlbum({ ...eligible, generationRunning: true }), false);
+  assert.equal(shouldAutoResumeAlbum({ ...eligible, intentPresent: false }), false);
+  assert.equal(shouldAutoResumeAlbum({ ...eligible, intentValid: false }), false);
+  assert.equal(shouldAutoResumeAlbum({ ...eligible, readiness: { ...ready, eligibleReady: 11 } }), false);
+  assert.equal(current.phase, "preparing");
+});
+test("auto-resume rejects stale settings and accepts the restored frozen setup", () => {
+  const current = { ...intent, requestedAt: new Date().toISOString() };
+  const setup = { petId: "pet", petIds: ["pet"], period: "3months", pageCount: 48, periodFrom: "", periodTo: "" };
+  assert.equal(albumIntentMatchesSetup(current, setup), true);
+  assert.equal(albumIntentMatchesSetup(current, { ...setup, pageCount: 24 }), false);
+  assert.equal(albumIntentMatchesSetup(current, { ...setup, period: "6months" }), false);
+  assert.equal(albumIntentMatchesSetup(current, { ...setup, petIds: ["other"] }), false);
+});
 
 test("transient failures auto-retry, permanent failures stop after three tries", async () => {
   let tries = 0;
@@ -134,11 +154,20 @@ test("ownership, frozen range, ID uniqueness and ready preflight are server enfo
   assert.match(action, /id: intentId/);
   assert.match(action, /generation_intent_key/);
   assert.match(action, /albumError\?\.code === "23505"/);
+  assert.match(action, /metadata\?\.generation_intent_key === intentKey && cover/);
+  assert.match(action, /status: "complete", previewHref:/);
   assert.match(action, /status:.*"in_progress"/);
   assert.match(action, /requestedAt,/);
   assert.match(action, /albumCapacityState\(eligibleReady, requiredEligible, pendingSourceCount\)/);
   assert.match(action, /excludedFailedCount/);
   assert.match(action, /proceededWithFailedExcluded/);
+  assert.match(action, /console\.info\("albumAutoResume", input\)/);
+  assert.match(action, /autoResumeTriggered = formData\.get\("autoResumeTriggered"\)/);
+  assert.match(action, /duplicateSuppressed: status === "in_progress"/);
+  assert.match(action, /generationCompleted: true/);
+  const autoResumeLogger = action.match(/function logAlbumAutoResume\(input: \{[\s\S]*?\}\) \{\s*console\.info\("albumAutoResume", input\);\s*\}/)?.[0] ?? "";
+  assert.ok(autoResumeLogger);
+  assert.doesNotMatch(autoResumeLogger, /albumId|photoId|userId/);
   assert.doesNotMatch(action, /if \(inputs\.missingIntelligenceCount \|\| inputs\.missingGeometryCount\)/);
   assert.doesNotMatch(action, /同期|analyzeSmartCropPhoto|OpenAI|\.download\(/);
   assert.doesNotMatch(action, /ホームで整理が終わってから/);
@@ -150,11 +179,21 @@ test("client reload, cancelled intent, blocked double-submit and all recoveries 
   assert.match(client, /sessionStorage\.setItem/);
   assert.match(client, /sessionStorage\.removeItem/);
   assert.match(client, /state.status === "complete"/);
+  assert.match(client, /router\.replace\(state\.previewHref\)/);
+  assert.match(client, /state.status === "in_progress" \? 60_000/);
+  assert.match(client, /setTimeout\(\(\) => beginGeneration\(intent\), delay\)/);
   assert.match(client, /rememberForPhotoAdd/);
   assert.match(client, /selectSmallerPages/);
+  assert.match(client, /observeReadyIntent\(intent, readiness\)/);
+  assert.match(client, /shouldAutoResumeAlbum/);
+  assert.match(client, /albumIntentMatchesSetup/);
+  assert.match(client, /form\.set\("autoResumeTriggered"/);
+  assert.match(client, /console\.info\("albumAutoResume"/);
+  assert.match(client, /intent\?\.phase === "generating" \|\| intent && readiness\?\.state === "ready"/);
+  assert.doesNotMatch(client, /resumeIntent\(intent\)/);
   assert.match(client, /if \(executing.current \|\| pending \|\| intent\) return/);
   assert.match(client, /validAlbumIntent/);
-  assert.match(client, /resumeIntent\(intent\)/);
+  assert.match(client, /observeReadyIntent\(intent, readiness\)/);
   assert.match(client, /ALBUM_PREPARE_MAX_POLLS/);
   assert.match(client, /写真を追加/);
   assert.match(client, /suggestedPages/);

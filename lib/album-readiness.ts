@@ -110,6 +110,22 @@ export function validAlbumIntent(value: unknown, petId: string, ownedPetIds: str
   );
 }
 
+export function albumIntentMatchesSetup(intent: AlbumIntent, setup: {
+  petId: string;
+  petIds: string[];
+  period: string;
+  pageCount: AlbumPageCount;
+  periodFrom: string;
+  periodTo: string;
+}) {
+  return intent.petId === setup.petId &&
+    JSON.stringify([...intent.petIds].sort()) === JSON.stringify([...setup.petIds].sort()) &&
+    intent.period === setup.period &&
+    intent.pageCount === setup.pageCount &&
+    intent.periodFrom === setup.periodFrom &&
+    intent.periodTo === setup.periodTo;
+}
+
 export function intentFormData(intent: AlbumIntent) {
   const data = new FormData();
   data.set("intentId", intent.id);
@@ -129,6 +145,19 @@ export function nextAlbumIntentStep(intent: AlbumIntent, readiness: AlbumReadine
   if (readiness.state === "ready") return "generate";
   if (readiness.state === "preparing") return "wait";
   return "recover";
+}
+
+export function shouldAutoResumeAlbum(input: {
+  intentPresent: boolean;
+  intentValid: boolean;
+  readiness: AlbumReadiness | null;
+  generationRunning: boolean;
+}) {
+  return input.intentPresent &&
+    input.intentValid &&
+    !input.generationRunning &&
+    input.readiness?.state === "ready" &&
+    input.readiness.eligibleReady >= input.readiness.required;
 }
 
 export async function boundedAlbumRecovery<T>(operation: () => Promise<T>, delay: (attempt: number) => Promise<void>) {

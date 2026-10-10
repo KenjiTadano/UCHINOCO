@@ -25,6 +25,19 @@ import { isTerminalAnalysisFailure } from "@/lib/photo-analysis-policy";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function logAlbumAutoResume(input: {
+  intentPresent: boolean;
+  readinessStatus: string | null;
+  eligibleReady: number | null;
+  requiredEligible: number | null;
+  autoResumeTriggered: boolean;
+  generationStarted: boolean;
+  generationCompleted: boolean;
+  duplicateSuppressed: boolean;
+}) {
+  console.info("albumAutoResume", input);
+}
+
 export type CreateAlbumState = {
   error: string | null;
   status?: "preparing" | "retryable" | "action_required" | "in_progress" | "failed" | "complete";
@@ -63,6 +76,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
 
   let setup;
   const intentId = String(formData.get("intentId") ?? "");
+  const autoResumeTriggered = formData.get("autoResumeTriggered") === "true";
   const requestedAt = formData.get("requestedAt") ? new Date(String(formData.get("requestedAt"))) : new Date();
   if ((intentId && !UUID_PATTERN.test(intentId)) || !Number.isFinite(requestedAt.getTime()) || Date.now() - requestedAt.getTime() >= ALBUM_INTENT_TTL_MS || requestedAt.getTime() - Date.now() > 60_000) {
     return { error: "作成条件をもう一度確認してください。", status: "action_required" };
@@ -89,10 +103,15 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       if (draft) {
         const metadata = draft.generation_metadata as Record<string, unknown> | null;
         const { data: cover } = await supabase.from("album_draft_covers").select("id").eq("draft_version_id", draft.id).maybeSingle();
-        if (metadata?.generation_intent_key === intentKey && cover) return { error: null, status: "complete", previewHref: `/pets/${previous.pet_id}/album/${previous.id}?view=preview` };
+        if (metadata?.generation_intent_key === intentKey && cover) {
+          logAlbumAutoResume({ intentPresent: true, readinessStatus: "ready", eligibleReady: null, requiredEligible: requiredEligiblePhotos(setup.pageCount), autoResumeTriggered, generationStarted: false, generationCompleted: true, duplicateSuppressed: false });
+          return { error: null, status: "complete", previewHref: `/pets/${previous.pet_id}/album/${previous.id}?view=preview` };
+        }
         if (metadata?.generation_intent_key !== intentKey) return { error: "作成条件が変更されています。条件を確認してください。", status: "action_required" };
       }
-      return { error: "アルバムの作成状況を確認しています。", status: Date.now() - Date.parse(previous.created_at) < 150_000 ? "in_progress" : "failed" };
+      const status = Date.now() - Date.parse(previous.created_at) < 150_000 ? "in_progress" : "failed";
+      logAlbumAutoResume({ intentPresent: true, readinessStatus: null, eligibleReady: null, requiredEligible: requiredEligiblePhotos(setup.pageCount), autoResumeTriggered, generationStarted: false, generationCompleted: false, duplicateSuppressed: status === "in_progress" });
+      return { error: "アルバムの作成状況を確認しています。", status };
     }
   }
   timing.end("02_pet_ownership_validation", selectedPets.length);
@@ -244,6 +263,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     queueStatusAvailable,
   });
   const capacityState = albumCapacityState(eligibleReady, requiredEligible, pendingSourceCount);
+  logAlbumAutoResume({ intentPresent: Boolean(intentId), readinessStatus: capacityState, eligibleReady, requiredEligible, autoResumeTriggered, generationStarted: capacityState === "ready", generationCompleted: false, duplicateSuppressed: false });
   if (capacityState !== "ready") {
     if (capacityState === "preparing") {
       timing.finish("analysis_pending");
@@ -340,7 +360,11 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     .select("id")
     .single();
 
-  if (albumError || !album) return { error: "作成状況を確認しています。", status: albumError?.code === "23505" ? "in_progress" : "retryable" };
+  if (albumError || !album) {
+    const duplicateSuppressed = albumError?.code === "23505";
+    logAlbumAutoResume({ intentPresent: Boolean(intentId), readinessStatus: "ready", eligibleReady, requiredEligible, autoResumeTriggered, generationStarted: false, generationCompleted: false, duplicateSuppressed });
+    return { error: "作成状況を確認しています。", status: duplicateSuppressed ? "in_progress" : "retryable" };
+  }
   timing.end("12_album_row_creation", 1);
   timing.start("13_spread_page_persistence", persistableSpreads.length);
 
@@ -444,6 +468,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
   timing.start("16_redirect_preparation", 1);
   timing.end("16_redirect_preparation", 1);
   timing.finish("ready");
+  logAlbumAutoResume({ intentPresent: Boolean(intentId), readinessStatus: "ready", eligibleReady, requiredEligible, autoResumeTriggered, generationStarted: true, generationCompleted: true, duplicateSuppressed: false });
   if (intentId) return { error: null, status: "complete", previewHref: `/pets/${anchorPet.id}/album/${album.id}?view=preview` };
   redirect(`/pets/${anchorPet.id}/album/${album.id}?view=preview`);
 }
