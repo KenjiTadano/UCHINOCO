@@ -61,6 +61,22 @@ export type SpreadLayoutRecoveryDiagnostic = {
   fallbackBuilderUsed: boolean;
   explicitCandidateListProvided: boolean;
   candidateListSource: "handoff" | "merged" | "fallback_empty" | "fallback_missing";
+  replacementCandidateEvaluatedCount: number;
+  replacementAcceptedCount: number;
+  replacementCropUnsafeCount: number;
+  replacementGutterViolationCount: number;
+  replacementFrameInvalidCount: number;
+  replacementHeroHierarchyViolationCount: number;
+  replacementSourceClippingCount: number;
+  replacementSubjectVisibilityViolationCount: number;
+  replacementTemplateUnavailableCount: number;
+  replacementSafeFallbackUnavailableCount: number;
+  replacementOtherRejectCount: number;
+  replacementTemplateCandidateCount: number;
+  replacementSafeFallbackCandidateCount: number;
+  replacementSparseCandidateCount: number;
+  replacementLayoutEvaluatedCount: number;
+  replacementLayoutAcceptedCount: number;
   globalReplacementCandidateCount: number;
   sameSceneReplacementCandidateCount: number;
   samePetReplacementCandidateCount: number;
@@ -99,6 +115,22 @@ export type LayoutRecoveryStats = {
   unusedPhotoCount: number;
   unusedReplacementEligibleCount: number;
   unusedReplacementRejectedCount: number;
+  replacementCandidateEvaluatedCount: number;
+  replacementAcceptedCount: number;
+  replacementCropUnsafeCount: number;
+  replacementGutterViolationCount: number;
+  replacementFrameInvalidCount: number;
+  replacementHeroHierarchyViolationCount: number;
+  replacementSourceClippingCount: number;
+  replacementSubjectVisibilityViolationCount: number;
+  replacementTemplateUnavailableCount: number;
+  replacementSafeFallbackUnavailableCount: number;
+  replacementOtherRejectCount: number;
+  replacementTemplateCandidateCount: number;
+  replacementSafeFallbackCandidateCount: number;
+  replacementSparseCandidateCount: number;
+  replacementLayoutEvaluatedCount: number;
+  replacementLayoutAcceptedCount: number;
   failureReasonCounts: LayoutRecoveryFailureCounts;
   spreadDiagnostics: SpreadLayoutRecoveryDiagnostic[];
 };
@@ -264,6 +296,17 @@ export type SpreadLayoutAttemptDiagnostics = {
   safeFallbackCandidateCount: number;
   failureReasonCounts: LayoutRecoveryFailureCounts;
   unsafePhotoCounts: Record<string, number>;
+  subjectVisibilityViolationCount: number;
+};
+type ReplacementLayoutTrace = {
+  templateCandidateCount: number;
+  safeFallbackCandidateCount: number;
+  layoutEvaluatedCount: number;
+  layoutAcceptedCount: number;
+  subjectVisibilityViolationCount: number;
+  failureReasonCounts: LayoutRecoveryFailureCounts;
+  normalTemplatesAvailable: boolean;
+  safeFallbacksAvailable: boolean;
 };
 
 function emptyFailureCounts(): LayoutRecoveryFailureCounts {
@@ -343,6 +386,22 @@ export function createSpreadLayoutRecoveryDiagnostic(spreadIndex: number, story:
     fallbackBuilderUsed: false,
     explicitCandidateListProvided: false,
     candidateListSource: "fallback_missing",
+    replacementCandidateEvaluatedCount: 0,
+    replacementAcceptedCount: 0,
+    replacementCropUnsafeCount: 0,
+    replacementGutterViolationCount: 0,
+    replacementFrameInvalidCount: 0,
+    replacementHeroHierarchyViolationCount: 0,
+    replacementSourceClippingCount: 0,
+    replacementSubjectVisibilityViolationCount: 0,
+    replacementTemplateUnavailableCount: 0,
+    replacementSafeFallbackUnavailableCount: 0,
+    replacementOtherRejectCount: 0,
+    replacementTemplateCandidateCount: 0,
+    replacementSafeFallbackCandidateCount: 0,
+    replacementSparseCandidateCount: 0,
+    replacementLayoutEvaluatedCount: 0,
+    replacementLayoutAcceptedCount: 0,
     globalReplacementCandidateCount: 0,
     sameSceneReplacementCandidateCount: 0,
     samePetReplacementCandidateCount: 0,
@@ -400,6 +459,7 @@ function diagnoseDrafts(story: StorySpread, photos: LayoutPhotoInput[], drafts: 
     safeFallbackCandidateCount,
     failureReasonCounts,
     unsafePhotoCounts,
+    subjectVisibilityViolationCount: drafts.filter((draft) => draft.status === "unusable" && [...draft.warnings, ...draft.assignments.flatMap((assignment) => assignment.warnings)].includes("SUBJECT_INVISIBLE")).length,
   };
 }
 
@@ -414,19 +474,42 @@ function candidateLayoutStages(story: StorySpread, photos: LayoutPhotoInput[]) {
   }).map((candidate) => candidate.layout);
   const initialCount = ALBUM_DRAFT_CONFIG.recovery.initialLayoutCandidates;
   const recoveryCount = ALBUM_DRAFT_CONFIG.recovery.recoveryLayoutCandidates;
-  const safeFallbacks = rankTemplateCandidates(
+  const rankedSafeFallbacks = rankTemplateCandidates(
     layouts.filter((layout) => layout.id.startsWith("E_SAFE_FALLBACK_")),
     scoped,
     { storyType: story.storyType },
-  )
-    .slice(0, ALBUM_DRAFT_CONFIG.recovery.maxFallbackTemplatesPerSpread)
-    .map((candidate) => candidate.layout);
+  ).map((candidate) => candidate.layout);
+  const safeFallbacks = rankedSafeFallbacks.slice(0, ALBUM_DRAFT_CONFIG.recovery.maxFallbackTemplatesPerSpread);
+  const sparseFallbacks = story.photoIds.length === 1 ? rankedSafeFallbacks.slice(safeFallbacks.length) : [];
   return {
     matchingLayoutExists: layouts.length > 0,
+    normalTemplateCount: regular.length,
     initial: ranked.slice(0, initialCount),
     templates: ranked.slice(initialCount, initialCount + recoveryCount),
     safeFallbacks,
+    sparseFallbacks,
   };
+}
+
+function recordReplacementLayoutTrace(trace: ReplacementLayoutTrace, result: ReturnType<typeof evaluateSpreadLayoutCandidates>, stage: "template_fallback" | "safe_fallback" | "safe_sparse_layout") {
+  if (stage === "template_fallback") trace.templateCandidateCount += result.diagnostics.candidateCount;
+  else if (stage === "safe_fallback") trace.safeFallbackCandidateCount += result.diagnostics.candidateCount;
+  trace.layoutEvaluatedCount += result.diagnostics.candidateCount;
+  trace.layoutAcceptedCount += result.drafts.length;
+  trace.subjectVisibilityViolationCount += result.diagnostics.subjectVisibilityViolationCount;
+  addFailureCounts(trace.failureReasonCounts, result.diagnostics.failureReasonCounts);
+}
+
+function recordReplacementRejection(diagnostic: SpreadLayoutRecoveryDiagnostic, trace: ReplacementLayoutTrace) {
+  const failures = trace.failureReasonCounts;
+  if (failures.cropUnsafe > 0) diagnostic.replacementCropUnsafeCount++;
+  else if (failures.gutterViolation > 0) diagnostic.replacementGutterViolationCount++;
+  else if (failures.frameInvalid > 0) diagnostic.replacementFrameInvalidCount++;
+  else if (failures.heroHierarchyViolation > 0) diagnostic.replacementHeroHierarchyViolationCount++;
+  else if (trace.subjectVisibilityViolationCount > 0) diagnostic.replacementSubjectVisibilityViolationCount++;
+  else if (!trace.normalTemplatesAvailable) diagnostic.replacementTemplateUnavailableCount++;
+  else if (!trace.safeFallbacksAvailable) diagnostic.replacementSafeFallbackUnavailableCount++;
+  else diagnostic.replacementOtherRejectCount++;
 }
 
 export function evaluateSpreadLayoutCandidates(story: StorySpread, photos: LayoutPhotoInput[], layouts: AlbumLayoutDefinition[], work: LayoutEvaluationWork, evaluate: typeof buildSpreadDraft = buildSpreadDraft, stage: LayoutRecoveryStage = "initial", matchingLayoutExists = layouts.length > 0) {
@@ -487,6 +570,7 @@ export function buildEditorialDraft(
   minimumUniquePhotoCount = stories.length,
   availablePhotoCount = photos.length,
   availablePhotoCountByPet: Record<string, number> = {},
+  evaluateDraft: typeof buildSpreadDraft = buildSpreadDraft,
 ) {
   const work: LayoutEvaluationWork = { cells: new Map(), cropDurationMs: 0, cropItemCount: 0, cropReusedCount: 0 };
   const cropStartedAt = new Date().toISOString();
@@ -519,6 +603,22 @@ export function buildEditorialDraft(
     unusedPhotoCount: 0,
     unusedReplacementEligibleCount: 0,
     unusedReplacementRejectedCount: 0,
+    replacementCandidateEvaluatedCount: 0,
+    replacementAcceptedCount: 0,
+    replacementCropUnsafeCount: 0,
+    replacementGutterViolationCount: 0,
+    replacementFrameInvalidCount: 0,
+    replacementHeroHierarchyViolationCount: 0,
+    replacementSourceClippingCount: 0,
+    replacementSubjectVisibilityViolationCount: 0,
+    replacementTemplateUnavailableCount: 0,
+    replacementSafeFallbackUnavailableCount: 0,
+    replacementOtherRejectCount: 0,
+    replacementTemplateCandidateCount: 0,
+    replacementSafeFallbackCandidateCount: 0,
+    replacementSparseCandidateCount: 0,
+    replacementLayoutEvaluatedCount: 0,
+    replacementLayoutAcceptedCount: 0,
     failureReasonCounts: emptyFailureCounts(),
     spreadDiagnostics,
   };
@@ -526,7 +626,7 @@ export function buildEditorialDraft(
   const unsafePhotoCounts = workingStories.map(() => new Map<string, number>());
   const initialEvaluations = workingStories.map((story, index) => {
     const stages = candidateLayoutStages(story, photos);
-    const evaluated = evaluateSpreadLayoutCandidates(story, photos, stages.initial, work, undefined, "initial", stages.matchingLayoutExists);
+    const evaluated = evaluateSpreadLayoutCandidates(story, photos, stages.initial, work, evaluateDraft, "initial", stages.matchingLayoutExists);
     const diagnostic = spreadDiagnostics[index];
     recordSpreadLayoutCandidates(diagnostic, evaluated.diagnostics, "initial");
     addFailureCounts(recoveryStats.failureReasonCounts, evaluated.diagnostics.failureReasonCounts);
@@ -545,6 +645,7 @@ export function buildEditorialDraft(
     const unclipped = unused.filter((photo) => {
       if (sourceSubjectClipped(photo)) {
         diagnostic.sourceClippingRejectedCount++;
+        diagnostic.replacementSourceClippingCount++;
         return false;
       }
       return true;
@@ -557,17 +658,24 @@ export function buildEditorialDraft(
     return candidates.map((photo) => photo.photoId);
   };
 
-  const recoverCandidates = (story: StorySpread, diagnostic: SpreadLayoutRecoveryDiagnostic, photoFailures: Map<string, number>) => {
+  const recoverCandidates = (story: StorySpread, diagnostic: SpreadLayoutRecoveryDiagnostic, photoFailures: Map<string, number>, replacementTrace?: ReplacementLayoutTrace) => {
     const stages = candidateLayoutStages(story, photos);
-    recoveryStats.templateFallbackAttemptCount += stages.templates.length;
-    const templates = evaluateSpreadLayoutCandidates(story, photos, stages.templates, work, undefined, "template_fallback", stages.matchingLayoutExists);
+    const templateLayouts = replacementTrace ? [...stages.initial, ...stages.templates] : stages.templates;
+    if (replacementTrace) {
+      replacementTrace.normalTemplatesAvailable ||= stages.normalTemplateCount > 0;
+      replacementTrace.safeFallbacksAvailable ||= stages.safeFallbacks.length + stages.sparseFallbacks.length > 0;
+    }
+    recoveryStats.templateFallbackAttemptCount += templateLayouts.length;
+    const templates = evaluateSpreadLayoutCandidates(story, photos, templateLayouts, work, evaluateDraft, "template_fallback", stages.matchingLayoutExists);
+    if (replacementTrace) recordReplacementLayoutTrace(replacementTrace, templates, "template_fallback");
     recordSpreadLayoutCandidates(diagnostic, templates.diagnostics, "template_fallback");
     addFailureCounts(recoveryStats.failureReasonCounts, templates.diagnostics.failureReasonCounts);
     accumulateUnsafePhotos(photoFailures, templates.diagnostics.unsafePhotoCounts);
     if (templates.drafts.length) return templates.drafts;
     markRecoveryStage(diagnostic, "safe_fallback");
     recoveryStats.safeFallbackAttemptCount += stages.safeFallbacks.length;
-    const fallbacks = evaluateSpreadLayoutCandidates(story, photos, stages.safeFallbacks, work, undefined, "safe_fallback", stages.matchingLayoutExists);
+    const fallbacks = evaluateSpreadLayoutCandidates(story, photos, stages.safeFallbacks, work, evaluateDraft, "safe_fallback", stages.matchingLayoutExists);
+    if (replacementTrace) recordReplacementLayoutTrace(replacementTrace, fallbacks, "safe_fallback");
     recordSpreadLayoutCandidates(diagnostic, fallbacks.diagnostics, "safe_fallback");
     addFailureCounts(recoveryStats.failureReasonCounts, fallbacks.diagnostics.failureReasonCounts);
     accumulateUnsafePhotos(photoFailures, fallbacks.diagnostics.unsafePhotoCounts);
@@ -654,6 +762,7 @@ export function buildEditorialDraft(
       }
       if (sourceSubjectClipped(replacementPhoto)) {
         diagnostic.sourceClippingRejectedCount++;
+        diagnostic.replacementSourceClippingCount++;
         continue;
       }
       const replaceId = story.secondaryPhotoIds.at(-1) ?? story.primaryPhotoIds[0];
@@ -685,23 +794,60 @@ export function buildEditorialDraft(
         primaryPhotoIds: story.primaryPhotoIds.map((photoId) => (photoId === replaceId ? replacementId : photoId)),
         secondaryPhotoIds: story.secondaryPhotoIds.map((photoId) => (photoId === replaceId ? replacementId : photoId)),
       };
+      const replacementTrace: ReplacementLayoutTrace = {
+        templateCandidateCount: 0,
+        safeFallbackCandidateCount: 0,
+        layoutEvaluatedCount: 0,
+        layoutAcceptedCount: 0,
+        subjectVisibilityViolationCount: 0,
+        failureReasonCounts: emptyFailureCounts(),
+        normalTemplatesAvailable: false,
+        safeFallbacksAvailable: false,
+      };
+      diagnostic.replacementCandidateEvaluatedCount++;
       const cropUnsafeBefore = diagnostic.failureReasonCounts.cropUnsafe;
-      const variantCandidates = recoverCandidates(variant, diagnostic, unsafePhotoCounts[index]);
+      let variantCandidates = recoverCandidates(variant, diagnostic, unsafePhotoCounts[index], replacementTrace);
+      let recoveredWithSparseLayout = false;
+      if (!variantCandidates.length && variant.photoIds.length === 1) {
+        const sparseLayouts = candidateLayoutStages(variant, photos).sparseFallbacks;
+        diagnostic.replacementSparseCandidateCount += sparseLayouts.length;
+        if (sparseLayouts.length) {
+          markRecoveryStage(diagnostic, "safe_sparse_layout");
+          recoveryStats.finalSparseLayoutAttemptCount++;
+          const sparse = evaluateSpreadLayoutCandidates(variant, photos, sparseLayouts, work, evaluateDraft, "safe_sparse_layout");
+          recordReplacementLayoutTrace(replacementTrace, sparse, "safe_sparse_layout");
+          recordSpreadLayoutCandidates(diagnostic, sparse.diagnostics, "safe_sparse_layout");
+          addFailureCounts(recoveryStats.failureReasonCounts, sparse.diagnostics.failureReasonCounts);
+          accumulateUnsafePhotos(unsafePhotoCounts[index], sparse.diagnostics.unsafePhotoCounts);
+          if (sparse.drafts.length) {
+            variantCandidates = sparse.drafts;
+            recoveredWithSparseLayout = true;
+            recoveryStats.finalSparseLayoutSuccessCount++;
+          }
+        }
+      }
+      diagnostic.replacementTemplateCandidateCount += replacementTrace.templateCandidateCount;
+      diagnostic.replacementSafeFallbackCandidateCount += replacementTrace.safeFallbackCandidateCount;
+      diagnostic.replacementLayoutEvaluatedCount += replacementTrace.layoutEvaluatedCount;
+      diagnostic.replacementLayoutAcceptedCount += replacementTrace.layoutAcceptedCount;
       if (!variantCandidates.length) {
         if (diagnostic.failureReasonCounts.cropUnsafe > cropUnsafeBefore) diagnostic.cropSafetyRejectedCount++;
         else diagnostic.otherEligibilityRejectedCount++;
+        recordReplacementRejection(diagnostic, replacementTrace);
         continue;
       }
       workingStories[index] = variant;
       candidates[index] = variantCandidates;
       recoveryLayoutIds.set(index, new Set(variantCandidates.map((draft) => draft.layoutId)));
       recoveryStats.bestShotReplacementCount++;
+      diagnostic.replacementAcceptedCount++;
       diagnostic.replacementCount++;
       diagnostic.replacedOutPhotoCount++;
       diagnostic.replacedInPhotoCount++;
       if (replacementMethod === "global_replacement") recoveryStats.globalReplacementSuccessCount++;
+      if (recoveredWithSparseLayout) diagnostic.finalRecoveryMethod = "safe_sparse_layout";
       diagnostic.outcome = "recovered";
-      diagnostic.finalRecoveryMethod = replacementMethod;
+      diagnostic.finalRecoveryMethod ??= replacementMethod;
       diagnostic.finalPhotoCount = variant.photoIds.length;
       replaced = true;
       break;
@@ -802,6 +948,17 @@ export function buildEditorialDraft(
     }
   }
 
+  const replacementAggregateKeys = [
+    "replacementCandidateEvaluatedCount", "replacementAcceptedCount", "replacementCropUnsafeCount",
+    "replacementGutterViolationCount", "replacementFrameInvalidCount", "replacementHeroHierarchyViolationCount",
+    "replacementSourceClippingCount", "replacementSubjectVisibilityViolationCount", "replacementTemplateUnavailableCount",
+    "replacementSafeFallbackUnavailableCount", "replacementOtherRejectCount", "replacementTemplateCandidateCount",
+    "replacementSafeFallbackCandidateCount", "replacementSparseCandidateCount", "replacementLayoutEvaluatedCount",
+    "replacementLayoutAcceptedCount",
+  ] as const;
+  for (const key of replacementAggregateKeys) {
+    recoveryStats[key] = spreadDiagnostics.reduce((sum, diagnostic) => sum + diagnostic[key], 0);
+  }
   recoveryStats.unrecoveredCount = candidates.filter((items) => items.length === 0).length;
   for (const [index, story] of workingStories.entries()) {
     spreadDiagnostics[index].finalPhotoCount = story.photoIds.length;

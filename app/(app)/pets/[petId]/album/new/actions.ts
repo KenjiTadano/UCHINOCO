@@ -56,6 +56,12 @@ function mergeRecoveryStats(previous: LayoutRecoveryStats | undefined, current: 
         "duplicateRejectedCount", "petCompatibilityRejectedCount", "sceneRejectedCount", "chronologicalRejectedCount",
         "qualityRejectedCount", "sourceClippingRejectedCount", "cropSafetyRejectedCount", "candidateBudgetRejectedCount",
         "otherEligibilityRejectedCount", "compatiblePetGroupingCandidateCount", "handoffReplacementCandidateCount",
+        "replacementCandidateEvaluatedCount", "replacementAcceptedCount", "replacementCropUnsafeCount",
+        "replacementGutterViolationCount", "replacementFrameInvalidCount", "replacementHeroHierarchyViolationCount",
+        "replacementSourceClippingCount", "replacementSubjectVisibilityViolationCount", "replacementTemplateUnavailableCount",
+        "replacementSafeFallbackUnavailableCount", "replacementOtherRejectCount", "replacementTemplateCandidateCount",
+        "replacementSafeFallbackCandidateCount", "replacementSparseCandidateCount", "replacementLayoutEvaluatedCount",
+        "replacementLayoutAcceptedCount",
         "editorialReceivedReplacementCandidateCount", "globalReplacementCandidateCount", "sameSceneReplacementCandidateCount",
         "samePetReplacementCandidateCount", "chronologicalReplacementCandidateCount", "globalUnusedCandidateCount",
         "movedOutPhotoCount", "movedInPhotoCount", "replacedOutPhotoCount", "replacedInPhotoCount",
@@ -84,6 +90,12 @@ function mergeRecoveryStats(previous: LayoutRecoveryStats | undefined, current: 
     "densityFallbackCount", "adjacentReflowAttemptCount", "adjacentReflowCount", "photoDropAttemptCount",
     "photoDropSuccessCount", "adjacentRedistributionAttemptCount", "adjacentRedistributionSuccessCount",
     "globalReplacementAttemptCount", "globalReplacementSuccessCount", "finalSparseLayoutAttemptCount", "finalSparseLayoutSuccessCount",
+    "replacementCandidateEvaluatedCount", "replacementAcceptedCount", "replacementCropUnsafeCount",
+    "replacementGutterViolationCount", "replacementFrameInvalidCount", "replacementHeroHierarchyViolationCount",
+    "replacementSourceClippingCount", "replacementSubjectVisibilityViolationCount", "replacementTemplateUnavailableCount",
+    "replacementSafeFallbackUnavailableCount", "replacementOtherRejectCount", "replacementTemplateCandidateCount",
+    "replacementSafeFallbackCandidateCount", "replacementSparseCandidateCount", "replacementLayoutEvaluatedCount",
+    "replacementLayoutAcceptedCount",
   ] as const;
   for (const key of summedKeys) Reflect.set(merged, key, previous[key] + current[key]);
   return merged;
