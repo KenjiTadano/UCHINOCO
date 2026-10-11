@@ -61,7 +61,7 @@ function mergeRecoveryStats(previous: LayoutRecoveryStats | undefined, current: 
         "replacementSourceClippingCount", "replacementSubjectVisibilityViolationCount", "replacementTemplateUnavailableCount",
         "replacementSafeFallbackUnavailableCount", "replacementOtherRejectCount", "replacementTemplateCandidateCount",
         "replacementSafeFallbackCandidateCount", "replacementSparseCandidateCount", "replacementLayoutEvaluatedCount",
-        "replacementLayoutAcceptedCount",
+          "replacementLayoutAcceptedCount", "noCropCandidateCount", "noCropLayoutEvaluatedCount", "noCropLayoutAcceptedCount", "noCropRejectCount",
         "editorialReceivedReplacementCandidateCount", "globalReplacementCandidateCount", "sameSceneReplacementCandidateCount",
         "samePetReplacementCandidateCount", "chronologicalReplacementCandidateCount", "globalUnusedCandidateCount",
         "movedOutPhotoCount", "movedInPhotoCount", "replacedOutPhotoCount", "replacedInPhotoCount",
@@ -77,7 +77,15 @@ function mergeRecoveryStats(previous: LayoutRecoveryStats | undefined, current: 
       combined.candidateListSource = diagnostic.candidateListSource;
       combined.outcome = prior.outcome === "recovered" || diagnostic.outcome === "recovered" ? "recovered" : diagnostic.outcome;
       combined.finalRecoveryMethod = diagnostic.finalRecoveryMethod ?? prior.finalRecoveryMethod;
-      const stageOrder: LayoutRecoveryStage[] = ["initial", "template_fallback", "safe_fallback", "role_reassignment", "best_shot_replacement", "global_replacement", "density_fallback", "adjacent_reflow", "adjacent_redistribution", "photo_drop", "safe_sparse_layout"];
+      combined.noCropRejectReasons = {
+        sourceClipping: prior.noCropRejectReasons.sourceClipping + diagnostic.noCropRejectReasons.sourceClipping,
+        frameInvalid: prior.noCropRejectReasons.frameInvalid + diagnostic.noCropRejectReasons.frameInvalid,
+        gutterViolation: prior.noCropRejectReasons.gutterViolation + diagnostic.noCropRejectReasons.gutterViolation,
+        subjectVisibilityViolation: prior.noCropRejectReasons.subjectVisibilityViolation + diagnostic.noCropRejectReasons.subjectVisibilityViolation,
+        invalidGeometry: prior.noCropRejectReasons.invalidGeometry + diagnostic.noCropRejectReasons.invalidGeometry,
+        other: prior.noCropRejectReasons.other + diagnostic.noCropRejectReasons.other,
+      };
+      const stageOrder: LayoutRecoveryStage[] = ["initial", "template_fallback", "safe_fallback", "role_reassignment", "best_shot_replacement", "global_replacement", "density_fallback", "adjacent_reflow", "adjacent_redistribution", "photo_drop", "safe_sparse_layout", "no_crop_final"];
       combined.recoveryStagesReached = stageOrder.filter((stage) => prior.recoveryStagesReached.includes(stage) || diagnostic.recoveryStagesReached.includes(stage));
       combined.recoveryReached = combined.recoveryStagesReached.at(-1) ?? diagnostic.recoveryReached;
       combined.failureReasonCounts = Object.fromEntries(Object.keys(diagnostic.failureReasonCounts).map((key) => [key, diagnostic.failureReasonCounts[key as keyof SpreadLayoutRecoveryDiagnostic["failureReasonCounts"]] + prior.failureReasonCounts[key as keyof SpreadLayoutRecoveryDiagnostic["failureReasonCounts"]]])) as SpreadLayoutRecoveryDiagnostic["failureReasonCounts"];
@@ -95,7 +103,8 @@ function mergeRecoveryStats(previous: LayoutRecoveryStats | undefined, current: 
     "replacementSourceClippingCount", "replacementSubjectVisibilityViolationCount", "replacementTemplateUnavailableCount",
     "replacementSafeFallbackUnavailableCount", "replacementOtherRejectCount", "replacementTemplateCandidateCount",
     "replacementSafeFallbackCandidateCount", "replacementSparseCandidateCount", "replacementLayoutEvaluatedCount",
-    "replacementLayoutAcceptedCount",
+    "replacementLayoutAcceptedCount", "noCropLayoutAttemptCount", "noCropLayoutSuccessCount",
+    "noCropReplacementAttemptCount", "noCropReplacementSuccessCount",
   ] as const;
   for (const key of summedKeys) Reflect.set(merged, key, previous[key] + current[key]);
   return merged;
@@ -375,7 +384,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     const analysis = inputs.geometry.get(photo.photoId);
     const preview = previews.get(photo.photoId);
     if (!analysis || !preview) return { error: "写真の表示を確認しています。", status: "retryable" };
-    layoutPhotos.push({ photoId: photo.photoId, petId: photo.petId, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: photo.candidate, confidence: photo.confidence }, captionAvailable: true });
+    layoutPhotos.push({ photoId: photo.photoId, petId: photo.petId, timeline: photo.timeline, groupId: photo.groupId, scene: photo.scene, activity: photo.activity, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: photo.candidate, confidence: photo.confidence }, captionAvailable: true });
   }
   const textForStories = (stories: typeof plan.spreads) =>
     Object.fromEntries(
@@ -509,7 +518,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       const preview = replacementPreviews.get(photoId);
       const ranked = rankedPhotos.find((photo) => photo.photoId === photoId);
       if (!analysis || !preview || !ranked) return [];
-      return [{ photoId, petId: ranked.petId, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: ranked.candidate, confidence: ranked.confidence }, captionAvailable: true }];
+      return [{ photoId, petId: ranked.petId, timeline: ranked.timeline, groupId: ranked.groupId, scene: ranked.scene, activity: ranked.activity, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: ranked.candidate, confidence: ranked.confidence }, captionAvailable: true }];
     });
     const replacementInputsById = new Set(replacementInputs.map((photo) => photo.photoId));
     for (const [spreadIndex, funnel] of replacementFunnelBySpread) {

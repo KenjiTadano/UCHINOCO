@@ -63,6 +63,26 @@ export const EDITORIAL_TEMPLATES: EditorialTemplate[] = [
   make("CLOSING", [[.56,.14,.40,.72]], "quiet", "closing"),
 ];
 
+function makeNoCropFinal(id: string, rect: Rect, orientation: "portrait" | "landscape", group: string): EditorialTemplate {
+  const template = make(`FINAL_NO_CROP_${id}`, [rect], "hero", group);
+  return {
+    ...template,
+    name: orientation === "portrait" ? "全体表示・縦長" : "全体表示・横長",
+    imageFit: "contain",
+    orientationAffinity: [orientation],
+    heroAffinity: "required",
+    whitespaceIntent: "quiet",
+    frames: template.frames.map((frame) => ({ ...frame, cropShapeId: orientation })),
+  };
+}
+
+export const NO_CROP_FINAL_TEMPLATES: EditorialTemplate[] = [
+  makeNoCropFinal("PORTRAIT_LEFT", [.04,.04,.40,.92], "portrait", "no-crop-portrait"),
+  makeNoCropFinal("PORTRAIT_RIGHT", [.56,.04,.40,.92], "portrait", "no-crop-portrait"),
+  makeNoCropFinal("LANDSCAPE_LEFT", [.04,.24,.40,.52], "landscape", "no-crop-landscape"),
+  makeNoCropFinal("LANDSCAPE_RIGHT", [.56,.24,.40,.52], "landscape", "no-crop-landscape"),
+];
+
 const SAFE_FALLBACK_RECTS: Record<number, Rect[]> = {
   1: [[.05,.06,.38,.88]],
   2: [[.05,.06,.38,.88],[.57,.06,.38,.88]],
@@ -89,4 +109,4 @@ export const SAFE_FALLBACK_TEMPLATES: EditorialTemplate[] = [
 
 EDITORIAL_TEMPLATES.push(...SAFE_FALLBACK_TEMPLATES);
 export const EDITORIAL_LIBRARY_SIZE = EDITORIAL_TEMPLATES.length + COVER_TEMPLATES.length;
-export function editorialTemplate(id: string) { return EDITORIAL_TEMPLATES.find(t => t.id === id); }
+export function editorialTemplate(id: string) { return EDITORIAL_TEMPLATES.find(t => t.id === id) ?? NO_CROP_FINAL_TEMPLATES.find(t => t.id === id); }

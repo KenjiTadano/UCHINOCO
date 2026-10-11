@@ -4,10 +4,11 @@ import { readFileSync } from "node:fs";
 import { parseAlbumSetup } from "../lib/album-setup.ts";
 import { planEditorialAlbum, buildEditorialDraft, auditAlbumRhythm, editorialPageText, reflowAdjacentSpread, canDropUnsafePhoto, candidateDrafts, classifyLayoutRecoveryFailures, createSpreadLayoutRecoveryDiagnostic, evaluateSpreadLayoutCandidates, recordSpreadLayoutCandidates, EditorialGenerationError } from "../lib/album-draft/editorial.ts";
 import { buildSpreadDraft } from "../lib/album-draft/draft.ts";
-import { EDITORIAL_TEMPLATES, EDITORIAL_LIBRARY_SIZE, SAFE_FALLBACK_TEMPLATES } from "../lib/smart-layout/editorial-library.ts";
+import { EDITORIAL_TEMPLATES, EDITORIAL_LIBRARY_SIZE, SAFE_FALLBACK_TEMPLATES, NO_CROP_FINAL_TEMPLATES } from "../lib/smart-layout/editorial-library.ts";
 import { ALBUM_DRAFT_CONFIG } from "../lib/album-draft/config.ts";
 import { placeFrames } from "../lib/album-draft/pages.ts";
 import { findDraftLayout, toPreviewSpread } from "../lib/album-persistence/preview.ts";
+import { buildDraftSavePayload, toPersistableSpread } from "../lib/album-persistence/payload.ts";
 import { polishForLayout } from "../lib/album-polish/catalog.ts";
 import { rankTemplateCandidates } from "../lib/smart-layout/template-system.ts";
 
@@ -25,6 +26,10 @@ function layoutPhotos(input) {
   return input.map((p) => ({
     photoId: p.photoId,
     petId: p.petId,
+    timeline: p.timeline,
+    groupId: p.groupId,
+    scene: p.scene,
+    activity: p.activity,
     imageUrl: "https://example.com/original",
     previewUrl: "https://example.com/preview",
     bestShot: { candidate: p.candidate, confidence: 90 },
@@ -58,6 +63,8 @@ test("setup defaults to all pets and 48 body pages; subsets and Japan custom dat
 test("editorial and mirrored safe-fallback designs are registered; body slots retain geometry and do not cross the binding", () => {
   assert.equal(EDITORIAL_LIBRARY_SIZE, 54);
   assert.equal(new Set(EDITORIAL_TEMPLATES.map((t) => t.id)).size, 48);
+  assert.equal(EDITORIAL_TEMPLATES.some((layout) => layout.imageFit === "contain"), false);
+  assert.deepEqual(new Set(NO_CROP_FINAL_TEMPLATES.map((layout) => layout.imageFit)), new Set(["contain"]));
   assert.deepEqual([...new Set(SAFE_FALLBACK_TEMPLATES.map((t) => t.photoCount))], [1, 2, 3, 4, 5, 6]);
   assert.ok(SAFE_FALLBACK_TEMPLATES.every((t) => SAFE_FALLBACK_TEMPLATES.filter((candidate) => candidate.photoCount === t.photoCount).length >= 2));
   assert.ok(SAFE_FALLBACK_TEMPLATES.some((t) => t.id === "E_SAFE_FALLBACK_1_LANDSCAPE"));
@@ -275,6 +282,8 @@ test("24P production-equivalent fixture replaces unsafe spread 3 and 6 and compl
     photo.analysis.focalPoint = { x: 0.98, y: 0.08 };
     photo.analysis.pets = [{ bbox: { x: 0.85, y: 0.01, width: 0.14, height: 0.98 }, face: { x: 0.9, y: 0.01, width: 0.1, height: 0.2 }, confidence: 0.95 }];
   }
+  layouts.find((photo) => photo.photoId === input[12].photoId).timeline = stories[3].startedAt;
+  layouts.find((photo) => photo.photoId === input[13].photoId).timeline = stories[6].startedAt;
   const replacementsByStory = {
     [stories[3].id]: [input[12].photoId],
     [stories[6].id]: [input[13].photoId],
@@ -377,6 +386,149 @@ test("replacement candidates that fail the normal crop gate are never adopted", 
     assert.equal(error.recoveryStats.spreadDiagnostics[0].outcome, "unrecovered");
     return true;
   });
+});
+for (const orientation of ["portrait", "landscape"]) {
+  test(`No-Crop ${orientation} layout contains the full source with identity transform and safe gutter geometry`, () => {
+    const photo = ranked(1, 1)[0];
+    const layoutPhoto = layoutPhotos([photo])[0];
+    layoutPhoto.analysis.orientation = orientation;
+    if (orientation === "landscape") {
+      layoutPhoto.analysis.width = 1600;
+      layoutPhoto.analysis.height = 900;
+      layoutPhoto.analysis.pets = [{ bbox: { x: 0.20, y: 0.20, width: 0.60, height: 0.60 }, face: { x: 0.38, y: 0.22, width: 0.24, height: 0.24 }, confidence: 0.95 }];
+    }
+    const story = { id: `editorial-no-crop-${orientation}`, sceneIds: [photo.groupId], photoIds: [photo.photoId], primaryPhotoIds: [photo.photoId], secondaryPhotoIds: [], startedAt: photo.timeline, endedAt: photo.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" };
+    const layout = NO_CROP_FINAL_TEMPLATES.find((candidate) => candidate.orientationAffinity?.includes(orientation));
+    const result = buildSpreadDraft(story, [layoutPhoto], undefined, [layout.id]);
+    const assignment = result.assignments[0];
+    assert.notEqual(result.status, "unusable");
+    assert.equal(result.layoutId, layout.id);
+    assert.equal(assignment.imageFit, "contain");
+    assert.deepEqual(assignment.crop, { x: 0.5, y: 0.5, scale: 1 });
+    assert.equal(assignment.role, "hero");
+    assert.equal(assignment.placement.crossesGutter, false);
+    assert.ok(assignment.placement.gutterClearance > 0);
+    assert.ok(assignment.safety.faceSafety >= 50 && assignment.safety.headSafety >= 45 && assignment.safety.earSafety >= 35);
+    assert.ok(assignment.placement.norm.x >= 0 && assignment.placement.norm.x + assignment.placement.norm.w <= 1);
+  });
+}
+test("source-clipped single-photo source is rejected by final No-Crop without an attempt", () => {
+  const photo = ranked(1, 1)[0];
+  const clipped = layoutPhotos([photo])[0];
+  clipped.analysis.pets = [{ bbox: { x: 0, y: 0.2, width: 0.4, height: 0.4 }, confidence: 0.95 }];
+  const story = { id: "editorial-no-crop-source-clipped", sceneIds: [photo.groupId], photoIds: [photo.photoId], primaryPhotoIds: [photo.photoId], secondaryPhotoIds: [], startedAt: photo.timeline, endedAt: photo.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" };
+  assert.throws(() => buildEditorialDraft([story], [clipped], { [story.id]: "2026年8月" }, undefined, {}, {}, 1, 1, {}, (_story, photos, context, layoutIds, work) => {
+    if (NO_CROP_FINAL_TEMPLATES.some((layout) => layout.id === layoutIds[0])) return buildSpreadDraft(_story, photos, context, layoutIds, work);
+    return { layoutId: layoutIds[0], status: "unusable", warnings: ["FACE_UNSAFE"], assignments: [], story: { secondaryPhotoIds: [] }, selectedLayout: { tier: "FALLBACK" } };
+  }), (error) => {
+    const diagnostic = error.recoveryStats.spreadDiagnostics[0];
+    assert.equal(diagnostic.noCropLayoutEvaluatedCount, 0);
+    assert.equal(diagnostic.noCropRejectReasons.sourceClipping, 1);
+    assert.equal(error.recoveryStats.noCropLayoutSuccessCount, 0);
+    return true;
+  });
+});
+test("invalid No-Crop geometry is rejected before layout evaluation", () => {
+  const photo = ranked(1, 1)[0];
+  const invalid = layoutPhotos([photo])[0];
+  invalid.analysis.focalPoint = { x: 1.2, y: 0.5 };
+  const story = { id: "editorial-no-crop-invalid", sceneIds: [photo.groupId], photoIds: [photo.photoId], primaryPhotoIds: [photo.photoId], secondaryPhotoIds: [], startedAt: photo.timeline, endedAt: photo.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" };
+  assert.throws(() => buildEditorialDraft([story], [invalid], { [story.id]: "2026年8月" }, undefined, {}, {}, 1, 1, {}, (_story, photos, context, layoutIds, work) => {
+    if (NO_CROP_FINAL_TEMPLATES.some((layout) => layout.id === layoutIds[0])) return buildSpreadDraft(_story, photos, context, layoutIds, work);
+    return { layoutId: layoutIds[0], status: "unusable", warnings: ["FACE_UNSAFE"], assignments: [], story: { secondaryPhotoIds: [] }, selectedLayout: { tier: "FALLBACK" } };
+  }), (error) => {
+    assert.ok(error.recoveryStats.spreadDiagnostics[0].noCropRejectReasons.invalidGeometry > 0);
+    assert.equal(error.recoveryStats.spreadDiagnostics[0].noCropLayoutEvaluatedCount, 0);
+    return true;
+  });
+});
+test("single-photo final No-Crop accepts an in-bounds full source after all cover layouts fail", () => {
+  const photo = ranked(1, 1)[0];
+  const layoutPhoto = layoutPhotos([photo])[0];
+  const story = { id: "editorial-no-crop-final", sceneIds: [photo.groupId], photoIds: [photo.photoId], primaryPhotoIds: [photo.photoId], secondaryPhotoIds: [], startedAt: photo.timeline, endedAt: photo.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" };
+  const result = buildEditorialDraft([story], [layoutPhoto], { [story.id]: "2026年8月" }, undefined, {}, {}, 1, 1, {}, (_story, photos, context, layoutIds, work) => {
+    const layout = NO_CROP_FINAL_TEMPLATES.find((candidate) => candidate.id === layoutIds[0]);
+    if (layout) return buildSpreadDraft(_story, photos, context, layoutIds, work);
+    return { layoutId: layoutIds[0], status: "unusable", warnings: ["FACE_UNSAFE"], assignments: [], story: { secondaryPhotoIds: [] }, selectedLayout: { tier: "FALLBACK" } };
+  });
+  const diagnostic = result.recovery.spreadDiagnostics[0];
+  assert.equal(result.recovery.initialUnsafeSpreadCount, 1);
+  assert.equal(result.recovery.unrecoveredCount, 0);
+  assert.equal(result.recovery.noCropLayoutAttemptCount, 1);
+  assert.equal(result.recovery.noCropLayoutSuccessCount, 1);
+  assert.equal(diagnostic.noCropCandidateCount, 1);
+  assert.equal(diagnostic.noCropLayoutEvaluatedCount, 1);
+  assert.equal(diagnostic.noCropLayoutAcceptedCount, 1);
+  assert.equal(diagnostic.finalRecoveryMethod, "no_crop_layout");
+  assert.equal(result.spreads[0].assignments[0].imageFit, "contain");
+  assert.equal(result.spreads[0].assignments[0].crop.scale, 1);
+  const spread = result.spreads[0];
+  const persistable = toPersistableSpread(spread);
+  const savePayload = buildDraftSavePayload([persistable]);
+  assert.equal(savePayload.spreads[0].aiLayoutId, spread.layoutId);
+  const storedSpread = { id: spread.spreadId, storySpreadId: spread.storySpreadId, aiLayoutId: spread.layoutId, userLayoutId: null, storyType: spread.story.storyType, recommendedDensity: spread.story.recommendedDensity, importance: spread.story.importance, coherence: spread.story.coherenceScore, warnings: [] };
+  const storedFrames = spread.assignments.map((assignment, position) => ({ id: `stored-${position}`, position, frameId: assignment.frameId, role: assignment.role, aiPhotoId: assignment.photoId, userPhotoId: null, aiCropX: assignment.crop.x, aiCropY: assignment.crop.y, aiCropScale: assignment.crop.scale, userCropX: null, userCropY: null, userCropScale: null, matchTier: assignment.matchTier, cropQuality: assignment.cropQuality, warnings: [] }));
+  const restored = toPreviewSpread(storedSpread, storedFrames, new Map());
+  assert.equal(findDraftLayout(spread.layoutId)?.imageFit, "contain");
+  assert.equal(restored.assignments[0].imageFit, "contain");
+  assert.equal(savePayload.spreads[0].frames[0].aiCropScale, 1);
+});
+test("source-clipped current photo is replaced by an in-bounds No-Crop candidate", () => {
+  const input = ranked(2, 1);
+  const original = layoutPhotos([input[0]])[0];
+  original.analysis.pets = [{ bbox: { x: 0, y: 0.2, width: 0.4, height: 0.4 }, confidence: 0.95 }];
+  const replacement = layoutPhotos([input[1]])[0];
+  const story = { id: "editorial-no-crop-replacement", sceneIds: [input[0].groupId], photoIds: [input[0].photoId], primaryPhotoIds: [input[0].photoId], secondaryPhotoIds: [], startedAt: input[0].timeline, endedAt: input[0].timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" };
+  const result = buildEditorialDraft([story], [original, replacement], { [story.id]: "2026年8月" }, undefined, { [story.id]: [input[1].photoId] }, { [input[1].photoId]: "global_replacement" }, 1, 2, {}, (_story, photos, context, layoutIds, work) => {
+    const layout = NO_CROP_FINAL_TEMPLATES.find((candidate) => candidate.id === layoutIds[0]);
+    if (layout) return buildSpreadDraft(_story, photos, context, layoutIds, work);
+    return { layoutId: layoutIds[0], status: "unusable", warnings: ["FACE_UNSAFE"], assignments: [], story: { secondaryPhotoIds: [] }, selectedLayout: { tier: "FALLBACK" } };
+  });
+  const diagnostic = result.recovery.spreadDiagnostics[0];
+  assert.deepEqual(result.selectedPhotoIds, [input[1].photoId]);
+  assert.equal(result.recovery.noCropReplacementAttemptCount, 1);
+  assert.equal(result.recovery.noCropReplacementSuccessCount, 1);
+  assert.equal(diagnostic.replacementAcceptedCount, 1);
+  assert.equal(diagnostic.finalRecoveryMethod, "no_crop_layout");
+  assert.equal(result.recovery.noCropLayoutAttemptCount, 1);
+  assert.equal(result.recovery.noCropLayoutSuccessCount, 1);
+  assert.equal(diagnostic.noCropRejectReasons.sourceClipping, 1);
+  assert.equal(result.spreads[0].assignments[0].imageFit, "contain");
+  assert.deepEqual(result.stories[0].primaryPhotoIds, [input[1].photoId]);
+  assert.equal(result.stories[0].startedAt, input[1].timeline);
+  assert.equal(result.stories[0].sceneIds[0], input[1].groupId);
+});
+test("24P production-equivalent spread 3/6 recover with No-Crop replacement and no duplicates", () => {
+  const photos = ranked(14, 1);
+  const layoutInputs = layoutPhotos(photos);
+  const stories = photos.slice(0, 12).map((photo, index) => ({ id: `editorial-24p-no-crop-${index}`, sceneIds: [photo.groupId], photoIds: [photo.photoId], primaryPhotoIds: [photo.photoId], secondaryPhotoIds: [], startedAt: photo.timeline, endedAt: photo.timeline, storyType: "single", theme: {}, coherenceScore: 100, importance: 95, recommendedDensity: "hero", warnings: [], analysisVersion: "fixture" }));
+  for (const index of [3, 6]) {
+    const unsafeSource = layoutInputs.find((photo) => photo.photoId === photos[index].photoId);
+    unsafeSource.analysis.pets = [{ bbox: { x: 0, y: 0.2, width: 0.4, height: 0.4 }, confidence: 0.95 }];
+  }
+  layoutInputs[12].timeline = stories[3].startedAt;
+  layoutInputs[13].timeline = stories[6].startedAt;
+  const replacementMap = { [stories[3].id]: [photos[12].photoId], [stories[6].id]: [photos[13].photoId] };
+  const methods = { [photos[12].photoId]: "global_replacement", [photos[13].photoId]: "global_replacement" };
+  const result = buildEditorialDraft(stories, layoutInputs, Object.fromEntries(stories.map((story) => [story.id, "2026年8月"])), undefined, replacementMap, methods, 12, 14, {}, (_story, candidatePhotos, context, layoutIds, work) => {
+    const layout = NO_CROP_FINAL_TEMPLATES.find((candidate) => candidate.id === layoutIds[0]);
+    if (layout) return buildSpreadDraft(_story, candidatePhotos, context, layoutIds, work);
+    if (_story.id === stories[3].id || _story.id === stories[6].id) return { layoutId: layoutIds[0], status: "unusable", warnings: ["FACE_UNSAFE"], assignments: [], story: { secondaryPhotoIds: [] }, selectedLayout: { tier: "FALLBACK" } };
+    return buildSpreadDraft(_story, candidatePhotos, context, layoutIds, work);
+  });
+  assert.ok(result.recovery.initialUnsafeSpreadCount > 0);
+  assert.equal(result.recovery.unrecoveredCount, 0);
+  assert.equal(result.spreads.length, 12);
+  assert.equal(result.recovery.noCropLayoutAttemptCount, 2);
+  assert.equal(result.recovery.noCropLayoutSuccessCount, 2);
+  assert.equal(result.recovery.noCropReplacementSuccessCount, 2);
+  assert.equal(new Set(result.spreads.flatMap((spread) => spread.assignments.map((assignment) => assignment.photoId))).size, 12);
+  for (const spreadIndex of [3, 6]) {
+    assert.equal(result.spreads[spreadIndex].layoutId.startsWith("E_FINAL_NO_CROP_"), true);
+    assert.equal(result.spreads[spreadIndex].assignments[0].imageFit, "contain");
+    assert.equal(result.spreads[spreadIndex].assignments[0].crop.scale, 1);
+  }
+  assert.ok(!result.audit.issues.some((issue) => issue.blocking));
 });
 test("duplicate replacement photo is rejected when already assigned to another spread", () => {
   const input = layoutPhotos(ranked(2, 1));
@@ -632,12 +784,22 @@ test("creation saves multi-pet drafts, all source IDs and preview-first; Best Sh
   assert.match(source, /error\.currentStories\[spreadIndex\]/);
   assert.match(source, /buildEditorialDraft\(\s*error\.currentStories/);
   assert.match(source, /mergeRecoveryStats\(error\.recoveryStats, editorial\.recovery\)/);
+  assert.match(source, /"noCropLayoutAttemptCount", "noCropLayoutSuccessCount"/);
   assert.match(source, /initialUnsafeSpreadCount: previous\.initialUnsafeSpreadCount/);
   assert.match(source, /"photoDropAttemptCount",\s*"photoDropSuccessCount"/);
   assert.match(source, /timing\.layoutRecovery\(/);
   assert.match(source, /function logAlbumLayoutRecovery\(/);
   assert.match(source, /console\.info\("albumLayoutRecovery", record\)/);
   assert.match(source, /timing\.layoutRecovery\(record\)/);
+  const noCropPreview = readFileSync(new URL("../app/(app)/dev/smart-crop/smart-crop-preview.tsx", import.meta.url), "utf8");
+  assert.match(noCropPreview, /objectFit: imageFit/);
+  assert.match(noCropPreview, /transform: imageFit === "contain" \? "none"/);
+  assert.match(noCropPreview, /imageFit === "contain" \? 0/);
+  const albumPreview = readFileSync(new URL("../app/(app)/pets/[petId]/album/_components/draft-spread-view.tsx", import.meta.url), "utf8");
+  assert.match(albumPreview, /imageFitByFrameId\.get\(frame\.frameId\) === "contain"/);
+  assert.match(albumPreview, /imageFit=\{imageFit\}/);
+  const pageEdit = readFileSync(new URL("../app/(app)/pets/[petId]/album/[albumId]/pages/edit/page-edit-screen.tsx", import.meta.url), "utf8");
+  assert.match(pageEdit, /selectedAssignment\?\.imageFit === "contain"/);
   for (const key of [
     "spreadCount",
     "spreadDiagnostics",
@@ -659,6 +821,17 @@ test("creation saves multi-pet drafts, all source IDs and preview-first; Best Sh
     "fallbackBuilderUsed",
     "explicitCandidateListProvided",
     "candidateListSource",
+    "noCropLayoutAttemptCount",
+    "noCropLayoutSuccessCount",
+    "noCropReplacementAttemptCount",
+    "noCropReplacementSuccessCount",
+    "noCropCandidateCount",
+    "noCropLayoutEvaluatedCount",
+    "noCropLayoutAcceptedCount",
+    "noCropRejectCount",
+    "noCropRejectReasons",
+    "noCropReplacementAttemptCount",
+    "noCropReplacementSuccessCount",
     "replacementCandidateEvaluatedCount",
     "replacementAcceptedCount",
     "replacementCropUnsafeCount",

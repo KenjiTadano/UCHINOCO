@@ -633,7 +633,11 @@ export function PageEditScreen({ view: initialView, albumId, readonly, loadError
               </section>
             ) : null}
 
-            {selectedFrame ? (
+            {selectedFrame && selectedAssignment?.imageFit === "contain" ? (
+              <section className="page-edit-crop-toolbar" aria-label="写真全体を表示" data-testid="page-edit-no-crop-state" data-frame-id={selectedFrame.id}>
+                <span className="page-edit-crop-label">写真全体</span>
+              </section>
+            ) : selectedFrame ? (
               <section className="page-edit-crop-toolbar" aria-label="写真の位置とズーム" data-testid="page-edit-crop-toolbar" data-frame-id={selectedFrame.id}>
                 <div className="page-edit-crop-zoom">
                   <span className="page-edit-crop-label">Zoom</span>

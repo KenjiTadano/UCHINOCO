@@ -1,7 +1,7 @@
 import type { AlbumCandidatePeriod } from "../album-candidates/types.ts";
 import type { StorySpread } from "../album-story/types.ts";
 import type { SmartCropFrame } from "../smart-crop/types.ts";
-import type { LayoutPhotoInput, TemplateComposition } from "../smart-layout/types.ts";
+import type { LayoutImageFit, LayoutPhotoInput, TemplateComposition } from "../smart-layout/types.ts";
 import type { LayoutRhythmContext, LayoutRhythmDebug } from "./rhythm.ts";
 
 export type DraftMatchTier = "STRICT" | "FALLBACK" | "UNUSABLE";
@@ -38,6 +38,7 @@ export type SpreadFrameAssignment = {
   placement: FramePlacement;
   cropFrame: SmartCropFrame;
   previewUrl: string;
+  imageFit?: LayoutImageFit;
 };
 
 export type SpreadQuality = {

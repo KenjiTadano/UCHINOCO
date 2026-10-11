@@ -12,6 +12,7 @@ import { PolishMark } from "./polish-mark";
 import { PageElementMark } from "./page-element-mark";
 import { sanitizeCropTransform } from "@/lib/smart-crop/transform";
 import type { CropTriple } from "@/lib/album-persistence/types";
+import type { LayoutImageFit } from "@/lib/smart-layout/types";
 
 const BLANK_SPREAD = "/album/06_3_album_preview_blank_spread_taller.png";
 const DIGITAL_GEOMETRY = digitalSpreadGeometry();
@@ -52,7 +53,7 @@ type Props = {
   layoutId?: string;
 };
 
-function FrameImage({ src, crop, photoId, onImageError }: { src: string; crop: CropTriple; photoId: string; onImageError?: (photoId: string) => void }) {
+function FrameImage({ src, crop, photoId, imageFit = "cover", onImageError }: { src: string; crop: CropTriple; photoId: string; imageFit?: LayoutImageFit; onImageError?: (photoId: string) => void }) {
   const safe = sanitizeCropTransform(crop);
   const originalPath = originalSignedObjectPath(src);
   const [loadState, setLoadState] = useState<LoadState>(src ? "loading" : "error");
@@ -75,7 +76,7 @@ function FrameImage({ src, crop, photoId, onImageError }: { src: string; crop: C
   }, [src]);
 
   return (
-    <div className="page-edit-draft-photo" data-load-state={loadState}>
+    <div className="page-edit-draft-photo" data-load-state={loadState} data-image-fit={imageFit}>
       {loadState === "loading" ? <span className="page-edit-draft-photo-status">読み込み中</span> : null}
       {loadState === "error" ? (
         <button type="button" className="page-edit-draft-photo-status" onClick={() => onImageError?.(photoId)}>
@@ -101,9 +102,10 @@ function FrameImage({ src, crop, photoId, onImageError }: { src: string; crop: C
             }
           }}
           style={{
-            objectPosition: `${safe.x * 100}% ${safe.y * 100}%`,
-            transform: `scale(${safe.scale})`,
-            transformOrigin: `${safe.x * 100}% ${safe.y * 100}%`,
+            objectFit: imageFit,
+            objectPosition: imageFit === "contain" ? "center" : `${safe.x * 100}% ${safe.y * 100}%`,
+            transform: imageFit === "contain" ? "none" : `scale(${safe.scale})`,
+            transformOrigin: imageFit === "contain" ? "center" : `${safe.x * 100}% ${safe.y * 100}%`,
             opacity: loadState === "loaded" ? 1 : 0,
           }}
         />
@@ -139,7 +141,7 @@ export function DraftSpreadView({
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [snapGuides, setSnapGuides] = useState<PageSnapGuides>({ x: null, y: null });
-  const live = useRef({ frames, elements, interactive, interactiveElements, onCrop, onCropStart, onCropEnd, onElementSelect, onElementChange, onElementGestureStart, onElementGestureEnd });
+  const live = useRef({ frames, elements, interactive, interactiveElements, imageFitByFrameId: new Map(preview.assignments.map((assignment) => [assignment.frameId, assignment.imageFit ?? "cover"])), onCrop, onCropStart, onCropEnd, onElementSelect, onElementChange, onElementGestureStart, onElementGestureEnd });
   const geometry = digital ? DIGITAL_GEOMETRY : null;
   const gutterStart = geometry ? geometry.leftPage.x + geometry.leftPage.w : 0;
   const gutterWidth = geometry ? Math.max(0, geometry.rightPage.x - gutterStart) : 0;
@@ -158,8 +160,8 @@ export function DraftSpreadView({
   }
 
   useEffect(() => {
-    live.current = { frames, elements, interactive, interactiveElements, onCrop, onCropStart, onCropEnd, onElementSelect, onElementChange, onElementGestureStart, onElementGestureEnd };
-  }, [frames, elements, interactive, interactiveElements, onCrop, onCropStart, onCropEnd, onElementSelect, onElementChange, onElementGestureStart, onElementGestureEnd]);
+    live.current = { frames, elements, interactive, interactiveElements, imageFitByFrameId: new Map(preview.assignments.map((assignment) => [assignment.frameId, assignment.imageFit ?? "cover"])), onCrop, onCropStart, onCropEnd, onElementSelect, onElementChange, onElementGestureStart, onElementGestureEnd };
+  }, [frames, elements, interactive, interactiveElements, preview.assignments, onCrop, onCropStart, onCropEnd, onElementSelect, onElementChange, onElementGestureStart, onElementGestureEnd]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -182,6 +184,7 @@ export function DraftSpreadView({
       const frameId = slot?.getAttribute("data-frame-id");
       const frame = slots.find((item) => item.id === frameId);
       if (!frame || !slot) return null;
+      if (live.current.imageFitByFrameId.get(frame.frameId) === "contain") return null;
       return { frame, slot, crop };
     };
 
@@ -395,6 +398,7 @@ export function DraftSpreadView({
       {preview.assignments.map((assignment, index) => {
         const frame = frames[index];
         const crop = frame?.crop ?? assignment.crop;
+        const imageFit = assignment.imageFit ?? "cover";
         const photoId = frame?.photoId ?? assignment.photoId;
         const src = frame?.previewUrl || assignment.previewUrl;
         const norm = digital ? digitalFrameRect(assignment.placement.rect) : assignment.placement.norm;
@@ -412,6 +416,7 @@ export function DraftSpreadView({
             data-selected={selectedFrameId === frame?.id ? "true" : "false"}
             data-role={frame?.role ?? assignment.role}
             data-crop={`${crop.x},${crop.y},${crop.scale}`}
+            data-image-fit={imageFit}
             data-geometry={`${norm.x},${norm.y},${norm.w},${norm.h}`}
             style={{
               left: `${norm.x * 100}%`,
@@ -420,7 +425,7 @@ export function DraftSpreadView({
               height: `${norm.h * 100}%`,
             }}
           >
-            <FrameImage src={src} crop={crop} photoId={photoId} onImageError={onImageError} />
+            <FrameImage src={src} crop={crop} imageFit={imageFit} photoId={photoId} onImageError={onImageError} />
           </div>
         );
       })}

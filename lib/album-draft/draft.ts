@@ -1,4 +1,4 @@
-import { EDITORIAL_TEMPLATES } from "../smart-layout/editorial-library.ts";
+import { EDITORIAL_TEMPLATES, NO_CROP_FINAL_TEMPLATES } from "../smart-layout/editorial-library.ts";
 import type { StorySpread, StoryType } from "../album-story/types.ts";
 import { ALBUM_LAYOUTS } from "../smart-layout/layouts.ts";
 import { evaluateLayout, type LayoutEvaluationWork } from "../smart-layout/assign.ts";
@@ -55,7 +55,7 @@ function rankedLayout(item: Ranked): LayoutAlternative {
 
 function layoutsForSpread(spread: StorySpread): AlbumLayoutDefinition[] {
   const count = spread.photoIds.length;
-  if (spread.id.startsWith("editorial-")) return EDITORIAL_TEMPLATES.filter((layout) => layout.photoCount === count);
+  if (spread.id.startsWith("editorial-")) return [...EDITORIAL_TEMPLATES, ...NO_CROP_FINAL_TEMPLATES].filter((layout) => layout.photoCount === count);
   const base = ALBUM_LAYOUTS.filter((layout) => layout.photoCount === count);
   const hasSecondary = spread.secondaryPhotoIds.length > 0;
   const extras = hasSecondary ? DRAFT_HIERARCHY_LAYOUTS.filter((layout) => layout.photoCount === count) : [];
@@ -364,7 +364,7 @@ export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[]
     layoutScore: chosen.item.score,
     engineScore: chosen.item.result.scores.overall,
     selectedLayout: rankedLayout(chosen.item),
-    assignments: chosen.assignments,
+    assignments: chosen.assignments.map((assignment) => ({ ...assignment, imageFit: chosen.item.result.layout.imageFit ?? "cover" })),
     quality: qualityOf(spread, chosen.item.result, chosen.assignments),
     alternatives,
     status: statusFor(chosen.item.result, chosen.gate),

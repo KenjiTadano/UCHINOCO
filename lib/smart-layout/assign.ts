@@ -3,6 +3,7 @@
  */
 import { computeSmartCrop } from "../smart-crop/compute.ts";
 import { scoreFrameMatch } from "../smart-crop/frame-match.ts";
+import { scoreSmartCrop } from "../smart-crop/quality.ts";
 import { sanitizeCropTransform } from "../smart-crop/transform.ts";
 import type { FrameMatchResult } from "../smart-crop/types.ts";
 import { SMART_LAYOUT_CONFIG } from "./config.ts";
@@ -47,11 +48,42 @@ export type LayoutEvaluationWork = {
   layoutCandidateCount?: number;
 };
 
-function buildMatchMatrix(photos: LayoutPhotoInput[], frames: AlbumFrameDefinition[], work?: LayoutEvaluationWork): Cell[][] {
+function noCropCell(photo: LayoutPhotoInput, cropFrame: ReturnType<typeof resolveLayoutCropFrame>, work?: LayoutEvaluationWork): Cell {
+  const key = `${photo.photoId}|contain|${JSON.stringify(cropFrame)}`;
+  const cached = work?.cells.get(key);
+  if (cached) {
+    work!.cropReusedCount++;
+    return cached;
+  }
+  const started = performance.now();
+  const transform = { x: 0.5, y: 0.5, scale: 1 };
+  const validRect = (rect: { x: number; y: number; width: number; height: number }) =>
+    [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) && rect.width > 0 && rect.height > 0 && rect.x >= 0.005 && rect.y >= 0.005 && rect.x + rect.width <= 0.995 && rect.y + rect.height <= 0.995;
+  const dimensionsValid = Number.isFinite(photo.analysis.width) && photo.analysis.width > 0 && Number.isFinite(photo.analysis.height) && photo.analysis.height > 0 && Number.isFinite(photo.analysis.focalPoint.x) && Number.isFinite(photo.analysis.focalPoint.y);
+  const subjectGeometryValid = photo.analysis.pets.length > 0 && photo.analysis.pets.every((pet) => validRect(pet.bbox) && (!pet.face || validRect(pet.face)));
+  const validGeometry = dimensionsValid && subjectGeometryValid;
+  const fullSourceFrame = { ...cropFrame, aspectRatio: dimensionsValid ? photo.analysis.width / photo.analysis.height : cropFrame.aspectRatio };
+  const quality = scoreSmartCrop(photo.analysis, fullSourceFrame, transform);
+  if (!validGeometry) {
+    quality.rejected = true;
+    quality.rejectReason = !dimensionsValid ? "invalidGeometry" : "subjectVisibility";
+  }
+  const frameMatch = scoreFrameMatch(photo.analysis, fullSourceFrame, transform, quality);
+  const cell = { frameMatch, crop: transform, quality };
+  if (work) {
+    work.cropDurationMs += performance.now() - started;
+    work.cropItemCount++;
+    work.cells.set(key, cell);
+  }
+  return cell;
+}
+
+function buildMatchMatrix(photos: LayoutPhotoInput[], frames: AlbumFrameDefinition[], work?: LayoutEvaluationWork, imageFit: AlbumLayoutDefinition["imageFit"] = "cover"): Cell[][] {
   return photos.map((photo) =>
     frames.map((frame) => {
       const cropFrame = resolveLayoutCropFrame(frame);
-      const key = `${photo.photoId}|${JSON.stringify(cropFrame)}`;
+      if (imageFit === "contain") return noCropCell(photo, cropFrame, work);
+      const key = `${photo.photoId}|cover|${JSON.stringify(cropFrame)}`;
       const cached = work?.cells.get(key);
       if (cached) {
         work!.cropReusedCount++;
@@ -259,7 +291,7 @@ export function evaluateLayout(layout: AlbumLayoutDefinition, photos: LayoutPhot
     };
   }
 
-  const matrix = buildMatchMatrix(photos, layout.frames, work);
+  const matrix = buildMatchMatrix(photos, layout.frames, work, layout.imageFit);
   // Hierarchy need is photo-set level (not layout-dependent crop max).
   const qualityProfile = buildPhotoSetQualityProfile(photos);
   const heroSuitabilityByPhotoId = new Map(photos.map((photo) => [photo.photoId, computeHeroSuitability(photo)]));

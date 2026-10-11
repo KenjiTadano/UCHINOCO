@@ -44,6 +44,7 @@ export function BookDraftPreview({
                 src={assignment.previewUrl}
                 frame={assignment.cropFrame}
                 transform={assignment.crop}
+                imageFit={assignment.imageFit}
                 fill
                 photoId={assignment.photoId}
                 showErrorDetails

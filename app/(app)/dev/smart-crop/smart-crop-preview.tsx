@@ -3,6 +3,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import type { SmartCropFrame, SmartCropTransform } from "@/lib/smart-crop/types";
 import { sanitizeCropTransform } from "@/lib/smart-crop/transform";
+import type { LayoutImageFit } from "@/lib/smart-layout/types";
 
 type LoadState = "loading" | "loaded" | "error";
 
@@ -12,6 +13,7 @@ type Props = {
   fallbackSrc?: string | null;
   frame: SmartCropFrame;
   transform: SmartCropTransform;
+  imageFit?: LayoutImageFit;
   className?: string;
   /** Fill parent box (layout slots) instead of enforcing frame aspectRatio. */
   fill?: boolean;
@@ -31,7 +33,7 @@ export function SmartCropPreview({ src, fallbackSrc, ...props }: Props) {
   return <SmartCropPreviewContent key={`${src}\0${fallbackSrc ?? ""}`} src={src} fallbackSrc={fallbackSrc} {...props} />;
 }
 
-function SmartCropPreviewContent({ src, fallbackSrc, frame, transform, className, fill = false, photoId, showErrorDetails = false, borderRadius, loadTimeoutMs = 8000 }: Props) {
+function SmartCropPreviewContent({ src, fallbackSrc, frame, transform, imageFit = "cover", className, fill = false, photoId, showErrorDetails = false, borderRadius, loadTimeoutMs = 8000 }: Props) {
   const safe = sanitizeCropTransform(transform);
   const [activeSrc, setActiveSrc] = useState(src);
   const [triedFallback, setTriedFallback] = useState(false);
@@ -53,17 +55,17 @@ function SmartCropPreviewContent({ src, fallbackSrc, frame, transform, className
     return () => window.clearTimeout(t);
   }, [loadState, activeSrc, fallbackSrc, triedFallback, loadTimeoutMs]);
 
-  const radius = borderRadius ?? (frame.mask === "circle" ? "9999px" : fill ? "8px" : "12px");
+  const radius = borderRadius ?? (imageFit === "contain" ? 0 : frame.mask === "circle" ? "9999px" : fill ? "8px" : "12px");
 
   const imgStyle: CSSProperties = {
     position: "absolute",
     inset: 0,
     width: "100%",
     height: "100%",
-    objectFit: "cover",
-    objectPosition: `${safe.x * 100}% ${safe.y * 100}%`,
-    transform: `scale(${safe.scale})`,
-    transformOrigin: `${safe.x * 100}% ${safe.y * 100}%`,
+    objectFit: imageFit,
+    objectPosition: imageFit === "contain" ? "center" : `${safe.x * 100}% ${safe.y * 100}%`,
+    transform: imageFit === "contain" ? "none" : `scale(${safe.scale})`,
+    transformOrigin: imageFit === "contain" ? "center" : `${safe.x * 100}% ${safe.y * 100}%`,
     display: "block",
     userSelect: "none",
     pointerEvents: "none",

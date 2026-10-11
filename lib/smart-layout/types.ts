@@ -26,6 +26,7 @@ export type TemplateOrientation = "portrait" | "landscape" | "square" | "mixed" 
 export type TemplateDensity = "quiet" | "light" | "balanced" | "dense";
 export type WhitespaceIntent = "none" | "balanced" | "editorial" | "quiet";
 export type CropTolerance = "low" | "medium" | "high";
+export type LayoutImageFit = "cover" | "contain";
 
 /**
  * Layout slot = Frame Matching shape + page role + preview rect.
@@ -65,6 +66,8 @@ export type AlbumLayoutDefinition = {
   photoCount: number;
   purpose: LayoutPurpose;
   frames: AlbumFrameDefinition[];
+  /** `contain` is reserved for deterministic, single-photo final recovery layouts. */
+  imageFit?: LayoutImageFit;
   balanceProfile?: {
     heroWeight: number;
     symmetry: number;
@@ -88,6 +91,11 @@ export type AlbumLayoutDefinition = {
 export type LayoutPhotoInput = {
   photoId: string;
   petId?: string;
+  /** Optional story provenance for safe editorial replacement recalculation. */
+  timeline?: string;
+  groupId?: string;
+  scene?: string;
+  activity?: string;
   /** Full original URL (optional for analysis continuity). */
   imageUrl: string;
   /** Thumbnail-preferred URL for layout preview rendering. */
