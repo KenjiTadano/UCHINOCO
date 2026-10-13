@@ -2,14 +2,16 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowUp, Bold, ChevronLeft, ChevronRight, Copy, Image as ImageIcon, Maximize2, Minimize2, Minus, Palette, Plus, RotateCcw, Shapes, Sparkles, Star, Trash2, Type, X } from "lucide-react";
+import { DraftSpreadThumbnail } from "../../../_components/draft-spread-thumbnail";
 import { DraftSpreadView } from "../../../_components/draft-spread-view";
 import { PagePolishControls } from "../../../_components/page-polish-controls";
 import { PageElementMark } from "../../../_components/page-element-mark";
 import { digitalNormalizedRect, digitalSpreadGeometry } from "@/lib/album-draft/pages";
 import { EditorHistoryControls } from "../../../_components/editor-history-controls";
-import { editorPhotoIds, layoutChoices, saveStatusLabel, toAlbumEditorSpread } from "@/lib/album-persistence/editor";
+import { draftSpreadRenderProps, editorPhotoIds, layoutChoices, saveStatusLabel, toAlbumEditorSpread } from "@/lib/album-persistence/editor";
 import type { PersistedDraftView } from "@/lib/album-persistence/view";
 import { ELEMENT_BACKGROUNDS, ELEMENT_COLORS, ELEMENT_DECORATIONS, ELEMENT_FONTS, ELEMENT_STAMPS, type ElementBackgroundId, type ElementDecorationId, type PageElement, type StampId } from "@/lib/album-elements/model";
 import { suggestSpreadCaption } from "./caption-actions";
@@ -104,7 +106,9 @@ function LayoutSchema({ frames, textSlots }: { frames: Array<{ id: string; rect:
 }
 
 export function PageEditScreen({ view: initialView, albumId, readonly, loadError, candidatePhotos, initialIndex = 0, backHref, doneHref, generateHref, printHref }: PageEditScreenProps) {
+  const router = useRouter();
   const draft = usePageEditDraft(initialView, albumId, readonly);
+  const leaveEditor = async (href: string) => { if (await draft.flushPending()) router.push(href); };
   const view = draft.view;
   const safeInitial = Math.min(Math.max(initialIndex, 0), Math.max((view?.spreads.length ?? 1) - 1, 0));
   const [activeSpreadIndex, setActiveSpreadIndex] = useState(safeInitial);
@@ -298,14 +302,14 @@ export function PageEditScreen({ view: initialView, albumId, readonly, loadError
   return (
     <main className="page-edit-page" data-testid="page-edit-draft" data-readonly={readonly ? "true" : "false"} data-spread-count={totalSpreads} data-photo-count={view ? editorPhotoIds(view).length : 0}>
       <header className="page-edit-header">
-        <Link href={backHref} className="page-edit-header-side page-edit-back ds-focus" aria-label="戻る" data-testid="page-edit-back">
+        <Link href={backHref} onClick={(event) => { event.preventDefault(); void leaveEditor(backHref); }} className="page-edit-header-side page-edit-back ds-focus" aria-label="戻る" data-testid="page-edit-back">
           <ChevronLeft size={22} strokeWidth={1.8} aria-hidden="true" />
         </Link>
         <div className="editor-history-heading">
           <h1 className="page-edit-header-title">ページを編集</h1>
           <EditorHistoryControls canUndo={draft.canUndo} canRedo={draft.canRedo} disabled={readonly || !view} onUndo={() => revealSpread(draft.undo())} onRedo={() => revealSpread(draft.redo())} />
         </div>
-        <Link href={doneHref} className="page-edit-header-side page-edit-done ds-focus" data-testid="page-edit-done">
+        <Link href={doneHref} onClick={(event) => { event.preventDefault(); void leaveEditor(doneHref); }} className="page-edit-header-side page-edit-done ds-focus" data-testid="page-edit-done">
           完了
         </Link>
       </header>
@@ -345,15 +349,10 @@ export function PageEditScreen({ view: initialView, albumId, readonly, loadError
               </button>
 
               <DraftSpreadView
-                preview={spread.preview}
-                frames={editor.frames}
-                texts={spread.texts}
-                decorations={spread.decorations}
+                {...draftSpreadRenderProps(spread, view.previewUrls)}
                 elements={previewElements}
                 backgrounds={previewBackgrounds}
-                layoutId={spread.effectiveLayoutId}
                 className="page-edit-draft-book"
-                digital
                 selectedFrameId={selectedFrameId}
                 selectedElementId={selectedElementId}
                 interactiveElements={!readonly && addPanel !== "recommendation"}
@@ -689,11 +688,10 @@ export function PageEditScreen({ view: initialView, albumId, readonly, loadError
 
             <div className="page-edit-thumbs" role="tablist" aria-label="見開き一覧" data-testid="page-edit-thumbs">
               {view.spreads.map((item, index) => {
-                const thumb = toAlbumEditorSpread(item, view.previewUrls);
                 return (
                   <button key={item.id} type="button" className={`book-spread-thumb page-edit-thumb${index === activeSpreadIndex ? " is-selected" : ""}`} aria-pressed={index === activeSpreadIndex} data-testid="book-spread-thumb" data-selected={index === activeSpreadIndex ? "true" : "false"} onClick={() => selectSpread(index)}>
                     <span className="book-spread-thumb-frame">
-                      <DraftSpreadView preview={item.preview} frames={thumb.frames} texts={item.texts} decorations={item.decorations} layoutId={item.effectiveLayoutId} />
+                      <DraftSpreadThumbnail spread={item.id === spread.id ? { ...item, elements: previewElements, backgrounds: previewBackgrounds ?? item.backgrounds } : item} previewUrls={view.previewUrls} />
                     </span>
                     <span className="book-spread-thumb-label">{spreadPageLabel(index)}</span>
                   </button>

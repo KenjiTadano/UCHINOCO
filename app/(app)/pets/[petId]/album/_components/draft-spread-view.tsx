@@ -34,6 +34,7 @@ type Props = {
   className?: string;
   interactive?: boolean;
   digital?: boolean;
+  thumbnail?: boolean;
   selectedFrameId?: string | null;
   selectedElementId?: string | null;
   elements?: PageElement[];
@@ -78,7 +79,7 @@ function FrameImage({ src, crop, photoId, imageFit = "cover", onImageError }: { 
   return (
     <div className="page-edit-draft-photo" data-load-state={loadState} data-image-fit={imageFit}>
       {loadState === "loading" ? <span className="page-edit-draft-photo-status">読み込み中</span> : null}
-      {loadState === "error" ? (
+      {loadState === "error" && onImageError ? (
         <button type="button" className="page-edit-draft-photo-status" onClick={() => onImageError?.(photoId)}>
           再取得
         </button>
@@ -121,6 +122,7 @@ export function DraftSpreadView({
   className = "",
   interactive = false,
   digital = false,
+  thumbnail = false,
   selectedFrameId = null,
   selectedElementId = null,
   elements = [],
@@ -317,7 +319,7 @@ export function DraftSpreadView({
       className={`page-edit-draft${digital ? " page-edit-draft--digital" : ""} ${className}`.trim()}
       style={{
         aspectRatio: digital ? `${geometry?.width} / ${geometry?.height}` : `${ALBUM_DRAFT_CONFIG.book.canvas.width} / ${ALBUM_DRAFT_CONFIG.book.canvas.height}`,
-        ...(digital ? { width: `min(100%, calc((100dvh - 250px) * ${geometry?.aspectRatio}))` } : {}),
+        ...(digital && !thumbnail ? { width: `min(100%, calc((100dvh - 250px) * ${geometry?.aspectRatio}))` } : {}),
       }}
       data-layout={preview.layoutId}
       data-surface={digital ? "digital" : "book-mock"}

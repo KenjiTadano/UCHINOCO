@@ -11,9 +11,11 @@ import {
   Settings,
   Type,
 } from "lucide-react";
-import type { PreviewSpread } from "@/lib/album-preview-spreads";
+import type { PersistedDraftView, PersistedSpreadView } from "@/lib/album-persistence/view";
+import type { CoverEditorModel } from "@/lib/album-persistence/cover";
+import { DraftSpreadThumbnail } from "../../_components/draft-spread-thumbnail";
 import { AlbumCoverBook } from "../../_components/album-cover-book";
-import { BookSpread } from "../../_components/book-spread";
+
 
 export type AlbumEditPageEntry =
   | {
@@ -25,7 +27,7 @@ export type AlbumEditPageEntry =
       kind: "spread";
       id: string;
       label: string;
-      spread: PreviewSpread;
+      spread: PersistedSpreadView;
     };
 
 export type AlbumEditScreenProps = {
@@ -36,6 +38,9 @@ export type AlbumEditScreenProps = {
   titleMain: string;
   pageCount: number;
   pages: AlbumEditPageEntry[];
+  draft: PersistedDraftView | null;
+  cover?: CoverEditorModel | null;
+  loadError?: string | null;
   selectedPageId?: string;
   backHref: string;
   previewHref: string;
@@ -62,6 +67,9 @@ export function AlbumEditScreen({
   titleMain,
   pageCount,
   pages,
+  draft,
+  cover,
+  loadError,
   selectedPageId = "cover",
   backHref,
   previewHref,
@@ -99,6 +107,8 @@ export function AlbumEditScreen({
           <AlbumCoverBook
             shell="monthly"
             size="full"
+            templateId={cover?.templateId}
+            colorId={cover?.colorId}
             coverSrc={coverSrc}
             dateLabel={dateLabel}
             titlePrefix={titlePrefix}
@@ -159,6 +169,7 @@ export function AlbumEditScreen({
             </h2>
             <p className="album-edit-pages-hint">長押しで並べ替え</p>
           </div>
+          {loadError ? <p role="alert">{loadError}</p> : null}
           <div className="album-edit-pages-scroll">
             <ul className="album-edit-page-grid">
               {pages.map((page) => {
@@ -174,6 +185,8 @@ export function AlbumEditScreen({
                         <AlbumCoverBook
                           shell="monthly"
                           size="thumbnail"
+                          templateId={cover?.templateId}
+                          colorId={cover?.colorId}
                           coverSrc={coverSrc}
                           dateLabel={dateLabel}
                           titlePrefix={titlePrefix}
@@ -183,11 +196,9 @@ export function AlbumEditScreen({
                           className="album-edit-page-cover"
                         />
                       ) : (
-                        <BookSpread
-                          spread={page.spread}
-                          variant="thumbnail"
-                          className="album-edit-page-spread"
-                        />
+                        <Link href={`${pageEditHref}?spread=${draft?.spreads.findIndex((spread) => spread.id === page.id) ?? 0}`} aria-label={`${page.label}を編集`}>
+                          <DraftSpreadThumbnail spread={page.spread} previewUrls={draft?.previewUrls ?? {}} />
+                        </Link>
                       )}
                     </div>
                     <p className="album-edit-page-label">{page.label}</p>

@@ -1,5 +1,7 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+
 import { decorationIdIssue, decorationSlotIssue, plainTextIssue, slotKind, styleIssue, textSlotIssue } from "@/lib/album-polish/catalog";
 import type { OverrideMode, ScalePreset, TextKind, TextStyleId } from "@/lib/album-polish/types";
 import { isCoverColorId, isCoverTemplateId, mapDraftCoverRow, toCoverEditor, type CoverEditorModel, type CoverField, type DraftCoverRow } from "@/lib/album-persistence/cover";
@@ -18,6 +20,15 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 async function finishWrite(supabase: Awaited<ReturnType<typeof createClient>>, albumId: string, writeStatus: PersistenceResult["writeStatus"]): Promise<PersistenceResult> {
   const view = await readDraft(supabase, albumId);
   if (!view) return fail("保存後の読み込みに失敗しました。");
+  if (writeStatus === "applied") {
+    const { data: album } = await supabase.from("albums").select("pet_id").eq("id", albumId).maybeSingle();
+    if (album) {
+      const base = `/pets/${album.pet_id}/album/${albumId}`;
+      revalidatePath(base);
+      revalidatePath(`${base}/edit`);
+      revalidatePath(`${base}/print`);
+    }
+  }
   return {
     ok: writeStatus !== "conflict" && writeStatus !== "missing",
     message: writeStatus === "conflict" ? "保存が競合しました。再試行できます。" : null,

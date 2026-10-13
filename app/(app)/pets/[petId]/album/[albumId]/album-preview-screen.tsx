@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useState } from "react";
 import { ArrowRight, BookOpen, ChevronLeft, ChevronRight, SquarePen } from "lucide-react";
 import type { PreviewPhoto, PreviewSpread } from "@/lib/album-preview-spreads";
-import { toAlbumEditorSpread } from "@/lib/album-persistence/editor";
+import { draftSpreadRenderProps, toAlbumEditorSpread } from "@/lib/album-persistence/editor";
 import type { PersistedDraftView, PersistedSpreadView } from "@/lib/album-persistence/view";
 import type { AlbumCompositionItem } from "@/lib/album-draft/composition";
 import { BookSpread } from "../_components/book-spread";
+import { DraftSpreadThumbnail } from "../_components/draft-spread-thumbnail";
 import { DraftSpreadView } from "../_components/draft-spread-view";
 import { AlbumCoverBook } from "../_components/album-cover-book";
 import type { CoverEditorModel } from "@/lib/album-persistence/cover";
@@ -138,7 +139,7 @@ export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHr
                 <ChevronLeft size={20} strokeWidth={1.8} aria-hidden="true" />
               </button>
               <div data-page-role={currentItem?.kind === "draft-spread" ? currentItem.role : undefined} data-page-density={currentItem?.kind === "draft-spread" ? currentItem.density : undefined}>
-                <DraftSpreadView preview={draftSpread.preview} frames={editorSpread.frames} texts={draftSpread.texts} decorations={draftSpread.decorations} elements={draftSpread.elements} backgrounds={draftSpread.backgrounds} layoutId={editorSpread.layoutId} digital />
+                <DraftSpreadView {...draftSpreadRenderProps(draftSpread, savedDraft.previewUrls)} />
               </div>
               <button type="button" className="album-preview-arrow album-preview-arrow-right ds-focus" aria-label="次の見開き" onClick={() => go(index + 1)} disabled={sequence.length <= 1}>
                 <ChevronRight size={20} strokeWidth={1.8} aria-hidden="true" />
@@ -156,15 +157,9 @@ export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHr
                   );
                 }
                 if (item.kind !== "draft-spread") return null;
-                const itemFrames = toAlbumEditorSpread(item.item, savedDraft.previewUrls).frames;
                 return (
                   <button key={item.item.id} type="button" role="tab" aria-selected={itemIndex === index} className={`album-preview-thumb${itemIndex === index ? " is-selected" : ""}`} onClick={() => setIndex(itemIndex)}>
-                    <span className="album-preview-thumb-inner">
-                      {itemFrames.slice(0, 2).map((frame) => (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img key={frame.id} src={frame.previewUrl} alt="" />
-                      ))}
-                    </span>
+                    <DraftSpreadThumbnail spread={item.item} previewUrls={savedDraft.previewUrls} />
                   </button>
                 );
               })}
