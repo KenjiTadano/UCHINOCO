@@ -101,6 +101,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
     }
     if (autoResumeTriggered && !shouldAutoResumeAlbum({ intentPresent: true, intentValid: valid, readiness, generationRunning: false })) return;
     executing.current = true;
+    setRecovery(null);
     saveIntent({ ...current, phase: "generating" });
     const form = intentFormData(current);
     form.set("autoResumeTriggered", String(autoResumeTriggered));
@@ -140,6 +141,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
     if (state.status === "complete" && state.previewHref) {
       logAutoResume(intent, readiness, { autoResumeTriggered: true, generationStarted: true, generationCompleted: true, duplicateSuppressed: false });
       saveIntent(null);
+      setRecovery(null);
       router.replace(state.previewHref);
       return;
     }
@@ -248,6 +250,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   function requestCreation(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (executing.current || pending || intent) return;
+    setRecovery(null);
     const current: AlbumIntent = { id: crypto.randomUUID(), petId, petIds: selectedIds, period: selected, pageCount, periodFrom, periodTo, requestedAt: new Date().toISOString(), phase: "preparing" };
     polls.current = 0;
     generationRetries.current = 0;
@@ -263,6 +266,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   }
 
   function selectSmallerPages(pages: 24 | 48 | 72) {
+    setRecovery(null);
     if (intent) saveIntent({ ...intent, pageCount: pages, phase: "preparing" });
     else cancelIntent();
     setPageCount(pages);
@@ -272,7 +276,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   const locked = Boolean(intent);
   const blocked = !readiness || shortage || readiness.state === "action_required";
 
-  if (pending || (!recovery && (intent?.phase === "generating" || (intent && readiness?.state === "ready")))) {
+  if (pending || state.status === "complete" || (!recovery && (intent?.phase === "generating" || (intent && readiness?.state === "ready")))) {
     return (
       <div role="status" aria-live="polite">
         <AlbumGeneratingScreen petName={selectedPetLabel} photoCount={readiness?.total ?? selectedPhotoCount} backHref={backHref} activeStep={generatingStep} />

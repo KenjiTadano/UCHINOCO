@@ -2,6 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { runInNewContext } from "node:vm";
 
 const PROJECT = "uchinoco";
 const ENVIRONMENT = "production";
@@ -40,14 +41,36 @@ function redact(value) {
   return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, SENSITIVE_KEY.test(key) ? "[redacted]" : redact(child)]));
 }
 
-function parseMessagePayload(message) {
+export function parseMessagePayload(message) {
+  if (typeof message !== "string") return message;
   const start = message.indexOf("{");
-  if (start < 0) return message;
+  const end = message.lastIndexOf("}");
+  if (start < 0 || end < start) return message;
+  const slice = message.slice(start, end + 1);
+
+  // 1. First attempt standard JSON parsing
   try {
-    return JSON.parse(message.slice(start));
+    return JSON.parse(slice);
   } catch {
-    return message;
+    // continue to JS object literal parsing
   }
+
+  // 2. Attempt Node/JS object literal parsing via isolated sandbox
+  try {
+    const sandbox = Object.create(null);
+    sandbox.Object = { [Symbol.toPrimitive]: () => "[Object]" };
+    sandbox.Array = [];
+    const evaluated = runInNewContext(`(${slice})`, sandbox, { timeout: 200 });
+    if (evaluated && typeof evaluated === "object") {
+      // Normalize cross-context VM object to plain host object
+      return JSON.parse(JSON.stringify(evaluated));
+    }
+    return evaluated;
+  } catch {
+    // continue
+  }
+
+  return message;
 }
 
 export function matchingEvents(record) {
@@ -74,19 +97,44 @@ export function matchingEvents(record) {
     const matchingName = EVENT_NAMES.find((name) => fields.some((field) => field.includes(name)));
     if (matchingName) {
       const message = fields.find((field) => field.includes(matchingName));
+      const parsedMessage = message ? parseMessagePayload(message) : null;
       const payload = { ...value };
       delete payload.message;
       delete payload.msg;
       delete payload.event;
       delete payload.name;
-      const parsedMessage = message ? parseMessagePayload(message) : null;
-      matches.push({ event: matchingName, timestamp: value.timestamp ?? record.timestamp ?? null, level: value.level ?? record.level ?? null, data: redact(Object.keys(payload).length ? payload : parsedMessage) });
+      delete payload.level;
+      delete payload.timestamp;
+
+      let combinedData = {};
+      if (parsedMessage && typeof parsedMessage === "object") {
+        combinedData = { ...payload, ...parsedMessage };
+      } else if (Object.keys(payload).length > 0) {
+        combinedData = payload;
+      }
+
+      matches.push({
+        event: matchingName,
+        timestamp: value.timestamp ?? record.timestamp ?? null,
+        level: value.level ?? record.level ?? null,
+        data: redact(combinedData),
+      });
       return;
     }
     for (const [key, child] of Object.entries(value)) {
       const matchingKey = EVENT_NAMES.find((name) => key.includes(name));
       if (matchingKey) {
-        matches.push({ event: matchingKey, timestamp: value.timestamp ?? record.timestamp ?? null, level: value.level ?? record.level ?? null, data: redact(child) });
+        let childData = child;
+        if (typeof child === "string") {
+          const parsed = parseMessagePayload(child);
+          childData = typeof parsed === "object" ? parsed : {};
+        }
+        matches.push({
+          event: matchingKey,
+          timestamp: value.timestamp ?? record.timestamp ?? null,
+          level: value.level ?? record.level ?? null,
+          data: redact(childData),
+        });
       } else {
         visit(child);
       }
