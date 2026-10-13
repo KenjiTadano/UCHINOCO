@@ -18,10 +18,10 @@ Production 実写真・24P において、Vercel ログ上では以下の通り 
 
 ---
 
-## 2. 徹底調査結果（フロー各段階の分析）
+## 2. 調査結果
 
-### ① `albumLayoutRecovery` 後のサーバー側実行フロー
-Vercel Production ログ（タイムスタンプ `1791857659710`、runId `9830a9f0-4ed0-44c9-9c07-5c5565ca3bd8`）の全41件のログトレースを精査した結果：
+### サーバー側の実行状況
+Production ログ（タイムスタンプ `1791857659710`、runId `9830a9f0-4ed0-44c9-9c07-5c5565ca3bd8`）の全41件のログトレースを精査した結果：
 1. `09_layout_planning`: `completed` (427.5ms, 12 spreads, `unrecoveredCount: 0`)
 2. `10_crop_calculation`: `completed` (37.11ms, 158 crops)
 3. `12_album_row_creation`: `completed` (313.26ms, album id: `f317b7f9-a0d2-4e8b-b418-f39f0d29e5d5`)
@@ -34,75 +34,140 @@ Vercel Production ログ（タイムスタンプ `1791857659710`、runId `9830a9
 10. HTTP レスポンス: **200 OK**
     - 返却ペイロード: `{ error: null, status: "complete", previewHref: "/pets/645f30fe-700f-441c-8878-6658caef0870/album/f317b7f9-a0d2-4e8b-b418-f39f0d29e5d5?view=preview" }`
 
-**結論**: `unrecoveredCount = 0` の実行において、サーバー側のレイアウト計算、DB永続化、メタデータ保存、レスポンス返却は**100%成功**しており、サーバー起因の失敗は発生していなかった。
+**結論**: `unrecoveredCount = 0` の実行において、サーバー側の処理（レイアウト、保存、メタデータ、HTTP返却）はすべて正常完了しており、サーバー起因の失敗は発生していなかった。
+
+### 根本原因
+原因はレイアウトエンジンではなく、`app/(app)/pets/[petId]/album/new/album-create-form.tsx` における**クライアント側のステート残留と生成中画面の早期アンマウント**：
+1. **先行リクエスト失敗時のエラー残留**: 4秒前の先行試行（写真22枚）で失敗した際、React の `recovery` 状態に「この条件ではアルバムを完成できませんでした…」がセットされた。
+2. **自動再試行時の未クリア**: 23枚目完了により `beginGeneration` が自動発火したが、`setRecovery(null)` が呼ばれず旧エラー文字列が残存した。
+3. **完了時の生成画面即時アンマウント**: `AlbumGeneratingScreen` の描画条件に `state.status === "complete"` が含まれていなかったため、サーバーから完了が返った瞬間に生成画面が外れ、残存していた `recovery` エラーカードが画面上に再描画された。
+4. **非同期遷移中の競合**: `router.replace(previewHref)` がバックグラウンドで RSC を取得している間、ユーザーには失敗画面が見え続けたため、キャンセル操作や離脱が発生してプレビュー到達が阻害されていた。
 
 ---
 
-### ② 根本原因の特定: クライアント側（`AlbumCreateForm`）のステート保持と遷移競合
+## 3. 実装修正
 
-「この条件ではアルバムを完成できませんでした」という文字列はリポジトリ全体で [app/(app)/pets/[petId]/album/new/actions.ts](app/(app)/pets/[petId]/album/new/actions.ts#L443) の2箇所のみに定義されている。
-
-Production ログの時系列（02:14:08 〜 02:14:31）を分析したところ、以下のレースコンディションと状態残留バグが判明した：
-
-1. **先行リクエスト（02:14:15, runId `4c1b182a`）の失敗**:
-   - 当時、写真解析（`/api/photo-analysis`）がまだ22枚しか完了しておらず、Spread 6の修復候補が不足して `unrecoveredCount: 1` で失敗した。
-   - サーバーは `{ error: "この条件ではアルバムを完成できませんでした。別の写真で組み直すか、写真を追加できます。", status: "action_required" }` を返却。
-   - クライアントの `handleResult` が React 状態 `recovery` にこのエラー文字列をセットし、UI にエラーカードを描画した。
-2. **23枚目完了による自動再試行（02:14:19, runId `9830a9f0`）の発火**:
-   - バックグラウンドで23枚目の写真解析が完了し、`observeReadyIntent` が自動的に `beginGeneration` を呼び出し、これが `unrecoveredCount = 0` で大成功した。
-3. **バグ 1: `beginGeneration` での `recovery` 未クリア**:
-   - `beginGeneration` が再実行される際、旧 `recovery` 状態を `null` にリセットしていなかったため、内部的に `recovery` が残留していた。
-4. **バグ 2: `status === "complete"` での `recovery` 未クリア**:
-   - サーバーから `{ status: "complete", previewHref }` を受け取った際、`handleResult` は `saveIntent(null)` と `router.replace(state.previewHref)` を呼ぶが、**`setRecovery(null)` を呼んでいなかった**。
-5. **バグ 3: 生成中画面の即座なアンマウントとエラーカードの誤表示（最致命的）**:
-   - [app/(app)/pets/[petId]/album/new/album-create-form.tsx](app/(app)/pets/[petId]/album/new/album-create-form.tsx#L273) の生成画面描画判定:
-     ```ts
-     // 修正前
-     if (pending || (!recovery && (intent?.phase === "generating" || (intent && readiness?.state === "ready"))))
-     ```
-   - サーバーアクションが完了すると `pending` は `false` になり、`saveIntent(null)` により `intent` は `null` になる。
-   - `state.status === "complete"` がこの条件に含まれていなかったため、**`AlbumGeneratingScreen` が即座にアンマウントされた**。
-   - その結果、残留していた `recovery` 文字列に基づき、**`<RecoveryState description={recovery} />`（「この条件ではアルバムを完成できませんでした」）が画面に再描画された**。
-6. **バグ 4: 遷移中のキャンセル・離脱**:
-   - Next.js の `router.replace` は非同期の RSC 取得を行うため、プレビュー画面がマウントされるまでの間、ユーザーの画面には失敗メッセージが表示されたままとなった。
-   - 画面上に表示された「作成条件を変更」「アルバム一覧へ戻る」などのリンクをユーザーが認識・操作してしまい、Preview への到達が阻害されていた。
+Layout Recovery エンジン自体には一切変更を加えず、`app/(app)/pets/[petId]/album/new/album-create-form.tsx` を改修：
+1. **生成開始時のエラー消去**: `beginGeneration`, `requestCreation`, `selectSmallerPages` で明示的に `setRecovery(null)` を実行。
+2. **完了ハンドラでのエラー消去**: `handleResult` の `state.status === "complete"` 処理内で `setRecovery(null)` を実行。
+3. **プレビュー遷移中の生成画面保護**: 描画判定に `state.status === "complete" && Boolean(state.previewHref)` を追加し、プレビュー画面がマウントされるまでの間、エラーカードや入力フォームをフラッシュ表示させず生成中画面を維持。
+4. **`action_required` 時の無限 Auto Resume ループ解消**:
+   - `handleResult` で `state.status === "action_required"` 時に `saveIntent(null)` を実行して generation intent を確実に破棄。
+   - `observeReadyIntent` および `beginGeneration` で `state.status === "action_required"` を検知した場合は早期リターンし、写真の再準備による自動再試行を停止。
+   - `action_required` 時には生成中画面（`AlbumGeneratingScreen`）を維持せず、即座に RecoveryState UI（「作成条件を変更」「写真を追加」）を表示。
 
 ---
 
-## 3. 実装した修正内容
+## 4. Spread 7 Diagnostic Evidence（Part B 分析記録）
 
-Layout Recovery エンジン自体には一切手を加えず（要求事項の遵守）、[app/(app)/pets/[petId]/album/new/album-create-form.tsx](app/(app)/pets/[petId]/album/new/album-create-form.tsx) における状態リセットと画面描画ガードを修正：
+Preview 環境（実写真・24P）での実行ログにおいて、写真解析進捗による挙動の差を記録：
 
-1. **`beginGeneration` 開始時のエラークリア**:
-   - 生成開始時に `setRecovery(null)` を呼び出し、過去の試行で残ったエラーメッセージを確実に消去。
-2. **`handleResult` 完了時のエラークリア**:
-   - `state.status === "complete"` のハンドラ内で `setRecovery(null)` を呼び出し、クリーンな状態で遷移。
-3. **`AlbumGeneratingScreen` の遷移中維持ガード**:
-   - レンダリング条件に `state.status === "complete"` を追加：
-     ```ts
-     if (pending || state.status === "complete" || (!recovery && (intent?.phase === "generating" || (intent && readiness?.state === "ready")))) {
-       return <AlbumGeneratingScreen ... />;
-     }
-     ```
-   - これにより、サーバーがアルバム作成を完了してから Next.js がプレビューページをマウントするまでの間、フォームや過去のエラーカードがフラッシュ表示されず、生成中画面がシームレスに維持される。
-4. **手動作成・ページ変更時のエラークリア**:
-   - `requestCreation` および `selectSmallerPages` 内でも `setRecovery(null)` を追加。
+### 23枚解析完了時点（02:14）
+- `eligibleReady`: 23枚
+- `initialUnsafeSpreadCount`: 6
+- `unrecoveredCount`: 0（全スプレッド回復成功）
+- `outcome`: `ready` / `status`: `complete`
+- アルバム初稿・表紙の保存まで完走
+
+### 24枚解析完了時点（06:21〜06:25）
+- `eligibleReady`: 24枚
+- `initialUnsafeSpreadCount`: 4
+- `unrecoveredCount`: 1（Spread 7 で回復失敗）
+- `outcome`: `failed` / `status`: `action_required`
+
+#### Spread 7 の詳細診断データ
+```json
+{
+  "spreadIndex": 7,
+  "photoCount": 2,
+  "originalPhotoCount": 2,
+  "finalPhotoCount": 1,
+  "recoveryReached": "no_crop_final",
+  "outcome": "unrecovered",
+  "initialCandidateCount": 12,
+  "strictCandidateCount": 0,
+  "fallbackCandidateCount": 59,
+  "safeFallbackCandidateCount": 20,
+  "reassignmentCandidateCount": 1,
+  "replacementCandidateCount": 5,
+  "replacementCount": 0,
+  "reflowCandidateCount": 4,
+  "photoDropCandidateCount": 1,
+  "droppedPhotoCount": 0,
+  "replacementAvailable": true,
+  "unusedPoolCount": 9,
+  "duplicateRejectedCount": 20,
+  "sourceClippingRejectedCount": 1,
+  "cropSafetyRejectedCount": 2,
+  "otherEligibilityRejectedCount": 3,
+  "finalReplacementCandidateCount": 3,
+  "handoffReplacementCandidateCount": 3,
+  "editorialReceivedReplacementCandidateCount": 5,
+  "fallbackBuilderUsed": true,
+  "explicitCandidateListProvided": true,
+  "candidateListSource": "handoff",
+  "replacementCandidateEvaluatedCount": 5,
+  "replacementAcceptedCount": 0,
+  "replacementCropUnsafeCount": 2,
+  "replacementSourceClippingCount": 1,
+  "replacementSafeFallbackUnavailableCount": 3,
+  "replacementTemplateCandidateCount": 12,
+  "replacementSafeFallbackCandidateCount": 4,
+  "replacementLayoutEvaluatedCount": 16,
+  "replacementLayoutAcceptedCount": 0,
+  "noCropCandidateCount": 8,
+  "noCropLayoutEvaluatedCount": 7,
+  "noCropLayoutAcceptedCount": 0,
+  "noCropRejectCount": 8,
+  "globalReplacementCandidateCount": 2,
+  "samePetReplacementCandidateCount": 3,
+  "globalUnusedCandidateCount": 2
+}
+```
+
+### 次期タスクへの申し送り原則
+- **問題の本質**: 「写真が増えたことで Album completion が悪化した」（Candidate Stability の課題）。
+- **禁止事項**: Spread 7 専用の安易な Recovery ルール追加や Safety 閾値緩和は行わない。
+- **次タスクの設計原則 (Safe Photo Subset Selection / Candidate Stability)**:
+  > 「安全に完成できる写真集合が存在した場合、候補写真が1枚増えただけでその安全解を失わない」
+  > 24枚目を使用すると layout safety が悪化する場合は、その写真を unused に残し、23枚時点相当の安全な構成を採用できる設計にする。
 
 ---
 
-## 4. 検証結果
+## 5. 検証結果（ローカル）
 
-- **新規単体テスト**: [tests/task080-post-recovery-completion.test.mjs](tests/task080-post-recovery-completion.test.mjs)
-  - `AlbumCreateForm clears stale recovery and guards generating screen during complete navigation` → **PASS**
-  - `server action correctly delivers completed status and previewHref when unrecoveredCount is 0` → **PASS**
-  - `auditAlbumRhythm treats safe repaired spreads as non-blocking when unrecoveredCount is 0` → **PASS**
-- **既存回帰テスト**: [tests/task078-2-2-readiness.test.mjs](tests/task078-2-2-readiness.test.mjs)
-  - 13件全件 **PASS**
-- **全リポジトリテスト**: `node --test tests/*.test.mjs`
-  - **1,088件全件パス (0 fail)**
-- **TypeScript 型チェック**: `npx tsc --noEmit`
-  - **エラー 0 件**
-- **ESLint**: `npm run lint`
-  - **エラー 0 件**
-- **差分空白チェック**: `git diff --check`
-  - **エラー 0 件**
+- **単体テスト**: `tests/task080-post-recovery-completion.test.mjs` → **4件全件 PASS**
+  1. `AlbumCreateForm clears stale recovery and guards generating screen during complete navigation`
+  2. `action_required stops infinite auto-resume, clears intent, and immediately displays recovery UI`
+  3. `server action correctly delivers completed status and previewHref when unrecoveredCount is 0`
+  4. `auditAlbumRhythm treats safe repaired spreads as non-blocking when unrecoveredCount is 0`
+- **既存回帰テスト**: `tests/task078-2-2-readiness.test.mjs` → **13件全件 PASS**
+- **全リポジトリテスト**: `node --test tests/*.test.mjs` → **1,089件全件 PASS (0 fail)**
+- **型チェック**: `npx tsc --noEmit` → **エラー 0 件**
+- **リント**: `npm run lint` → **エラー 0 件**
+- **ビルド**: `npm run build` → **成功**
+- **差分空白チェック**: `git diff --check` → **エラー 0 件**
+
+---
+
+## Production Acceptance
+
+- **commit**: (待機中)
+- **deployment**: (待機中)
+- **runtime result**: (待機中)
+- **recovery metrics**:
+  - `spreadCount`: (待機中)
+  - `initialUnsafeSpreadCount`: (待機中)
+  - `unrecoveredCount`: (待機中)
+  - `initialUnsafeBeforeMatching`: (待機中)
+  - `initialUnsafeAfterMatching`: (待機中)
+  - `optimizedAssignmentCount`: (待機中)
+  - `legacyFallbackCount`: (待機中)
+- **completion status**:
+  - `generationCompleted`: (待機中)
+  - `outcome`: (待機中)
+  - `status`: (待機中)
+  - `previewHref`: (待機中)
+  - `HTTP status`: (待機中)
+- **Preview result**: (待機中)
+- **PASS / FAIL**: (待機中)

@@ -19,7 +19,7 @@ test("AlbumCreateForm clears stale recovery and guards generating screen during 
   assert.match(handleResultCompleteMatch[0], /router\.replace\(state\.previewHref\)/, "handleResult on complete must navigate to previewHref");
 
   // 3. AlbumGeneratingScreen remains mounted when state.status === 'complete' to prevent stale form error flash
-  assert.match(source, /state\.status === "complete"\s*\|\|\s*\(!recovery && \(intent\?\.phase === "generating"/, "Generating screen must remain visible while state.status === complete during preview navigation");
+  assert.match(source, /state\.status === "complete"\s*&&\s*Boolean\(state\.previewHref\)/, "Generating screen must remain visible while state.status === complete during preview navigation");
 
   // 4. requestCreation and selectSmallerPages clear previous recovery
   const requestCreationMatch = source.match(/function requestCreation\([\s\S]*?\{([\s\S]*?)saveIntent/);
@@ -29,6 +29,39 @@ test("AlbumCreateForm clears stale recovery and guards generating screen during 
   const selectSmallerPagesMatch = source.match(/function selectSmallerPages\([\s\S]*?\{([\s\S]*?)setPageCount/);
   assert.ok(selectSmallerPagesMatch, "selectSmallerPages function must exist");
   assert.match(selectSmallerPagesMatch[1], /setRecovery\(null\)/, "selectSmallerPages must clear stale recovery");
+});
+
+test("action_required stops infinite auto-resume, clears intent, and immediately displays recovery UI", async () => {
+  const source = await readFile("app/(app)/pets/[petId]/album/new/album-create-form.tsx", "utf8");
+
+  // 1. action_required -> intent cleared
+  const actionRequiredBlock = source.match(/if\s*\(state\.status === "action_required"\)\s*\{([\s\S]*?)\}/);
+  assert.ok(actionRequiredBlock, "handleResult must explicitly handle action_required");
+  assert.match(actionRequiredBlock[1], /saveIntent\(null\)/, "action_required must call saveIntent(null) to clear intent");
+  assert.match(actionRequiredBlock[1], /setRecovery\(/, "action_required must set recovery message");
+
+  // 2. readiness=ready does not trigger re-generation when status is action_required
+  const observeReadyMatch = source.match(/const observeReadyIntent = useEffectEvent\(\([\s\S]*?=>\s*\{([\s\S]*?)\}\);/);
+  assert.ok(observeReadyMatch, "observeReadyIntent must exist");
+  assert.match(observeReadyMatch[1], /if\s*\(state\.status === "action_required"/, "observeReadyIntent must guard against re-generation when state.status === action_required");
+
+  // Also beginGeneration guards against action_required
+  const beginGenMatch = source.match(/function beginGeneration\([\s\S]*?\{([\s\S]*?)const valid/);
+  assert.ok(beginGenMatch, "beginGeneration must exist");
+  assert.match(beginGenMatch[1], /if\s*\(state\.status === "action_required"\)\s*return;/, "beginGeneration must return early when status is action_required");
+
+  // 3. action_required UI is displayed (showGenerating is false on action_required)
+  assert.match(source, /pending\s*&&\s*state\.status !== "action_required"/, "pending must not keep generating screen when action_required occurs");
+  assert.match(source, /!activeRecovery\s*&&\s*!state\.error\s*&&\s*state\.status !== "action_required"/, "generating screen must not show when action_required is active");
+  assert.match(source, /const activeRecovery = recovery \?\? \(state\.status === "action_required"/, "activeRecovery must derive immediate error on action_required");
+  assert.match(source, /\{activeRecovery \? \(\s*<RecoveryState/, "RecoveryState must be displayed when activeRecovery is present");
+
+  // 4. complete -> Generating Screen preserved -> Preview
+  assert.match(source, /state\.status === "complete" && Boolean\(state\.previewHref\)/, "complete status must preserve generating screen");
+  assert.match(source, /router\.replace\(state\.previewHref\)/, "complete status must navigate to previewHref");
+
+  // 5. action_required / complete states do not conflict
+  assert.match(source, /if\s*\(state\.status === "complete" && state\.previewHref\)[\s\S]*?router\.replace\(state\.previewHref\);[\s\S]*?if\s*\(state\.status === "action_required"\)/, "complete and action_required must have separate independent branches");
 });
 
 test("server action correctly delivers completed status and previewHref when unrecoveredCount is 0", async () => {

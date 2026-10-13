@@ -50,17 +50,102 @@ Production ログ（タイムスタンプ `1791857659710`、runId `9830a9f0-4ed0
 Layout Recovery エンジン自体には一切変更を加えず、`app/(app)/pets/[petId]/album/new/album-create-form.tsx` を改修：
 1. **生成開始時のエラー消去**: `beginGeneration`, `requestCreation`, `selectSmallerPages` で明示的に `setRecovery(null)` を実行。
 2. **完了ハンドラでのエラー消去**: `handleResult` の `state.status === "complete"` 処理内で `setRecovery(null)` を実行。
-3. **プレビュー遷移中の生成画面保護**: 描画判定に `state.status === "complete"` を追加し、プレビュー画面がマウントされるまでの間、エラーカードや入力フォームをフラッシュ表示させず生成中画面を維持。
+3. **プレビュー遷移中の生成画面保護**: 描画判定に `state.status === "complete" && Boolean(state.previewHref)` を追加し、プレビュー画面がマウントされるまでの間、エラーカードや入力フォームをフラッシュ表示させず生成中画面を維持。
+4. **`action_required` 時の無限 Auto Resume ループ解消**:
+   - `handleResult` で `state.status === "action_required"` 時に `saveIntent(null)` を実行して generation intent を確実に破棄。
+   - `observeReadyIntent` および `beginGeneration` で `state.status === "action_required"` を検知した場合は早期リターンし、写真の再準備による自動再試行を停止。
+   - `action_required` 時には生成中画面（`AlbumGeneratingScreen`）を維持せず、即座に RecoveryState UI（「作成条件を変更」「写真を追加」）を表示。
 
 ---
 
-## 4. 検証結果（ローカル）
+## 4. Spread 7 Diagnostic Evidence（Part B 分析記録）
 
-- **新規単体テスト**: `tests/task080-post-recovery-completion.test.mjs` → **3件全件 PASS**
+Preview 環境（実写真・24P）での実行ログにおいて、写真解析進捗による挙動の差を記録：
+
+### 23枚解析完了時点（02:14）
+- `eligibleReady`: 23枚
+- `initialUnsafeSpreadCount`: 6
+- `unrecoveredCount`: 0（全スプレッド回復成功）
+- `outcome`: `ready` / `status`: `complete`
+- アルバム初稿・表紙の保存まで完走
+
+### 24枚解析完了時点（06:21〜06:25）
+- `eligibleReady`: 24枚
+- `initialUnsafeSpreadCount`: 4
+- `unrecoveredCount`: 1（Spread 7 で回復失敗）
+- `outcome`: `failed` / `status`: `action_required`
+
+#### Spread 7 の詳細診断データ
+```json
+{
+  "spreadIndex": 7,
+  "photoCount": 2,
+  "originalPhotoCount": 2,
+  "finalPhotoCount": 1,
+  "recoveryReached": "no_crop_final",
+  "outcome": "unrecovered",
+  "initialCandidateCount": 12,
+  "strictCandidateCount": 0,
+  "fallbackCandidateCount": 59,
+  "safeFallbackCandidateCount": 20,
+  "reassignmentCandidateCount": 1,
+  "replacementCandidateCount": 5,
+  "replacementCount": 0,
+  "reflowCandidateCount": 4,
+  "photoDropCandidateCount": 1,
+  "droppedPhotoCount": 0,
+  "replacementAvailable": true,
+  "unusedPoolCount": 9,
+  "duplicateRejectedCount": 20,
+  "sourceClippingRejectedCount": 1,
+  "cropSafetyRejectedCount": 2,
+  "otherEligibilityRejectedCount": 3,
+  "finalReplacementCandidateCount": 3,
+  "handoffReplacementCandidateCount": 3,
+  "editorialReceivedReplacementCandidateCount": 5,
+  "fallbackBuilderUsed": true,
+  "explicitCandidateListProvided": true,
+  "candidateListSource": "handoff",
+  "replacementCandidateEvaluatedCount": 5,
+  "replacementAcceptedCount": 0,
+  "replacementCropUnsafeCount": 2,
+  "replacementSourceClippingCount": 1,
+  "replacementSafeFallbackUnavailableCount": 3,
+  "replacementTemplateCandidateCount": 12,
+  "replacementSafeFallbackCandidateCount": 4,
+  "replacementLayoutEvaluatedCount": 16,
+  "replacementLayoutAcceptedCount": 0,
+  "noCropCandidateCount": 8,
+  "noCropLayoutEvaluatedCount": 7,
+  "noCropLayoutAcceptedCount": 0,
+  "noCropRejectCount": 8,
+  "globalReplacementCandidateCount": 2,
+  "samePetReplacementCandidateCount": 3,
+  "globalUnusedCandidateCount": 2
+}
+```
+
+### 次期タスクへの申し送り原則
+- **問題の本質**: 「写真が増えたことで Album completion が悪化した」（Candidate Stability の課題）。
+- **禁止事項**: Spread 7 専用の安易な Recovery ルール追加や Safety 閾値緩和は行わない。
+- **次タスクの設計原則 (Safe Photo Subset Selection / Candidate Stability)**:
+  > 「安全に完成できる写真集合が存在した場合、候補写真が1枚増えただけでその安全解を失わない」
+  > 24枚目を使用すると layout safety が悪化する場合は、その写真を unused に残し、23枚時点相当の安全な構成を採用できる設計にする。
+
+---
+
+## 5. 検証結果（ローカル）
+
+- **単体テスト**: `tests/task080-post-recovery-completion.test.mjs` → **4件全件 PASS**
+  1. `AlbumCreateForm clears stale recovery and guards generating screen during complete navigation`
+  2. `action_required stops infinite auto-resume, clears intent, and immediately displays recovery UI`
+  3. `server action correctly delivers completed status and previewHref when unrecoveredCount is 0`
+  4. `auditAlbumRhythm treats safe repaired spreads as non-blocking when unrecoveredCount is 0`
 - **既存回帰テスト**: `tests/task078-2-2-readiness.test.mjs` → **13件全件 PASS**
-- **全リポジトリテスト**: `node --test tests/*.test.mjs` → **1,088件全件 PASS (0 fail)**
+- **全リポジトリテスト**: `node --test tests/*.test.mjs` → **1,089件全件 PASS (0 fail)**
 - **型チェック**: `npx tsc --noEmit` → **エラー 0 件**
 - **リント**: `npm run lint` → **エラー 0 件**
+- **ビルド**: `npm run build` → **成功**
 - **差分空白チェック**: `git diff --check` → **エラー 0 件**
 
 ---
