@@ -345,6 +345,13 @@ export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[]
   for (const entry of considered) {
     entry.gate = assess(spread, entry.item.result, entry.assignments);
   }
+  const legacySafetyPassed = considered.some((entry) => {
+    const legacyAssignments = entry.item.result.legacyAssignments;
+    if (!legacyAssignments?.length || !entry.item.result.layout) return false;
+    const legacyResult = { ...entry.item.result, assignments: legacyAssignments, tier: entry.item.result.legacyTier ?? entry.item.result.tier };
+    const legacyDraftAssignments = buildAssignments(legacyResult, scoped);
+    return legacyResult.tier !== "unusable" && assess(spread, legacyResult, legacyDraftAssignments).hard.length === 0;
+  });
 
   const passing = considered.find((entry) => entry.gate.hard.length === 0 && entry.item.result.tier !== "unusable");
   const chosen = passing ?? considered[0];
@@ -382,6 +389,7 @@ export function buildSpreadDraft(spread: StorySpread, photos: LayoutPhotoInput[]
     },
     rhythm: chosen.item.rhythm,
     heroConfidence: chosen.item.result.heroConfidence,
+    legacySafetyPassed,
   };
 }
 

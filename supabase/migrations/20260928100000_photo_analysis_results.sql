@@ -1,5 +1,6 @@
--- Task058.2: versioned AI analysis cache.
--- Grouping, best shot, candidates, story, and layout stay derived.
+-- Task058.2: versioned photo analysis cache.
+-- Grouping, best shot, candidates, story, and layout stay derived. Deterministic
+-- layout suitability is embedded in the subject_geometry result, not a duplicate row.
 -- Existing album draft migrations are not modified.
 
 begin;

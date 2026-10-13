@@ -8,11 +8,13 @@ export type {
   TemplateDensity,
   WhitespaceIntent,
   CropTolerance,
+  LayoutImageFit,
   AlbumFrameDefinition,
   AlbumLayoutDefinition,
   LayoutPhotoInput,
   LayoutAssignment,
   LayoutScores,
+  PhotoFrameCompatibilityDiagnostics,
   LayoutMatchTier,
   LayoutMatchResult,
   LayoutSelectionResult,
@@ -41,6 +43,10 @@ export { scoreRoleFit } from "./role-fit.ts";
 export { scoreLayoutBalance } from "./balance.ts";
 export { scoreVisualVariety } from "./variety.ts";
 export { scoreOrientationAffinity } from "./orientation.ts";
+export { deriveTemplateFrameMetadata, getTemplateFrameMetadata } from "./frame-metadata.ts";
+export type { TemplateFrameMetadata, RegisteredTemplateFrameMetadata } from "./frame-metadata.ts";
+export { scorePhotoFrameCompatibility } from "./compatibility.ts";
+export type { PhotoFrameCompatibility } from "./compatibility.ts";
 export { scoreHierarchyFit, weakPhotoHeroPenalty } from "./hierarchy.ts";
 export {
   buildOrientationProfile,

@@ -10,6 +10,7 @@ import { buildSceneGroups } from "../lib/photo-grouping/group.ts";
 import { selectBestShot } from "../lib/best-shot/select.ts";
 import { planEditorialAlbum, buildEditorialDraft } from "../lib/album-draft/editorial.ts";
 import { parseStoredTechnical } from "../lib/photo-analysis/stored.ts";
+import { analyzePhotoLayoutSuitability } from "../lib/smart-layout/suitability.ts";
 
 function fixture(count) {
   const photos = Array.from({ length: count }, (_, index) => ({
@@ -74,6 +75,15 @@ test("stored input validates versions/fingerprints, supports legacy and terminal
   assert.equal(ready.missingGeometryCount, 0);
   assert.equal(ready.legacyTechnicalFallbackCount, 0);
   assert.equal(ready.sharpness.get(photos[35].id), 92);
+  const legacyGeometry = ready.geometry.get(photos[35].id);
+  assert.equal(legacyGeometry.layoutSuitability.version, 1);
+  assert.equal(legacyGeometry.layoutSuitability.sourceOrientation, "portrait");
+  assert.ok(legacyGeometry.layoutSuitability.portraitScore >= 0 && legacyGeometry.layoutSuitability.portraitScore <= 100);
+  const storedSuitability = analyzePhotoLayoutSuitability(legacyGeometry, "2026-10-12T00:00:00.000Z");
+  const geometryRow = rows.find((row) => row.photo_id === photos[35].id && row.analysis_type === SUBJECT_GEOMETRY);
+  geometryRow.result = { ...geometryRow.result, layoutSuitability: storedSuitability };
+  const reused = storedGenerationInputs(photos.slice(-1), rows.filter((row) => row.photo_id === photos[35].id));
+  assert.deepEqual(reused.geometry.get(photos[35].id).layoutSuitability, storedSuitability);
   rows[0].source_fingerprint = "stale";
   rows[3].analysis_version = "old";
   const stale = storedGenerationInputs(photos, rows);

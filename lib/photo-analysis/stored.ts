@@ -1,6 +1,7 @@
 import type { PhotoIntelligenceVision } from "../photo-intelligence/types.ts";
 import type { SmartCropPhotoAnalysis } from "../smart-crop/types.ts";
 import type { TechnicalQualityResult } from "../photo-intelligence/types.ts";
+import { parsePhotoLayoutSuitability } from "../smart-layout/suitability.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -56,7 +57,8 @@ export function parseStoredGeometry(value: unknown): SmartCropPhotoAnalysis | nu
     if (!isRecord(pet) || !rect(pet.bbox)) return null;
     if (pet.face !== undefined && !rect(pet.face)) return null;
   }
-  return value as SmartCropPhotoAnalysis;
+  const layoutSuitability = parsePhotoLayoutSuitability(value.layoutSuitability);
+  return { ...value, ...(layoutSuitability ? { layoutSuitability } : {}) } as SmartCropPhotoAnalysis;
 }
 
 export function parseStoredTechnical(value: unknown): TechnicalQualityResult | null {

@@ -138,6 +138,8 @@ export type LayoutScores = {
   orientationAffinity: number;
   hierarchyFit: number;
   hierarchyNeed: number;
+  suitabilityFit: number;
+  legacyOverall: number;
   overall: number;
 };
 
@@ -155,6 +157,29 @@ export type SmartLayoutV2Debug = {
   finalScore: number;
 };
 
+export type PhotoFrameCompatibilityDiagnostics = {
+  frameEvaluatedCount: number;
+  comparedPairCount: number;
+  matchedPairCount: number;
+  suitabilityPhotoCount: number;
+  averageScore: number;
+  assignmentCandidateCount: number;
+  optimizedAssignmentCount: number;
+  legacyFallbackCount: number;
+  portraitMatchedCount: number;
+  landscapeMatchedCount: number;
+  squareMatchedCount: number;
+  cropSafePreferredCount: number;
+  heroPreferredCount: number;
+  fullBleedPreferredCount: number;
+};
+
+export type PhotoFrameMatchingMetrics = PhotoFrameCompatibilityDiagnostics & {
+  spreadEvaluatedCount: number;
+  initialUnsafeBeforeMatching: number;
+  initialUnsafeAfterMatching: number;
+};
+
 export type LayoutMatchResult = {
   layoutId: string;
   layout: AlbumLayoutDefinition;
@@ -166,6 +191,9 @@ export type LayoutMatchResult = {
   heroConfidence: number;
   needsAdjustment: boolean;
   warnings: string[];
+  photoFrameCompatibility?: PhotoFrameCompatibilityDiagnostics;
+  legacyAssignments?: LayoutAssignment[];
+  legacyTier?: LayoutMatchTier;
   /** Explainable, additive v2 signals. The Task050 engine score remains intact. */
   v2?: SmartLayoutV2Debug;
 };

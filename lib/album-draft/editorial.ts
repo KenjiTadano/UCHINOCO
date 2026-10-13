@@ -3,10 +3,10 @@ import { buildSpreadDraft } from "./draft.ts";
 import type { AlbumSpreadDraft } from "./types.ts";
 import type { StorySpread } from "../album-story/types.ts";
 import type { BestShotCandidate } from "../best-shot/types.ts";
-import type { AlbumLayoutDefinition, LayoutPhotoInput } from "../smart-layout/types.ts";
+import type { AlbumLayoutDefinition, LayoutPhotoInput, PhotoFrameMatchingMetrics } from "../smart-layout/types.ts";
 import { EDITORIAL_TEMPLATES, NO_CROP_FINAL_TEMPLATES, editorialTemplate } from "../smart-layout/editorial-library.ts";
 import { rankTemplateCandidates } from "../smart-layout/template-system.ts";
-import type { LayoutEvaluationWork } from "../smart-layout/assign.ts";
+import { emptyPhotoFrameMatchingDiagnostics, type LayoutEvaluationWork } from "../smart-layout/assign.ts";
 import { ALBUM_PAGE_COUNTS, requiredEligiblePhotos } from "../album-capacity.ts";
 import type { AlbumPageCount } from "../album-capacity.ts";
 import { ALBUM_DRAFT_CONFIG } from "./config.ts";
@@ -122,6 +122,7 @@ export type LayoutRecoveryStats = {
   unusedPhotoCount: number;
   unusedReplacementEligibleCount: number;
   unusedReplacementRejectedCount: number;
+  photoFrameMatching: PhotoFrameMatchingMetrics;
   replacementCandidateEvaluatedCount: number;
   replacementAcceptedCount: number;
   replacementCropUnsafeCount: number;
@@ -307,6 +308,7 @@ export type SpreadLayoutAttemptDiagnostics = {
   strictCandidateCount: number;
   fallbackCandidateCount: number;
   safeFallbackCandidateCount: number;
+  legacySafeCandidateCount: number;
   failureReasonCounts: LayoutRecoveryFailureCounts;
   unsafePhotoCounts: Record<string, number>;
   subjectVisibilityViolationCount: number;
@@ -324,6 +326,12 @@ type ReplacementLayoutTrace = {
 
 function emptyFailureCounts(): LayoutRecoveryFailureCounts {
   return Object.fromEntries(LAYOUT_RECOVERY_FAILURE_REASONS.map((reason) => [reason, 0])) as LayoutRecoveryFailureCounts;
+}
+
+function emptyPhotoFrameMatchingStats(): PhotoFrameMatchingMetrics {
+  const { totalScore, ...metrics } = emptyPhotoFrameMatchingDiagnostics();
+  void totalScore;
+  return { ...metrics, spreadEvaluatedCount: 0, initialUnsafeBeforeMatching: 0, initialUnsafeAfterMatching: 0 };
 }
 
 function addFailureCounts(target: LayoutRecoveryFailureCounts, source: LayoutRecoveryFailureCounts) {
@@ -485,6 +493,7 @@ function diagnoseDrafts(story: StorySpread, photos: LayoutPhotoInput[], drafts: 
     strictCandidateCount: drafts.filter((draft) => draft.selectedLayout?.tier === "STRICT").length,
     fallbackCandidateCount: drafts.filter((draft) => draft.selectedLayout?.tier === "FALLBACK").length,
     safeFallbackCandidateCount,
+    legacySafeCandidateCount: drafts.filter((draft) => draft.legacySafetyPassed).length,
     failureReasonCounts,
     unsafePhotoCounts,
     subjectVisibilityViolationCount: drafts.filter((draft) => draft.status === "unusable" && [...draft.warnings, ...draft.assignments.flatMap((assignment) => assignment.warnings)].includes("SUBJECT_INVISIBLE")).length,
@@ -607,7 +616,8 @@ export function buildEditorialDraft(
   availablePhotoCountByPet: Record<string, number> = {},
   evaluateDraft: typeof buildSpreadDraft = buildSpreadDraft,
 ) {
-  const work: LayoutEvaluationWork = { cells: new Map(), cropDurationMs: 0, cropItemCount: 0, cropReusedCount: 0 };
+  const photoFrameMatchingWork = emptyPhotoFrameMatchingDiagnostics();
+  const work: LayoutEvaluationWork = { cells: new Map(), cropDurationMs: 0, cropItemCount: 0, cropReusedCount: 0, photoFrameMatching: photoFrameMatchingWork };
   const cropStartedAt = new Date().toISOString();
   let workingStories = stories.slice();
   const spreadDiagnostics = workingStories.map((story, index) => createSpreadLayoutRecoveryDiagnostic(index, story));
@@ -658,6 +668,7 @@ export function buildEditorialDraft(
     noCropLayoutSuccessCount: 0,
     noCropReplacementAttemptCount: 0,
     noCropReplacementSuccessCount: 0,
+    photoFrameMatching: emptyPhotoFrameMatchingStats(),
     failureReasonCounts: emptyFailureCounts(),
     spreadDiagnostics,
   };
@@ -670,11 +681,15 @@ export function buildEditorialDraft(
     recordSpreadLayoutCandidates(diagnostic, evaluated.diagnostics, "initial");
     addFailureCounts(recoveryStats.failureReasonCounts, evaluated.diagnostics.failureReasonCounts);
     accumulateUnsafePhotos(unsafePhotoCounts[index], evaluated.diagnostics.unsafePhotoCounts);
-    return { stages, drafts: evaluated.drafts };
+    return { stages, drafts: evaluated.drafts, diagnostics: evaluated.diagnostics };
   });
   const candidates = initialEvaluations.map((evaluation) => evaluation.drafts);
   const initiallyUnsafe = new Set(candidates.flatMap((items, index) => (items.length ? [] : [index])));
   recoveryStats.initialUnsafeSpreadCount = initiallyUnsafe.size;
+  const initialUnsafeBeforeMatching = initialEvaluations.filter((evaluation) => evaluation.diagnostics.legacySafeCandidateCount === 0).length;
+  recoveryStats.photoFrameMatching.initialUnsafeBeforeMatching = initialUnsafeBeforeMatching;
+  recoveryStats.photoFrameMatching.initialUnsafeAfterMatching = initiallyUnsafe.size;
+  recoveryStats.photoFrameMatching.spreadEvaluatedCount = stories.length;
   let globalReplacementCandidatesUsed = 0;
 
   const buildFallbackReplacementIds = (diagnostic: SpreadLayoutRecoveryDiagnostic, excludedPhotoIds: Set<string>, limit: number) => {
@@ -1088,6 +1103,14 @@ export function buildEditorialDraft(
   for (const key of replacementAggregateKeys) {
     recoveryStats[key] = spreadDiagnostics.reduce((sum, diagnostic) => sum + diagnostic[key], 0);
   }
+  const { totalScore, ...photoFrameMetrics } = work.photoFrameMatching ?? emptyPhotoFrameMatchingDiagnostics();
+  recoveryStats.photoFrameMatching = {
+    ...photoFrameMetrics,
+    spreadEvaluatedCount: stories.length,
+    initialUnsafeBeforeMatching,
+    initialUnsafeAfterMatching: recoveryStats.initialUnsafeSpreadCount,
+    averageScore: photoFrameMetrics.matchedPairCount ? totalScore / photoFrameMetrics.matchedPairCount : 0,
+  };
   recoveryStats.unrecoveredCount = candidates.filter((items) => items.length === 0).length;
   for (const [index, story] of workingStories.entries()) {
     spreadDiagnostics[index].finalPhotoCount = story.photoIds.length;

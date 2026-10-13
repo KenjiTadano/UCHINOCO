@@ -41,6 +41,28 @@ function mergeRecoveryStats(previous: LayoutRecoveryStats | undefined, current: 
   const merged: LayoutRecoveryStats = {
     ...current,
     initialUnsafeSpreadCount: previous.initialUnsafeSpreadCount,
+    photoFrameMatching: {
+      ...current.photoFrameMatching,
+      spreadEvaluatedCount: previous.photoFrameMatching.spreadEvaluatedCount + current.photoFrameMatching.spreadEvaluatedCount,
+      frameEvaluatedCount: previous.photoFrameMatching.frameEvaluatedCount + current.photoFrameMatching.frameEvaluatedCount,
+      comparedPairCount: previous.photoFrameMatching.comparedPairCount + current.photoFrameMatching.comparedPairCount,
+      matchedPairCount: previous.photoFrameMatching.matchedPairCount + current.photoFrameMatching.matchedPairCount,
+      suitabilityPhotoCount: previous.photoFrameMatching.suitabilityPhotoCount + current.photoFrameMatching.suitabilityPhotoCount,
+      assignmentCandidateCount: previous.photoFrameMatching.assignmentCandidateCount + current.photoFrameMatching.assignmentCandidateCount,
+      optimizedAssignmentCount: previous.photoFrameMatching.optimizedAssignmentCount + current.photoFrameMatching.optimizedAssignmentCount,
+      legacyFallbackCount: previous.photoFrameMatching.legacyFallbackCount + current.photoFrameMatching.legacyFallbackCount,
+      portraitMatchedCount: previous.photoFrameMatching.portraitMatchedCount + current.photoFrameMatching.portraitMatchedCount,
+      landscapeMatchedCount: previous.photoFrameMatching.landscapeMatchedCount + current.photoFrameMatching.landscapeMatchedCount,
+      squareMatchedCount: previous.photoFrameMatching.squareMatchedCount + current.photoFrameMatching.squareMatchedCount,
+      cropSafePreferredCount: previous.photoFrameMatching.cropSafePreferredCount + current.photoFrameMatching.cropSafePreferredCount,
+      heroPreferredCount: previous.photoFrameMatching.heroPreferredCount + current.photoFrameMatching.heroPreferredCount,
+      fullBleedPreferredCount: previous.photoFrameMatching.fullBleedPreferredCount + current.photoFrameMatching.fullBleedPreferredCount,
+      averageScore: previous.photoFrameMatching.matchedPairCount + current.photoFrameMatching.matchedPairCount
+        ? (previous.photoFrameMatching.averageScore * previous.photoFrameMatching.matchedPairCount + current.photoFrameMatching.averageScore * current.photoFrameMatching.matchedPairCount) / (previous.photoFrameMatching.matchedPairCount + current.photoFrameMatching.matchedPairCount)
+        : 0,
+      initialUnsafeBeforeMatching: previous.photoFrameMatching.initialUnsafeBeforeMatching,
+      initialUnsafeAfterMatching: previous.photoFrameMatching.initialUnsafeAfterMatching,
+    },
     usedPhotoCount: current.usedPhotoCount,
     unusedPhotoCount: current.unusedPhotoCount,
     unrecoveredCount: current.unrecoveredCount,

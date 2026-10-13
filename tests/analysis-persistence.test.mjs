@@ -11,8 +11,10 @@ import { buildSceneGroups } from "../lib/photo-grouping/group.ts";
 import { PHOTO_INTELLIGENCE_VERSION } from "../lib/photo-intelligence/config.ts";
 import { analysisReadPlan, decideAnalysisWrite, reusableAnalysis } from "../lib/photo-analysis/policy.ts";
 import { sourceFingerprint } from "../lib/photo-analysis/fingerprint.ts";
-import { SUBJECT_GEOMETRY_VERSION } from "../lib/photo-analysis/constants.ts";
+import { SUBJECT_GEOMETRY, SUBJECT_GEOMETRY_VERSION } from "../lib/photo-analysis/constants.ts";
 import { buildSmartCropFrameResults } from "../lib/smart-crop/compute.ts";
+import { analyzePhotoLayoutSuitability, parsePhotoLayoutSuitability, PHOTO_LAYOUT_SUITABILITY_VERSION } from "../lib/smart-layout/suitability.ts";
+import { saveAnalysis } from "../lib/photo-analysis/repository.ts";
 
 const migration = await readFile("./supabase/migrations/20260928100000_photo_analysis_results.sql", "utf8");
 const draftMigration = await readFile("./supabase/migrations/20260927120000_album_draft_persistence.sql", "utf8");
@@ -305,4 +307,68 @@ test("fallback stays reanalyzable and is not a success cache", () => {
     ),
     null,
   );
+});
+
+test("layout suitability is deterministic, separates source orientation from crop suitability, and rejects malformed results", () => {
+  const analysis = {
+    width: 1600,
+    height: 900,
+    orientation: "landscape",
+    focalPoint: { x: 0.5, y: 0.5 },
+    pets: [{ bbox: { x: 0.32, y: 0.22, width: 0.34, height: 0.58 }, face: { x: 0.39, y: 0.25, width: 0.2, height: 0.2 }, confidence: 0.95 }],
+    analysisConfidence: { petDetection: 0.95 },
+  };
+  const first = analyzePhotoLayoutSuitability(analysis, "2026-10-13T00:00:00.000Z");
+  const second = analyzePhotoLayoutSuitability(analysis, "2026-10-13T00:00:00.000Z");
+  assert.deepEqual(first, second);
+  assert.equal(first.version, PHOTO_LAYOUT_SUITABILITY_VERSION);
+  assert.equal(first.sourceOrientation, "landscape");
+  assert.ok(first.sourceAspectRatio > 1.7 && first.sourceAspectRatio < 1.8);
+  for (const score of [first.portraitScore, first.landscapeScore, first.squareScore, first.heroScore, first.fullBleedScore]) assert.ok(score >= 0 && score <= 100);
+  assert.equal(first.sourceSubjectClipped, false);
+  assert.equal(first.subjectAnchor, "center");
+  assert.ok(first.subjectSafeArea);
+  assert.ok(first.subjectSafeArea.x >= 0 && first.subjectSafeArea.x + first.subjectSafeArea.width <= 1);
+  assert.deepEqual(parsePhotoLayoutSuitability(first), first);
+  assert.equal(parsePhotoLayoutSuitability({ ...first, version: 0 }), null);
+  assert.equal(parsePhotoLayoutSuitability({ ...first, portraitScore: Infinity }), null);
+  const clipped = analyzePhotoLayoutSuitability({ ...analysis, pets: [{ bbox: { x: 0, y: 0.2, width: 0.4, height: 0.4 }, confidence: 0.95 }] });
+  assert.equal(clipped.sourceSubjectClipped, true);
+  assert.equal(clipped.portraitCropSafe, false);
+  assert.equal(clipped.landscapeCropSafe, false);
+  assert.equal(clipped.squareCropSafe, false);
+  assert.ok(clipped.subjectSafeArea);
+  assert.equal(clipped.subjectAnchor, "left");
+});
+
+test("layout suitability is safely embedded on subject-geometry writes without another analysis row", async () => {
+  let savedArgs;
+  const client = {
+    rpc(name, args) {
+      assert.equal(name, "save_photo_analysis_result");
+      savedArgs = args;
+      return Promise.resolve({ data: { stored: true, reason: "inserted" }, error: null });
+    },
+  };
+  const analysis = {
+    width: 1200,
+    height: 1600,
+    orientation: "portrait",
+    focalPoint: { x: 0.5, y: 0.4 },
+    pets: [{ bbox: { x: 0.35, y: 0.28, width: 0.3, height: 0.36 }, face: { x: 0.42, y: 0.3, width: 0.16, height: 0.14 }, confidence: 0.95 }],
+    analysisConfidence: { petDetection: 0.95 },
+  };
+  const result = await saveAnalysis(client, {
+    photoId: "photo-layout-suitability",
+    analysisType: SUBJECT_GEOMETRY,
+    analysisVersion: SUBJECT_GEOMETRY_VERSION,
+    sourceFingerprint: sourceFingerprint(photo),
+    resultStatus: "success",
+    result: analysis,
+    existingStatus: null,
+  });
+  assert.equal(result.stored, true);
+  assert.equal(savedArgs.p_analysis_type, SUBJECT_GEOMETRY);
+  assert.equal(savedArgs.p_result.layoutSuitability.version, PHOTO_LAYOUT_SUITABILITY_VERSION);
+  assert.equal(savedArgs.p_result.layoutSuitability.sourceOrientation, "portrait");
 });

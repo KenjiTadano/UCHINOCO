@@ -1,7 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "../supabase/database.types.ts";
-import type { AnalysisType, ResultStatus } from "./constants.ts";
+import { SUBJECT_GEOMETRY, type AnalysisType, type ResultStatus } from "./constants.ts";
 import { decideAnalysisWrite } from "./policy.ts";
+import { parseStoredGeometry } from "./stored.ts";
+import { analyzePhotoLayoutSuitability } from "../smart-layout/suitability.ts";
 
 type Client = SupabaseClient<Database>;
 
@@ -58,13 +60,18 @@ export async function saveAnalysis(
   );
   if (decision.action === "keep") return { stored: false, reason: decision.reason };
 
+  let result = input.result;
+  if (input.analysisType === SUBJECT_GEOMETRY && (input.resultStatus === "success" || input.resultStatus === "fallback")) {
+    const geometry = parseStoredGeometry(input.result);
+    if (geometry) result = { ...geometry, layoutSuitability: analyzePhotoLayoutSuitability(geometry, new Date().toISOString()) } as unknown as Json;
+  }
   const { data, error } = await supabase.rpc("save_photo_analysis_result", {
     p_photo_id: input.photoId,
     p_analysis_type: input.analysisType,
     p_analysis_version: input.analysisVersion,
     p_source_fingerprint: input.sourceFingerprint,
     p_result_status: input.resultStatus,
-    p_result: input.result,
+    p_result: result,
   });
   if (error || !data || typeof data !== "object" || Array.isArray(data)) {
     console.error("Photo analysis save failed", { message: error?.message ?? "empty" });

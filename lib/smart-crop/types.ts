@@ -1,5 +1,7 @@
 /** Task048 / 048.1 / 049 — Smart Crop + Frame Matching types. */
 
+import type { PhotoLayoutSuitability } from "../smart-layout/suitability.ts";
+
 export type NormalizedRect = {
   x: number;
   y: number;
@@ -24,6 +26,7 @@ export type SmartCropPhotoAnalysis = {
   analysisConfidence?: {
     petDetection: number;
   };
+  layoutSuitability?: PhotoLayoutSuitability;
 };
 
 export type IdealOccupancyRange = {

@@ -11,6 +11,7 @@ import { descriptorCacheKey, getDescriptorCache } from "../photo-grouping/descri
 import { PHOTO_GROUPING_VERSION } from "../photo-grouping/config.ts";
 import { getPhotoIntelligenceCache } from "../photo-intelligence/cache.ts";
 import { intelligenceMemoryKey } from "../photo-analysis/keys.ts";
+import { analyzePhotoLayoutSuitability, parsePhotoLayoutSuitability } from "../smart-layout/suitability.ts";
 
 export type GenerationSourcePhoto = {
   id: string;
@@ -62,7 +63,12 @@ export function storedGenerationInputs(photos: GenerationSourcePhoto[], rows: An
     const vision = parseStoredSemantic(semanticRow?.result);
     const saved = semanticRow?.result as { technical?: unknown; reason?: string } | undefined;
     const fallbackReady = semanticRow?.result_status === "fallback" && ["vision_failed", "vision_skipped"].includes(saved?.reason ?? "");
-    const analysis = parseStoredGeometry(geometryRow?.result);
+    const parsedAnalysis = parseStoredGeometry(geometryRow?.result);
+    const storedSuitability = parsedAnalysis ? parsePhotoLayoutSuitability((geometryRow?.result as { layoutSuitability?: unknown } | undefined)?.layoutSuitability) : null;
+    const analysis = parsedAnalysis ? {
+      ...parsedAnalysis,
+      layoutSuitability: storedSuitability ?? analyzePhotoLayoutSuitability(parsedAnalysis, geometryRow?.created_at ?? null),
+    } : null;
     if (vision || fallbackReady) existingIntelligenceCount++;
     if (!vision && !fallbackReady) missingSemanticCount++;
     if (analysis) geometry.set(photo.id, analysis);

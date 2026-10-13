@@ -14,12 +14,19 @@ import type { HeroSelectionProfile } from "./hierarchy.ts";
 import { computeHeroConfidence, computeHeroSuitability } from "./hero.ts";
 import { scoreOrientationAffinity } from "./orientation.ts";
 import { buildOrientationProfile, buildPhotoSetQualityProfile, type QualityProfile } from "./photo-set.ts";
+import { scorePhotoFrameCompatibility } from "./compatibility.ts";
+import { getTemplateFrameMetadata } from "./frame-metadata.ts";
 import { scoreRoleFit } from "./role-fit.ts";
 import { scoreVisualVariety } from "./variety.ts";
-import type { AlbumFrameDefinition, AlbumLayoutDefinition, LayoutAssignment, LayoutMatchResult, LayoutMatchTier, LayoutPhotoInput, LayoutScores } from "./types.ts";
+import type { AlbumFrameDefinition, AlbumLayoutDefinition, LayoutAssignment, LayoutMatchResult, LayoutMatchTier, LayoutPhotoInput, LayoutScores, PhotoFrameCompatibilityDiagnostics } from "./types.ts";
+import type { PhotoFrameCompatibility } from "./compatibility.ts";
 
 function clampScore(n: number): number {
   return Math.round(Math.max(0, Math.min(100, n)));
+}
+
+function tierRank(tier: LayoutMatchTier): number {
+  return tier === "strict" ? 0 : tier === "fallback" ? 1 : 2;
 }
 
 function permutations<T>(items: T[]): T[][] {
@@ -46,7 +53,28 @@ export type LayoutEvaluationWork = {
   cropItemCount: number;
   cropReusedCount: number;
   layoutCandidateCount?: number;
+  photoFrameMatching?: PhotoFrameCompatibilityDiagnostics & { totalScore: number };
 };
+
+export function emptyPhotoFrameMatchingDiagnostics(): PhotoFrameCompatibilityDiagnostics & { totalScore: number } {
+  return {
+    frameEvaluatedCount: 0,
+    comparedPairCount: 0,
+    matchedPairCount: 0,
+    suitabilityPhotoCount: 0,
+    averageScore: 0,
+    assignmentCandidateCount: 0,
+    optimizedAssignmentCount: 0,
+    legacyFallbackCount: 0,
+    portraitMatchedCount: 0,
+    landscapeMatchedCount: 0,
+    squareMatchedCount: 0,
+    cropSafePreferredCount: 0,
+    heroPreferredCount: 0,
+    fullBleedPreferredCount: 0,
+    totalScore: 0,
+  };
+}
 
 function noCropCell(photo: LayoutPhotoInput, cropFrame: ReturnType<typeof resolveLayoutCropFrame>, work?: LayoutEvaluationWork): Cell {
   const key = `${photo.photoId}|contain|${JSON.stringify(cropFrame)}`;
@@ -146,11 +174,13 @@ function emptyScores(): LayoutScores {
     orientationAffinity: 0,
     hierarchyFit: 0,
     hierarchyNeed: 0,
+    suitabilityFit: 0,
+    legacyOverall: 0,
     overall: 0,
   };
 }
 
-function scoreAssignment(layout: AlbumLayoutDefinition, photos: LayoutPhotoInput[], assignments: LayoutAssignment[], qualityProfile: QualityProfile, heroProfile: HeroSelectionProfile): LayoutScores {
+function scoreAssignment(layout: AlbumLayoutDefinition, photos: LayoutPhotoInput[], assignments: LayoutAssignment[], qualityProfile: QualityProfile, heroProfile: HeroSelectionProfile, compatibilityByPhotoFrame: ReadonlyMap<string, PhotoFrameCompatibility>): LayoutScores {
   const frameMatching = clampScore(
     assignments.reduce((s, a) => {
       const base = a.frameMatch.matchTier === "strict" ? a.frameMatch.matchScore : a.frameMatch.matchTier === "fallback" ? a.frameMatch.fallbackScore * 0.85 : 20;
@@ -175,19 +205,28 @@ function scoreAssignment(layout: AlbumLayoutDefinition, photos: LayoutPhotoInput
 
   const orientProfile = buildOrientationProfile(photos);
   const orientationAffinity = scoreOrientationAffinity(photos, layout, orientProfile);
+  const compatibilityPairs = assignments.flatMap((assignment) => {
+    const compatibility = compatibilityByPhotoFrame.get(`${assignment.photoId}|${assignment.frameId}`);
+    return compatibility === undefined ? [] : [{ score: compatibility.score, weight: Math.max(assignment.importance, 0.4) }];
+  });
+  const suitabilityFit = compatibilityPairs.length
+    ? Math.round(compatibilityPairs.reduce((sum, pair) => sum + pair.score * pair.weight, 0) / compatibilityPairs.reduce((sum, pair) => sum + pair.weight, 0) * 100)
+    : 0;
   let hierarchyFit = scoreHierarchyFit(photos, layout, assignments, qualityProfile, heroProfile);
   hierarchyFit = clampScore(hierarchyFit + weakPhotoHeroPenalty(photos, assignments, qualityProfile));
 
   const w = SMART_LAYOUT_CONFIG.assignmentWeights;
-  let overall = clampScore(frameMatching * w.frameMatch + roleFit * w.roleFit + balance * w.layoutBalance + variety * w.visualVariety + cropQuality * w.cropQuality + orientationAffinity * w.orientationAffinity + hierarchyFit * w.hierarchyFit);
-
+  const legacyBase = frameMatching * w.frameMatch + roleFit * w.roleFit + balance * w.layoutBalance + variety * w.visualVariety + cropQuality * w.cropQuality + orientationAffinity * w.orientationAffinity + hierarchyFit * w.hierarchyFit;
   const tier = assignmentTier(assignments);
-  if (tier === "strict") overall = clampScore(overall + SMART_LAYOUT_CONFIG.tier.allStrictBonus);
-  if (tier === "fallback") overall = clampScore(overall - SMART_LAYOUT_CONFIG.tier.anyFallbackPenalty);
-  if (tier === "unusable") overall = Math.min(overall, 35);
-
-  // Soft story-role nudge (optional; no-op without storyRole)
-  overall = clampScore(overall + storyHierarchyDelta(photos, assignments));
+  const finalizeScore = (base: number) => {
+    let score = clampScore(base);
+    if (tier === "strict") score = clampScore(score + SMART_LAYOUT_CONFIG.tier.allStrictBonus);
+    if (tier === "fallback") score = clampScore(score - SMART_LAYOUT_CONFIG.tier.anyFallbackPenalty);
+    if (tier === "unusable") score = Math.min(score, 35);
+    return clampScore(score + storyHierarchyDelta(photos, assignments));
+  };
+  const legacyOverall = finalizeScore(legacyBase);
+  const overall = finalizeScore(legacyBase + suitabilityFit * 0.04);
 
   return {
     frameMatching,
@@ -198,6 +237,8 @@ function scoreAssignment(layout: AlbumLayoutDefinition, photos: LayoutPhotoInput
     orientationAffinity,
     hierarchyFit,
     hierarchyNeed: qualityProfile.hierarchyNeed,
+    suitabilityFit,
+    legacyOverall,
     overall,
   };
 }
@@ -292,6 +333,35 @@ export function evaluateLayout(layout: AlbumLayoutDefinition, photos: LayoutPhot
   }
 
   const matrix = buildMatchMatrix(photos, layout.frames, work, layout.imageFit);
+  const frameMetadataById = new Map((getTemplateFrameMetadata(layout.id) ?? []).map((metadata) => [metadata.frameId, metadata]));
+  const compatibilityByPhotoFrame = new Map<string, PhotoFrameCompatibility>();
+  let suitabilityPhotoCount = 0;
+  for (const photo of photos) {
+    if (photo.analysis.layoutSuitability) suitabilityPhotoCount++;
+    for (const frame of layout.frames) {
+      const metadata = frameMetadataById.get(frame.id);
+      const compatibility = metadata ? scorePhotoFrameCompatibility(photo.analysis.layoutSuitability, metadata) : null;
+      if (compatibility) compatibilityByPhotoFrame.set(`${photo.photoId}|${frame.id}`, compatibility);
+    }
+  }
+  const compatibilityDiagnostics: PhotoFrameCompatibilityDiagnostics = {
+    frameEvaluatedCount: layout.frames.length,
+    comparedPairCount: photos.length * layout.frames.length,
+    matchedPairCount: compatibilityByPhotoFrame.size,
+    suitabilityPhotoCount,
+    averageScore: compatibilityByPhotoFrame.size
+      ? [...compatibilityByPhotoFrame.values()].reduce((sum, compatibility) => sum + compatibility.score, 0) / compatibilityByPhotoFrame.size
+      : 0,
+    assignmentCandidateCount: 0,
+    optimizedAssignmentCount: 0,
+    legacyFallbackCount: 0,
+    portraitMatchedCount: 0,
+    landscapeMatchedCount: 0,
+    squareMatchedCount: 0,
+    cropSafePreferredCount: 0,
+    heroPreferredCount: 0,
+    fullBleedPreferredCount: 0,
+  };
   // Hierarchy need is photo-set level (not layout-dependent crop max).
   const qualityProfile = buildPhotoSetQualityProfile(photos);
   const heroSuitabilityByPhotoId = new Map(photos.map((photo) => [photo.photoId, computeHeroSuitability(photo)]));
@@ -302,10 +372,17 @@ export function evaluateLayout(layout: AlbumLayoutDefinition, photos: LayoutPhot
     hasSignals: photos.some((photo) => photo.photoIntelligence != null || photo.bestShot != null),
   };
   const perms = permutations(photos);
+  compatibilityDiagnostics.assignmentCandidateCount = perms.length;
+  compatibilityDiagnostics.optimizedAssignmentCount = compatibilityByPhotoFrame.size > 0 ? 1 : 0;
+  compatibilityDiagnostics.legacyFallbackCount = suitabilityPhotoCount === 0 ? 1 : 0;
 
   let bestAssign: LayoutAssignment[] | null = null;
   let bestScores: LayoutScores | null = null;
   let bestTier: LayoutMatchTier = "unusable";
+  let legacyBestAssign: LayoutAssignment[] | null = null;
+  let legacyBestScores: LayoutScores | null = null;
+  let legacyBestTier: LayoutMatchTier = "unusable";
+  const better = (tier: LayoutMatchTier, score: number, currentTier: LayoutMatchTier, currentScore: number) => tierRank(tier) < tierRank(currentTier) || (tierRank(tier) === tierRank(currentTier) && score > currentScore);
 
   for (const order of perms) {
     const assignments = buildAssignment(photos, layout.frames, order, matrix, heroSuitabilityByPhotoId);
@@ -314,44 +391,67 @@ export function evaluateLayout(layout: AlbumLayoutDefinition, photos: LayoutPhot
     const tier = assignmentTier(assignments);
     if (tier === "unusable") continue;
 
-    const scores = scoreAssignment(layout, photos, assignments, qualityProfile, heroProfile);
+    const scores = scoreAssignment(layout, photos, assignments, qualityProfile, heroProfile, compatibilityByPhotoFrame);
 
-    if (!bestAssign) {
+    if (!bestAssign || better(tier, scores.overall, bestTier, bestScores?.overall ?? -1)) {
       bestAssign = assignments;
       bestScores = scores;
       bestTier = tier;
-      continue;
     }
-
-    if (bestTier === "strict" && tier === "fallback") continue;
-    if (tier === "strict" && bestTier === "fallback") {
-      bestAssign = assignments;
-      bestScores = scores;
-      bestTier = tier;
-      continue;
-    }
-    if (scores.overall > (bestScores?.overall ?? -1)) {
-      bestAssign = assignments;
-      bestScores = scores;
-      bestTier = tier;
+    if (!legacyBestAssign || better(tier, scores.legacyOverall, legacyBestTier, legacyBestScores?.legacyOverall ?? -1)) {
+      legacyBestAssign = assignments;
+      legacyBestScores = scores;
+      legacyBestTier = tier;
     }
   }
 
   if (!bestAssign) {
     let worstBest: LayoutAssignment[] | null = null;
     let worstScores: LayoutScores | null = null;
+    let legacyWorstBest: LayoutAssignment[] | null = null;
+    let legacyWorstScores: LayoutScores | null = null;
     for (const order of perms) {
       const assignments = buildAssignment(photos, layout.frames, order, matrix, heroSuitabilityByPhotoId);
       if (!assignmentIntegrityOk(layout, photos, assignments)) continue;
-      const scores = scoreAssignment(layout, photos, assignments, qualityProfile, heroProfile);
+      const scores = scoreAssignment(layout, photos, assignments, qualityProfile, heroProfile, compatibilityByPhotoFrame);
       if (!worstBest || scores.overall > (worstScores?.overall ?? -1)) {
         worstBest = assignments;
         worstScores = scores;
+      }
+      if (!legacyWorstBest || scores.legacyOverall > (legacyWorstScores?.legacyOverall ?? -1)) {
+        legacyWorstBest = assignments;
+        legacyWorstScores = scores;
       }
     }
     bestAssign = worstBest ?? [];
     bestScores = worstScores ?? emptyScores();
     bestTier = "unusable";
+    legacyBestAssign = legacyWorstBest ?? bestAssign;
+    legacyBestScores = legacyWorstScores ?? bestScores;
+    legacyBestTier = "unusable";
+  }
+
+  legacyBestAssign ??= bestAssign;
+  legacyBestScores ??= bestScores;
+  legacyBestTier ??= bestTier;
+  for (const assignment of bestAssign) {
+    const compatibility = compatibilityByPhotoFrame.get(`${assignment.photoId}|${assignment.frameId}`);
+    const metadata = frameMetadataById.get(assignment.frameId);
+    if (!compatibility || !metadata) continue;
+    if (compatibility.orientationScore >= 0.7) {
+      if (metadata.orientation === "portrait") compatibilityDiagnostics.portraitMatchedCount++;
+      else if (metadata.orientation === "landscape") compatibilityDiagnostics.landscapeMatchedCount++;
+      else compatibilityDiagnostics.squareMatchedCount++;
+    }
+    if (compatibility.cropSafetyPreference >= 0.9) compatibilityDiagnostics.cropSafePreferredCount++;
+    if (metadata.role === "hero" && compatibility.roleScore >= 0.7) compatibilityDiagnostics.heroPreferredCount++;
+    if (metadata.fullBleed && compatibility.fullBleedScore >= 0.7) compatibilityDiagnostics.fullBleedPreferredCount++;
+  }
+  if (work?.photoFrameMatching) {
+    const aggregate = work.photoFrameMatching;
+    for (const key of ["frameEvaluatedCount", "comparedPairCount", "matchedPairCount", "suitabilityPhotoCount", "assignmentCandidateCount", "optimizedAssignmentCount", "legacyFallbackCount", "portraitMatchedCount", "landscapeMatchedCount", "squareMatchedCount", "cropSafePreferredCount", "heroPreferredCount", "fullBleedPreferredCount"] as const) aggregate[key] += compatibilityDiagnostics[key];
+    aggregate.totalScore += compatibilityDiagnostics.averageScore * compatibilityDiagnostics.matchedPairCount;
+    aggregate.averageScore = aggregate.matchedPairCount ? aggregate.totalScore / aggregate.matchedPairCount : 0;
   }
 
   const integrity = assignmentIntegrityOk(layout, photos, bestAssign);
@@ -366,6 +466,9 @@ export function evaluateLayout(layout: AlbumLayoutDefinition, photos: LayoutPhot
       heroConfidence,
       needsAdjustment: false,
       warnings: collectWarnings(bestAssign, "unusable", false),
+      photoFrameCompatibility: compatibilityDiagnostics,
+      legacyAssignments: legacyBestAssign,
+      legacyTier: legacyBestTier,
     };
   }
 
@@ -379,5 +482,8 @@ export function evaluateLayout(layout: AlbumLayoutDefinition, photos: LayoutPhot
     needsAdjustment: bestTier === "fallback",
     warnings: collectWarnings(bestAssign, bestTier, true),
     invalid: false,
+    photoFrameCompatibility: compatibilityDiagnostics,
+    legacyAssignments: legacyBestAssign,
+    legacyTier: legacyBestTier,
   };
 }

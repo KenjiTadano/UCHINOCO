@@ -96,6 +96,7 @@ export type AlbumSpreadDraft = {
   story: Pick<StorySpread, "storyType" | "recommendedDensity" | "importance" | "coherenceScore" | "primaryPhotoIds" | "secondaryPhotoIds" | "startedAt">;
   rhythm?: LayoutRhythmDebug;
   heroConfidence?: number;
+  legacySafetyPassed?: boolean;
 };
 
 export type AlbumDraftResult = {
