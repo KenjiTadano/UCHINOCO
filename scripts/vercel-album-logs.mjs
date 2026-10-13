@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 
 const PROJECT = "uchinoco";
 const ENVIRONMENT = "production";
-const EVENT_NAMES = ["albumLayoutRecovery", "photoFrameMatching"];
+const EVENT_NAMES = ["albumLayoutRecovery", "photoFrameMatching", "photoSubsetSelection"];
 const SENSITIVE_KEY = /(?:photo|pet|album|user|request|deployment|project).*id|email|caption|storage.?path|signed.?url|token|cookie/i;
 
 export function parseOptions(args) {

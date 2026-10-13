@@ -23,6 +23,12 @@ import { formatAlbumPeriodLabels } from "@/lib/album-cover-title";
 import { recordAlbumAnalyticsEvent } from "@/lib/album-analytics-server";
 import { albumCapacityState, requiredEligiblePhotos } from "@/lib/album-capacity";
 import { isTerminalAnalysisFailure } from "@/lib/photo-analysis-policy";
+import {
+  MAX_SUBSET_SEARCH_ATTEMPTS,
+  planEditorialAlbumWithSubset,
+  identifyUnsafeSpreadRemovals,
+  type PhotoSubsetSelectionDiagnostics,
+} from "@/lib/album-draft/selection";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -34,6 +40,11 @@ function logAlbumLayoutRecovery(timing: ReturnType<typeof generationPerformance>
   const record = { spreadCount, ...recovery };
   console.info("albumLayoutRecovery", record);
   timing.layoutRecovery(record);
+}
+
+function logPhotoSubsetSelection(timing: ReturnType<typeof generationPerformance>, diagnostics: PhotoSubsetSelectionDiagnostics) {
+  console.info("photoSubsetSelection", diagnostics);
+  timing.layoutRecovery({ photoSubsetSelection: diagnostics });
 }
 
 function mergeRecoveryStats(previous: LayoutRecoveryStats | undefined, current: LayoutRecoveryStats): LayoutRecoveryStats {
@@ -369,7 +380,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     return { error: `${setup.pageCount}ページには、あと${requiredEligible - eligibleReady}枚の写真が必要です。写真を追加するか、ページ数を変更できます。`, status: "action_required" };
   }
   timing.start("08_photo_ranking_selection", rankedPhotos.length);
-  let plan;
+  let plan: ReturnType<typeof planEditorialAlbum>;
   try {
     plan = planEditorialAlbum(rankedPhotos, setup.pageCount);
   } catch {
@@ -591,9 +602,125 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       const currentStats = recoveryError instanceof EditorialGenerationError ? recoveryError.recoveryStats : undefined;
       const stats = currentStats ? mergeRecoveryStats(error.recoveryStats, currentStats) : error.recoveryStats;
       applyReplacementFunnel(stats);
-      if (stats) logAlbumLayoutRecovery(timing, plan.spreads.length, stats);
-      return { error: "この条件ではアルバムを完成できませんでした。別の写真で組み直すか、写真を追加できます。", status: "action_required" };
+
+      // Task081: Safe Photo Subset Selection & Monotonic Completion
+      // If full-set recovery was unable to resolve all spreads, search a bounded alternative photo subset.
+      const eligiblePhotosCount = rankedPhotos.filter((p) => p.candidate.role !== "alternate" && p.candidate.scores.technical >= 25).length;
+      let subsetResolved = false;
+
+      if (eligiblePhotosCount > requiredEligible) {
+        const subsetDiagnostics: PhotoSubsetSelectionDiagnostics = {
+          eligiblePhotoCount: eligiblePhotosCount,
+          selectedPhotoCount: plan.selected.length,
+          unusedPhotoCount: Math.max(0, eligiblePhotosCount - plan.selected.length),
+          subsetAttemptCount: 0,
+          subsetSuccessCount: 0,
+          fallbackToPreviousSafeSubsetCount: 0,
+          droppedForLayoutSafetyCount: 0,
+          droppedForCropRiskCount: 0,
+          droppedForSourceClippingCount: 0,
+          droppedForRedundancyCount: 0,
+          initialUnrecoveredCount: stats?.unrecoveredCount ?? error.unrecoveredSpreadIndices.length,
+          finalUnrecoveredCount: stats?.unrecoveredCount ?? error.unrecoveredSpreadIndices.length,
+          spreadSubsetAdjustments: [],
+        };
+
+        const excluded = new Set<string>();
+        const candidatePhotoMap = new Map(rankedPhotos.map((p) => [p.photoId, p]));
+
+        // Gather photos from currently unrecovered stories for potential exclusion
+        const unrecoveredStories = recoveryError instanceof EditorialGenerationError
+          ? recoveryError.currentStories.filter((_, idx) => recoveryError.unrecoveredSpreadIndices.includes(idx))
+          : error.currentStories.filter((_, idx) => error.unrecoveredSpreadIndices.includes(idx));
+
+        for (const story of unrecoveredStories) {
+          const removable = identifyUnsafeSpreadRemovals(story, candidatePhotoMap, inputs.geometry);
+          for (const rem of removable) {
+            excluded.add(rem.photoId);
+            if (excluded.size >= MAX_SUBSET_SEARCH_ATTEMPTS) break;
+          }
+          if (excluded.size >= MAX_SUBSET_SEARCH_ATTEMPTS) break;
+        }
+
+        const excludedList = [...excluded];
+        for (let attempt = 0; attempt < Math.min(excludedList.length, MAX_SUBSET_SEARCH_ATTEMPTS); attempt++) {
+          if (timing.budgetExceeded()) break;
+          subsetDiagnostics.subsetAttemptCount++;
+          const currentExcluded = new Set([excludedList[attempt]]);
+          try {
+            const altPlan = planEditorialAlbumWithSubset(rankedPhotos, setup.pageCount, currentExcluded);
+            const altPreviews = await createPhotoPreviewUrls(
+              supabase,
+              altPlan.selected.map((photo) => candidateById.get(photo.photoId)!),
+              true,
+              false,
+              user.id,
+            );
+            const altLayoutPhotos: LayoutPhotoInput[] = [];
+            for (const photo of altPlan.selected) {
+              const analysis = inputs.geometry.get(photo.photoId);
+              const preview = altPreviews.get(photo.photoId);
+              if (!analysis || !preview) continue;
+              altLayoutPhotos.push({
+                photoId: photo.photoId,
+                petId: photo.petId,
+                timeline: photo.timeline,
+                groupId: photo.groupId,
+                scene: photo.scene,
+                activity: photo.activity,
+                analysis,
+                imageUrl: preview,
+                previewUrl: preview,
+                bestShot: { candidate: photo.candidate, confidence: photo.confidence },
+                captionAvailable: true,
+              });
+            }
+            if (altLayoutPhotos.length < altPlan.selected.length) continue;
+            const altTextByStory = textForStories(altPlan.spreads);
+            const altEditorial = buildEditorialDraft(
+              altPlan.spreads,
+              altLayoutPhotos,
+              altTextByStory,
+              undefined,
+              {},
+              {},
+              minimumUniquePhotoCount,
+              eligibleReady,
+              availablePhotoCountByPet,
+            );
+            if (altEditorial.recovery.unrecoveredCount === 0) {
+              editorial = altEditorial;
+              plan = altPlan;
+              layoutPhotos.length = 0;
+              layoutPhotos.push(...altLayoutPhotos);
+              textByStory = altTextByStory;
+              subsetDiagnostics.subsetSuccessCount++;
+              subsetDiagnostics.droppedForLayoutSafetyCount++;
+              subsetDiagnostics.finalUnrecoveredCount = 0;
+              subsetDiagnostics.selectedPhotoCount = plan.selected.length;
+              subsetDiagnostics.unusedPhotoCount = Math.max(0, eligiblePhotosCount - plan.selected.length);
+              logPhotoSubsetSelection(timing, subsetDiagnostics);
+              subsetResolved = true;
+              break;
+            }
+          } catch {
+            // continue next candidate subset
+          }
+        }
+
+        if (!subsetResolved) {
+          logPhotoSubsetSelection(timing, subsetDiagnostics);
+        }
+      }
+
+      if (!subsetResolved) {
+        if (stats) logAlbumLayoutRecovery(timing, plan.spreads.length, stats);
+        return { error: "この条件ではアルバムを完成できませんでした。別の写真で組み直すか、写真を追加できます。", status: "action_required" };
+      }
     }
+  }
+  if (!editorial) {
+    return { error: "この条件ではアルバムを完成できませんでした。別の写真で組み直すか、写真を追加できます。", status: "action_required" };
   }
   logAlbumLayoutRecovery(timing, plan.spreads.length, editorial.recovery);
   plan.spreads = editorial.stories;
