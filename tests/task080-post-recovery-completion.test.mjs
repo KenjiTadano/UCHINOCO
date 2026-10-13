@@ -109,5 +109,8 @@ test("auditAlbumRhythm treats safe repaired spreads as non-blocking when unrecov
   const audit = auditAlbumRhythm(spreads, texts);
   const blockingIssues = audit.issues.filter((issue) => issue.blocking);
   assert.equal(blockingIssues.length, 0, "Healthy audit must have 0 blocking issues");
-  assert.ok(audit.issues.every((issue) => !issue.blocking), "All rhythm streak issues must be non-blocking advisory issues");
+  assert.ok(
+    audit.issues.every((issue) => !issue.blocking),
+    "All rhythm streak issues must be non-blocking advisory issues",
+  );
 });

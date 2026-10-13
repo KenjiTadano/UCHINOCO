@@ -3,13 +3,18 @@ import { test } from "node:test";
 import { matchingEvents, parseJsonLines, parseMessagePayload, parseOptions } from "../scripts/vercel-album-logs.mjs";
 
 test("log parser selects only target album recovery events from JSONL records", () => {
-  const records = parseJsonLines([
-    JSON.stringify({ timestamp: 1000, level: "info", requestPath: "/", logs: [] }),
-    JSON.stringify({ timestamp: 2000, level: "info", logs: [{ event: "albumLayoutRecovery", spreadCount: 12, unrecoveredCount: 1 }] }),
-    JSON.stringify({ timestamp: 3000, level: "info", logs: [{ message: "photoFrameMatching", data: { comparedPairCount: 24, initialUnsafeAfterMatching: 1 } }] }),
-  ].join("\n"));
+  const records = parseJsonLines(
+    [
+      JSON.stringify({ timestamp: 1000, level: "info", requestPath: "/", logs: [] }),
+      JSON.stringify({ timestamp: 2000, level: "info", logs: [{ event: "albumLayoutRecovery", spreadCount: 12, unrecoveredCount: 1 }] }),
+      JSON.stringify({ timestamp: 3000, level: "info", logs: [{ message: "photoFrameMatching", data: { comparedPairCount: 24, initialUnsafeAfterMatching: 1 } }] }),
+    ].join("\n"),
+  );
   const events = records.flatMap(matchingEvents);
-  assert.deepEqual(events.map((event) => event.event), ["albumLayoutRecovery", "photoFrameMatching"]);
+  assert.deepEqual(
+    events.map((event) => event.event),
+    ["albumLayoutRecovery", "photoFrameMatching"],
+  );
   assert.equal(events[0].timestamp, 2000);
   assert.equal(events[0].data.spreadCount, 12);
   assert.equal(events[1].data.data.initialUnsafeAfterMatching, 1);
@@ -60,10 +65,7 @@ test("matching log output redacts photo/pet/user identifiers and private image d
 test("matchingEvents parses structured string logs without echoing unstructured text", () => {
   const events = matchingEvents({
     timestamp: 4000,
-    logs: [
-      'albumLayoutRecovery {"photoId":"photo-secret","recoveredCount":3}',
-      "photoFrameMatching failed for private photo data",
-    ],
+    logs: ['albumLayoutRecovery {"photoId":"photo-secret","recoveredCount":3}', "photoFrameMatching failed for private photo data"],
   });
   assert.deepEqual(events, [
     {

@@ -3,13 +3,17 @@
 ## 1. 現象と根本原因の分析
 
 ### 現象
+
 `npm run vercel:album-logs` で対象イベントが抽出された際、`data` フィールドの内容が
+
 ```json
-{"event":"albumLayoutRecovery","timestamp":1791857659710,"level":"info","data":{"level":"info"}}
+{ "event": "albumLayoutRecovery", "timestamp": 1791857659710, "level": "info", "data": { "level": "info" } }
 ```
+
 となり、`spreadCount` や `photoFrameMatching` などの構造化ペイロードが欠落して `{"level":"info"}` のみが出力されていた。
 
 ### 根本原因
+
 1. **オブジェクトメタデータキーの残留と三項演算子の優先順位**:
    Vercel CLI から返される JSON レコードの `logs` 配列内の要素は `{ level: "info", message: "albumLayoutRecovery {\n spreadCount: 12, ...\n}" }` の形式をとる。
    旧コードでは `delete payload.message; delete payload.msg; delete payload.event; delete payload.name;` のみを行い、`level`（および `timestamp`）を削除していなかった。
@@ -21,6 +25,7 @@
 ## 2. 対策と実装内容
 
 ### [scripts/vercel-album-logs.mjs](scripts/vercel-album-logs.mjs) の修正
+
 1. **Node.js オブジェクトリテラルの安全なパース**:
    - `parseMessagePayload` において、`JSON.parse` の試行に加えて、Node.js 組み込みの `runInNewContext`（セキュアな隔離サンドボックス + タイムアウト 200ms）による JavaScript オブジェクト表現の評価をフォールバックとして導入。
    - `[Object]` などのプレースホルダー表記に対しても参照エラーを起こさないサンドボックス環境を提供。
@@ -31,6 +36,7 @@
    - 既存の機密情報マスク（`redact`）により、`spreadDiagnostics` 等に含まれうる photoId/petId などの機密値は確実に `[redacted]` にマスキングされる安全性を維持。
 
 ### [tests/vercel-album-logs.test.mjs](tests/vercel-album-logs.test.mjs) の拡充
+
 - 実機ログと同じ Node.js console 出力（`albumLayoutRecovery {\n spreadCount: 12,\n ... \n}`）から、`data` が `{ level: "info" }` に潰されずに `spreadCount`, `initialUnsafeSpreadCount`, `photoFrameMatching` を含む完全な構造化オブジェクトとして復元されることを検証するテストケースを追加。
 - `parseMessagePayload` の JSON / Node オブジェクトリテラル両対応の単体テストを追加。
 

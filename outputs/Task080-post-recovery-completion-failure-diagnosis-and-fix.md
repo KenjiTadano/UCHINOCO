@@ -3,7 +3,9 @@
 ## 1. 課題と背景
 
 ### 報告された事象
+
 Production 実写真・24P において、Vercel ログ上では以下の通り Layout Recovery が全スプレッド（12見開き）の修復に成功していた：
+
 - `spreadCount`: 12
 - `initialUnsafeSpreadCount`: 6
 - `unrecoveredCount`: 0
@@ -14,6 +16,7 @@ Production 実写真・24P において、Vercel ログ上では以下の通り 
   - `legacyFallbackCount`: 0
 
 しかし、ユーザーの UI 画面では依然として以下のエラーカードが表示され、Preview 画面へ到達していなかった：
+
 > 「この条件ではアルバムを完成できませんでした」
 
 ---
@@ -21,7 +24,9 @@ Production 実写真・24P において、Vercel ログ上では以下の通り 
 ## 2. 調査結果
 
 ### サーバー側の実行状況
+
 Production ログ（タイムスタンプ `1791857659710`、runId `9830a9f0-4ed0-44c9-9c07-5c5565ca3bd8`）の全41件のログトレースを精査した結果：
+
 1. `09_layout_planning`: `completed` (427.5ms, 12 spreads, `unrecoveredCount: 0`)
 2. `10_crop_calculation`: `completed` (37.11ms, 158 crops)
 3. `12_album_row_creation`: `completed` (313.26ms, album id: `f317b7f9-a0d2-4e8b-b418-f39f0d29e5d5`)
@@ -37,7 +42,9 @@ Production ログ（タイムスタンプ `1791857659710`、runId `9830a9f0-4ed0
 **結論**: `unrecoveredCount = 0` の実行において、サーバー側の処理（レイアウト、保存、メタデータ、HTTP返却）はすべて正常完了しており、サーバー起因の失敗は発生していなかった。
 
 ### 根本原因
+
 原因はレイアウトエンジンではなく、`app/(app)/pets/[petId]/album/new/album-create-form.tsx` における**クライアント側のステート残留と生成中画面の早期アンマウント**：
+
 1. **先行リクエスト失敗時のエラー残留**: 4秒前の先行試行（写真22枚）で失敗した際、React の `recovery` 状態に「この条件ではアルバムを完成できませんでした…」がセットされた。
 2. **自動再試行時の未クリア**: 23枚目完了により `beginGeneration` が自動発火したが、`setRecovery(null)` が呼ばれず旧エラー文字列が残存した。
 3. **完了時の生成画面即時アンマウント**: `AlbumGeneratingScreen` の描画条件に `state.status === "complete"` が含まれていなかったため、サーバーから完了が返った瞬間に生成画面が外れ、残存していた `recovery` エラーカードが画面上に再描画された。
@@ -48,6 +55,7 @@ Production ログ（タイムスタンプ `1791857659710`、runId `9830a9f0-4ed0
 ## 3. 実装修正
 
 Layout Recovery エンジン自体には一切変更を加えず、`app/(app)/pets/[petId]/album/new/album-create-form.tsx` を改修：
+
 1. **生成開始時のエラー消去**: `beginGeneration`, `requestCreation`, `selectSmallerPages` で明示的に `setRecovery(null)` を実行。
 2. **完了ハンドラでのエラー消去**: `handleResult` の `state.status === "complete"` 処理内で `setRecovery(null)` を実行。
 3. **プレビュー遷移中の生成画面保護**: 描画判定に `state.status === "complete" && Boolean(state.previewHref)` を追加し、プレビュー画面がマウントされるまでの間、エラーカードや入力フォームをフラッシュ表示させず生成中画面を維持。
@@ -63,6 +71,7 @@ Layout Recovery エンジン自体には一切変更を加えず、`app/(app)/pe
 Preview 環境（実写真・24P）での実行ログにおいて、写真解析進捗による挙動の差を記録：
 
 ### 23枚解析完了時点（02:14）
+
 - `eligibleReady`: 23枚
 - `initialUnsafeSpreadCount`: 6
 - `unrecoveredCount`: 0（全スプレッド回復成功）
@@ -70,12 +79,14 @@ Preview 環境（実写真・24P）での実行ログにおいて、写真解析
 - アルバム初稿・表紙の保存まで完走
 
 ### 24枚解析完了時点（06:21〜06:25）
+
 - `eligibleReady`: 24枚
 - `initialUnsafeSpreadCount`: 4
 - `unrecoveredCount`: 1（Spread 7 で回復失敗）
 - `outcome`: `failed` / `status`: `action_required`
 
 #### Spread 7 の詳細診断データ
+
 ```json
 {
   "spreadIndex": 7,
@@ -126,6 +137,7 @@ Preview 環境（実写真・24P）での実行ログにおいて、写真解析
 ```
 
 ### 次期タスクへの申し送り原則
+
 - **問題の本質**: 「写真が増えたことで Album completion が悪化した」（Candidate Stability の課題）。
 - **禁止事項**: Spread 7 専用の安易な Recovery ルール追加や Safety 閾値緩和は行わない。
 - **次タスクの設計原則 (Safe Photo Subset Selection / Candidate Stability)**:

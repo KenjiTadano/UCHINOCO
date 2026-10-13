@@ -23,12 +23,7 @@ import { formatAlbumPeriodLabels } from "@/lib/album-cover-title";
 import { recordAlbumAnalyticsEvent } from "@/lib/album-analytics-server";
 import { albumCapacityState, requiredEligiblePhotos } from "@/lib/album-capacity";
 import { isTerminalAnalysisFailure } from "@/lib/photo-analysis-policy";
-import {
-  MAX_SUBSET_SEARCH_ATTEMPTS,
-  planEditorialAlbumWithSubset,
-  identifyUnsafeSpreadRemovals,
-  type PhotoSubsetSelectionDiagnostics,
-} from "@/lib/album-draft/selection";
+import { searchSafePhotoSubset, safeSubsetScope, safeSubsetBaseTokens, loadPreviousSafeSubset, snapshotSafeSubset, type PhotoSubsetSelectionDiagnostics } from "@/lib/album-draft/selection";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -68,9 +63,10 @@ function mergeRecoveryStats(previous: LayoutRecoveryStats | undefined, current: 
       cropSafePreferredCount: previous.photoFrameMatching.cropSafePreferredCount + current.photoFrameMatching.cropSafePreferredCount,
       heroPreferredCount: previous.photoFrameMatching.heroPreferredCount + current.photoFrameMatching.heroPreferredCount,
       fullBleedPreferredCount: previous.photoFrameMatching.fullBleedPreferredCount + current.photoFrameMatching.fullBleedPreferredCount,
-      averageScore: previous.photoFrameMatching.matchedPairCount + current.photoFrameMatching.matchedPairCount
-        ? (previous.photoFrameMatching.averageScore * previous.photoFrameMatching.matchedPairCount + current.photoFrameMatching.averageScore * current.photoFrameMatching.matchedPairCount) / (previous.photoFrameMatching.matchedPairCount + current.photoFrameMatching.matchedPairCount)
-        : 0,
+      averageScore:
+        previous.photoFrameMatching.matchedPairCount + current.photoFrameMatching.matchedPairCount
+          ? (previous.photoFrameMatching.averageScore * previous.photoFrameMatching.matchedPairCount + current.photoFrameMatching.averageScore * current.photoFrameMatching.matchedPairCount) / (previous.photoFrameMatching.matchedPairCount + current.photoFrameMatching.matchedPairCount)
+          : 0,
       initialUnsafeBeforeMatching: previous.photoFrameMatching.initialUnsafeBeforeMatching,
       initialUnsafeAfterMatching: previous.photoFrameMatching.initialUnsafeAfterMatching,
     },
@@ -83,21 +79,59 @@ function mergeRecoveryStats(previous: LayoutRecoveryStats | undefined, current: 
       if (!prior) return diagnostic;
       const combined = { ...diagnostic };
       const countKeys = [
-        "initialCandidateCount", "strictCandidateCount", "fallbackCandidateCount", "safeFallbackCandidateCount",
-        "reassignmentCandidateCount", "replacementCandidateCount", "replacementCount", "reflowCandidateCount",
-        "photoDropCandidateCount", "droppedPhotoCount", "redistributedPhotoCount", "unusedPoolCount",
-        "duplicateRejectedCount", "petCompatibilityRejectedCount", "sceneRejectedCount", "chronologicalRejectedCount",
-        "qualityRejectedCount", "sourceClippingRejectedCount", "cropSafetyRejectedCount", "candidateBudgetRejectedCount",
-        "otherEligibilityRejectedCount", "compatiblePetGroupingCandidateCount", "handoffReplacementCandidateCount",
-        "replacementCandidateEvaluatedCount", "replacementAcceptedCount", "replacementCropUnsafeCount",
-        "replacementGutterViolationCount", "replacementFrameInvalidCount", "replacementHeroHierarchyViolationCount",
-        "replacementSourceClippingCount", "replacementSubjectVisibilityViolationCount", "replacementTemplateUnavailableCount",
-        "replacementSafeFallbackUnavailableCount", "replacementOtherRejectCount", "replacementTemplateCandidateCount",
-        "replacementSafeFallbackCandidateCount", "replacementSparseCandidateCount", "replacementLayoutEvaluatedCount",
-          "replacementLayoutAcceptedCount", "noCropCandidateCount", "noCropLayoutEvaluatedCount", "noCropLayoutAcceptedCount", "noCropRejectCount",
-        "editorialReceivedReplacementCandidateCount", "globalReplacementCandidateCount", "sameSceneReplacementCandidateCount",
-        "samePetReplacementCandidateCount", "chronologicalReplacementCandidateCount", "globalUnusedCandidateCount",
-        "movedOutPhotoCount", "movedInPhotoCount", "replacedOutPhotoCount", "replacedInPhotoCount",
+        "initialCandidateCount",
+        "strictCandidateCount",
+        "fallbackCandidateCount",
+        "safeFallbackCandidateCount",
+        "reassignmentCandidateCount",
+        "replacementCandidateCount",
+        "replacementCount",
+        "reflowCandidateCount",
+        "photoDropCandidateCount",
+        "droppedPhotoCount",
+        "redistributedPhotoCount",
+        "unusedPoolCount",
+        "duplicateRejectedCount",
+        "petCompatibilityRejectedCount",
+        "sceneRejectedCount",
+        "chronologicalRejectedCount",
+        "qualityRejectedCount",
+        "sourceClippingRejectedCount",
+        "cropSafetyRejectedCount",
+        "candidateBudgetRejectedCount",
+        "otherEligibilityRejectedCount",
+        "compatiblePetGroupingCandidateCount",
+        "handoffReplacementCandidateCount",
+        "replacementCandidateEvaluatedCount",
+        "replacementAcceptedCount",
+        "replacementCropUnsafeCount",
+        "replacementGutterViolationCount",
+        "replacementFrameInvalidCount",
+        "replacementHeroHierarchyViolationCount",
+        "replacementSourceClippingCount",
+        "replacementSubjectVisibilityViolationCount",
+        "replacementTemplateUnavailableCount",
+        "replacementSafeFallbackUnavailableCount",
+        "replacementOtherRejectCount",
+        "replacementTemplateCandidateCount",
+        "replacementSafeFallbackCandidateCount",
+        "replacementSparseCandidateCount",
+        "replacementLayoutEvaluatedCount",
+        "replacementLayoutAcceptedCount",
+        "noCropCandidateCount",
+        "noCropLayoutEvaluatedCount",
+        "noCropLayoutAcceptedCount",
+        "noCropRejectCount",
+        "editorialReceivedReplacementCandidateCount",
+        "globalReplacementCandidateCount",
+        "sameSceneReplacementCandidateCount",
+        "samePetReplacementCandidateCount",
+        "chronologicalReplacementCandidateCount",
+        "globalUnusedCandidateCount",
+        "movedOutPhotoCount",
+        "movedInPhotoCount",
+        "replacedOutPhotoCount",
+        "replacedInPhotoCount",
       ] as const;
       for (const key of countKeys) Reflect.set(combined, key, prior[key] + diagnostic[key]);
       combined.finalReplacementCandidateCount = Math.max(prior.finalReplacementCandidateCount, diagnostic.finalReplacementCandidateCount);
@@ -121,23 +155,52 @@ function mergeRecoveryStats(previous: LayoutRecoveryStats | undefined, current: 
       const stageOrder: LayoutRecoveryStage[] = ["initial", "template_fallback", "safe_fallback", "role_reassignment", "best_shot_replacement", "global_replacement", "density_fallback", "adjacent_reflow", "adjacent_redistribution", "photo_drop", "safe_sparse_layout", "no_crop_final"];
       combined.recoveryStagesReached = stageOrder.filter((stage) => prior.recoveryStagesReached.includes(stage) || diagnostic.recoveryStagesReached.includes(stage));
       combined.recoveryReached = combined.recoveryStagesReached.at(-1) ?? diagnostic.recoveryReached;
-      combined.failureReasonCounts = Object.fromEntries(Object.keys(diagnostic.failureReasonCounts).map((key) => [key, diagnostic.failureReasonCounts[key as keyof SpreadLayoutRecoveryDiagnostic["failureReasonCounts"]] + prior.failureReasonCounts[key as keyof SpreadLayoutRecoveryDiagnostic["failureReasonCounts"]]])) as SpreadLayoutRecoveryDiagnostic["failureReasonCounts"];
+      combined.failureReasonCounts = Object.fromEntries(
+        Object.keys(diagnostic.failureReasonCounts).map((key) => [key, diagnostic.failureReasonCounts[key as keyof SpreadLayoutRecoveryDiagnostic["failureReasonCounts"]] + prior.failureReasonCounts[key as keyof SpreadLayoutRecoveryDiagnostic["failureReasonCounts"]]]),
+      ) as SpreadLayoutRecoveryDiagnostic["failureReasonCounts"];
       return combined;
     }),
   };
   const summedKeys = [
-    "templateFallbackAttemptCount", "templateFallbackCount", "safeFallbackAttemptCount", "photoReassignmentAttemptCount",
-    "photoReassignmentCount", "bestShotReplacementAttemptCount", "bestShotReplacementCount", "densityFallbackAttemptCount",
-    "densityFallbackCount", "adjacentReflowAttemptCount", "adjacentReflowCount", "photoDropAttemptCount",
-    "photoDropSuccessCount", "adjacentRedistributionAttemptCount", "adjacentRedistributionSuccessCount",
-    "globalReplacementAttemptCount", "globalReplacementSuccessCount", "finalSparseLayoutAttemptCount", "finalSparseLayoutSuccessCount",
-    "replacementCandidateEvaluatedCount", "replacementAcceptedCount", "replacementCropUnsafeCount",
-    "replacementGutterViolationCount", "replacementFrameInvalidCount", "replacementHeroHierarchyViolationCount",
-    "replacementSourceClippingCount", "replacementSubjectVisibilityViolationCount", "replacementTemplateUnavailableCount",
-    "replacementSafeFallbackUnavailableCount", "replacementOtherRejectCount", "replacementTemplateCandidateCount",
-    "replacementSafeFallbackCandidateCount", "replacementSparseCandidateCount", "replacementLayoutEvaluatedCount",
-    "replacementLayoutAcceptedCount", "noCropLayoutAttemptCount", "noCropLayoutSuccessCount",
-    "noCropReplacementAttemptCount", "noCropReplacementSuccessCount",
+    "templateFallbackAttemptCount",
+    "templateFallbackCount",
+    "safeFallbackAttemptCount",
+    "photoReassignmentAttemptCount",
+    "photoReassignmentCount",
+    "bestShotReplacementAttemptCount",
+    "bestShotReplacementCount",
+    "densityFallbackAttemptCount",
+    "densityFallbackCount",
+    "adjacentReflowAttemptCount",
+    "adjacentReflowCount",
+    "photoDropAttemptCount",
+    "photoDropSuccessCount",
+    "adjacentRedistributionAttemptCount",
+    "adjacentRedistributionSuccessCount",
+    "globalReplacementAttemptCount",
+    "globalReplacementSuccessCount",
+    "finalSparseLayoutAttemptCount",
+    "finalSparseLayoutSuccessCount",
+    "replacementCandidateEvaluatedCount",
+    "replacementAcceptedCount",
+    "replacementCropUnsafeCount",
+    "replacementGutterViolationCount",
+    "replacementFrameInvalidCount",
+    "replacementHeroHierarchyViolationCount",
+    "replacementSourceClippingCount",
+    "replacementSubjectVisibilityViolationCount",
+    "replacementTemplateUnavailableCount",
+    "replacementSafeFallbackUnavailableCount",
+    "replacementOtherRejectCount",
+    "replacementTemplateCandidateCount",
+    "replacementSafeFallbackCandidateCount",
+    "replacementSparseCandidateCount",
+    "replacementLayoutEvaluatedCount",
+    "replacementLayoutAcceptedCount",
+    "noCropLayoutAttemptCount",
+    "noCropLayoutSuccessCount",
+    "noCropReplacementAttemptCount",
+    "noCropReplacementSuccessCount",
   ] as const;
   for (const key of summedKeys) Reflect.set(merged, key, previous[key] + current[key]);
   return merged;
@@ -426,12 +489,13 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
         return [story.id, photo ? editorialPageText(photo.timeline_at, photo.caption) : ""];
       }),
     );
+  // Snapshot identity includes period, pets, pages and every unchanged evaluation input.
+  const subsetScope = safeSubsetScope({ petIds: [...setup.petIds].sort(), pageCount: setup.pageCount, label: setup.label, periodFrom: periodFrom.toISOString(), periodTo: periodTo.toISOString() });
+  const stableSubsetInputs = new Map(inputs.grouping.map((photo) => [photo.photoId, { source: candidateById.get(photo.photoId), intelligence: photo.intelligence, sharpness: inputs.sharpness.get(photo.photoId) }]));
+  const subsetTokens = safeSubsetBaseTokens(rankedPhotos, inputs.geometry, stableSubsetInputs);
   let textByStory = textForStories(plan.spreads);
   const minimumUniquePhotoCount = requiredEligible;
-    const availablePhotoCountByPet = Object.fromEntries(setup.petIds.map((petId) => [
-      petId,
-      new Set(rankedPhotos.filter((photo) => photo.petId === petId && photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25).map((photo) => photo.photoId)).size,
-    ]));
+  const availablePhotoCountByPet = Object.fromEntries(setup.petIds.map((petId) => [petId, new Set(rankedPhotos.filter((photo) => photo.petId === petId && photo.candidate.role !== "alternate" && photo.candidate.scores.technical >= 25).map((photo) => photo.photoId)).size]));
   let editorial;
   try {
     editorial = buildEditorialDraft(
@@ -460,10 +524,12 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     const replacementIdSet = new Set<string>();
     const replacementFunnelBySpread = new Map<number, Partial<SpreadLayoutRecoveryDiagnostic>>();
     const rankedById = new Map(rankedPhotos.map((photo) => [photo.photoId, photo]));
-    const albumPetIds = new Set([...currentPhotoIds].flatMap((photoId) => {
-      const petId = rankedById.get(photoId)?.petId;
-      return petId ? [petId] : [];
-    }));
+    const albumPetIds = new Set(
+      [...currentPhotoIds].flatMap((photoId) => {
+        const petId = rankedById.get(photoId)?.petId;
+        return petId ? [petId] : [];
+      }),
+    );
     const usedByPet = new Map<string, number>();
     for (const photoId of currentPhotoIds) {
       const petId = rankedById.get(photoId)?.petId;
@@ -488,10 +554,12 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       };
       const replacePhotoId = story.secondaryPhotoIds.at(-1) ?? story.primaryPhotoIds[0];
       const replacedPhoto = replacePhotoId ? rankedById.get(replacePhotoId) : undefined;
-      const storyPetIds = new Set(story.photoIds.flatMap((photoId) => {
-        const petId = rankedById.get(photoId)?.petId;
-        return petId ? [petId] : [];
-      }));
+      const storyPetIds = new Set(
+        story.photoIds.flatMap((photoId) => {
+          const petId = rankedById.get(photoId)?.petId;
+          return petId ? [petId] : [];
+        }),
+      );
       const availablePetCounts = availablePhotoCountByPet;
       const options: Array<{ photo: EditorialPhoto; category: number; timeDistance: number }> = [];
       for (const photo of rankedPhotos) {
@@ -519,10 +587,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
           continue;
         }
         const timeDistance = Math.abs(Date.parse(photo.timeline) - Date.parse(story.startedAt));
-        const category = story.sceneIds.includes(photo.groupId) ? 0
-          : storyPetIds.has(photo.petId) ? 1
-            : albumPetIds.has(photo.petId) ? 2
-              : timeDistance <= 30 * 24 * 60 * 60 * 1000 ? 3 : 4;
+        const category = story.sceneIds.includes(photo.groupId) ? 0 : storyPetIds.has(photo.petId) ? 1 : albumPetIds.has(photo.petId) ? 2 : timeDistance <= 30 * 24 * 60 * 60 * 1000 ? 3 : 4;
         options.push({ photo, category, timeDistance });
       }
       options.sort((a, b) => a.category - b.category || b.photo.candidate.scores.overall - a.photo.candidate.scores.overall || b.photo.candidate.scores.sceneRepresentativeness - a.photo.candidate.scores.sceneRepresentativeness || a.timeDistance - b.timeDistance || a.photo.photoId.localeCompare(b.photo.photoId));
@@ -535,10 +600,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
         replacementIdSet.add(photo.photoId);
         replacementIds.push(photo.photoId);
         idsForSpread.push(photo.photoId);
-        replacementMethodByPhotoId[photo.photoId] = category === 0 ? "same_scene_replacement"
-          : category === 1 ? "same_pet_replacement"
-            : category === 2 ? "compatible_pet_replacement"
-              : category === 3 ? "chronological_replacement" : "global_replacement";
+        replacementMethodByPhotoId[photo.photoId] = category === 0 ? "same_scene_replacement" : category === 1 ? "same_pet_replacement" : category === 2 ? "compatible_pet_replacement" : category === 3 ? "chronological_replacement" : "global_replacement";
       }
       funnel.finalReplacementCandidateCount = idsForSpread.length;
       replacementFunnelBySpread.set(spreadIndex, funnel);
@@ -556,7 +618,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     const replacementInputsById = new Set(replacementInputs.map((photo) => photo.photoId));
     for (const [spreadIndex, funnel] of replacementFunnelBySpread) {
       const spread = plan.spreads[spreadIndex];
-      const spreadCandidateIds = spread ? replacementPhotoIdsBySpread[spread.id] ?? [] : [];
+      const spreadCandidateIds = spread ? (replacementPhotoIdsBySpread[spread.id] ?? []) : [];
       const missingAssets = spreadCandidateIds.filter((photoId) => !replacementInputsById.has(photoId)).length;
       funnel.otherEligibilityRejectedCount = (funnel.otherEligibilityRejectedCount ?? 0) + missingAssets;
       funnel.finalReplacementCandidateCount = spreadCandidateIds.length - missingAssets;
@@ -573,7 +635,8 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
         }
         diagnostic.finalReplacementCandidateCount = Math.max(diagnostic.finalReplacementCandidateCount, funnel.finalReplacementCandidateCount ?? 0);
         eligibleCount += diagnostic.finalReplacementCandidateCount;
-        rejectedCount += diagnostic.duplicateRejectedCount + diagnostic.petCompatibilityRejectedCount + diagnostic.sceneRejectedCount + diagnostic.chronologicalRejectedCount + diagnostic.qualityRejectedCount + diagnostic.sourceClippingRejectedCount + diagnostic.cropSafetyRejectedCount + diagnostic.candidateBudgetRejectedCount + diagnostic.otherEligibilityRejectedCount;
+        rejectedCount +=
+          diagnostic.duplicateRejectedCount + diagnostic.petCompatibilityRejectedCount + diagnostic.sceneRejectedCount + diagnostic.chronologicalRejectedCount + diagnostic.qualityRejectedCount + diagnostic.sourceClippingRejectedCount + diagnostic.cropSafetyRejectedCount + diagnostic.candidateBudgetRejectedCount + diagnostic.otherEligibilityRejectedCount;
       }
       stats.unusedReplacementEligibleCount = eligibleCount;
       stats.unusedReplacementRejectedCount = rejectedCount;
@@ -608,112 +671,41 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       const eligiblePhotosCount = rankedPhotos.filter((p) => p.candidate.role !== "alternate" && p.candidate.scores.technical >= 25).length;
       let subsetResolved = false;
 
-      if (eligiblePhotosCount > requiredEligible) {
-        const subsetDiagnostics: PhotoSubsetSelectionDiagnostics = {
-          eligiblePhotoCount: eligiblePhotosCount,
-          selectedPhotoCount: plan.selected.length,
-          unusedPhotoCount: Math.max(0, eligiblePhotosCount - plan.selected.length),
-          subsetAttemptCount: 0,
-          subsetSuccessCount: 0,
-          fallbackToPreviousSafeSubsetCount: 0,
-          droppedForLayoutSafetyCount: 0,
-          droppedForCropRiskCount: 0,
-          droppedForSourceClippingCount: 0,
-          droppedForRedundancyCount: 0,
-          initialUnrecoveredCount: stats?.unrecoveredCount ?? error.unrecoveredSpreadIndices.length,
-          finalUnrecoveredCount: stats?.unrecoveredCount ?? error.unrecoveredSpreadIndices.length,
-          spreadSubsetAdjustments: [],
-        };
-
-        const excluded = new Set<string>();
-        const candidatePhotoMap = new Map(rankedPhotos.map((p) => [p.photoId, p]));
-
-        // Gather photos from currently unrecovered stories for potential exclusion
-        const unrecoveredStories = recoveryError instanceof EditorialGenerationError
+      if (eligiblePhotosCount > requiredEligible && !timing.budgetExceeded()) {
+        // Reuse existing draft metadata, scoped to the authenticated owner/settings.
+        // JSON containment finds only unchanged N-photo bases inside N+1 inputs.
+        const { previous, error: previousError } = await loadPreviousSafeSubset(supabase as unknown as SupabaseClient, user.id, subsetScope, subsetTokens, setup.pageCount);
+        if (previousError) return { error: "前回の安全な構成を確認しています。", status: "retryable" };
+        const unsafeStories = recoveryError instanceof EditorialGenerationError
           ? recoveryError.currentStories.filter((_, idx) => recoveryError.unrecoveredSpreadIndices.includes(idx))
           : error.currentStories.filter((_, idx) => error.unrecoveredSpreadIndices.includes(idx));
-
-        for (const story of unrecoveredStories) {
-          const removable = identifyUnsafeSpreadRemovals(story, candidatePhotoMap, inputs.geometry);
-          for (const rem of removable) {
-            excluded.add(rem.photoId);
-            if (excluded.size >= MAX_SUBSET_SEARCH_ATTEMPTS) break;
-          }
-          if (excluded.size >= MAX_SUBSET_SEARCH_ATTEMPTS) break;
-        }
-
-        const excludedList = [...excluded];
-        for (let attempt = 0; attempt < Math.min(excludedList.length, MAX_SUBSET_SEARCH_ATTEMPTS); attempt++) {
-          if (timing.budgetExceeded()) break;
-          subsetDiagnostics.subsetAttemptCount++;
-          const currentExcluded = new Set([excludedList[attempt]]);
-          try {
-            const altPlan = planEditorialAlbumWithSubset(rankedPhotos, setup.pageCount, currentExcluded);
-            const altPreviews = await createPhotoPreviewUrls(
-              supabase,
-              altPlan.selected.map((photo) => candidateById.get(photo.photoId)!),
-              true,
-              false,
-              user.id,
-            );
-            const altLayoutPhotos: LayoutPhotoInput[] = [];
-            for (const photo of altPlan.selected) {
+        const result = await searchSafePhotoSubset({
+          photos: rankedPhotos, geometry: inputs.geometry, pageCount: setup.pageCount,
+          unsafeStories, initialUnrecoveredCount: stats?.unrecoveredCount ?? error.unrecoveredSpreadIndices.length,
+          currentSelectedCount: recoveryError instanceof EditorialGenerationError ? recoveryError.currentPhotoIds.length : error.currentPhotoIds.length, previous, budgetExceeded: timing.budgetExceeded,
+          onDiagnostics: (diagnostics) => logPhotoSubsetSelection(timing, diagnostics),
+          evaluate: async (altPlan) => {
+            const altPreviews = await createPhotoPreviewUrls(supabase, altPlan.selected.map((photo) => candidateById.get(photo.photoId)!), true, false, user.id);
+            const altLayoutPhotos: LayoutPhotoInput[] = altPlan.selected.map((photo) => {
               const analysis = inputs.geometry.get(photo.photoId);
               const preview = altPreviews.get(photo.photoId);
-              if (!analysis || !preview) continue;
-              altLayoutPhotos.push({
-                photoId: photo.photoId,
-                petId: photo.petId,
-                timeline: photo.timeline,
-                groupId: photo.groupId,
-                scene: photo.scene,
-                activity: photo.activity,
-                analysis,
-                imageUrl: preview,
-                previewUrl: preview,
-                bestShot: { candidate: photo.candidate, confidence: photo.confidence },
-                captionAvailable: true,
-              });
-            }
-            if (altLayoutPhotos.length < altPlan.selected.length) continue;
-            const altTextByStory = textForStories(altPlan.spreads);
-            const altEditorial = buildEditorialDraft(
-              altPlan.spreads,
-              altLayoutPhotos,
-              altTextByStory,
-              undefined,
-              {},
-              {},
-              minimumUniquePhotoCount,
-              eligibleReady,
-              availablePhotoCountByPet,
-            );
-            if (altEditorial.recovery.unrecoveredCount === 0) {
-              editorial = altEditorial;
-              plan = altPlan;
-              layoutPhotos.length = 0;
-              layoutPhotos.push(...altLayoutPhotos);
-              textByStory = altTextByStory;
-              subsetDiagnostics.subsetSuccessCount++;
-              subsetDiagnostics.droppedForLayoutSafetyCount++;
-              subsetDiagnostics.finalUnrecoveredCount = 0;
-              subsetDiagnostics.selectedPhotoCount = plan.selected.length;
-              subsetDiagnostics.unusedPhotoCount = Math.max(0, eligiblePhotosCount - plan.selected.length);
-              logPhotoSubsetSelection(timing, subsetDiagnostics);
-              subsetResolved = true;
-              break;
-            }
-          } catch {
-            // continue next candidate subset
-          }
-        }
-
-        if (!subsetResolved) {
-          logPhotoSubsetSelection(timing, subsetDiagnostics);
+              if (!analysis || !preview) throw new Error("Subset photo assets unavailable");
+              return { photoId: photo.photoId, petId: photo.petId, timeline: photo.timeline, groupId: photo.groupId, scene: photo.scene, activity: photo.activity, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: photo.candidate, confidence: photo.confidence }, captionAvailable: true };
+            });
+            const altEditorial = buildEditorialDraft(altPlan.spreads, altLayoutPhotos, textForStories(altPlan.spreads), undefined, {}, {}, minimumUniquePhotoCount, eligibleReady, availablePhotoCountByPet, undefined, altPlan.preservedLayouts);
+            return altEditorial;
+          },
+        });
+        if (result.editorial && result.plan) {
+          editorial = result.editorial;
+          plan = result.plan;
+          textByStory = textForStories(editorial.stories);
+          subsetResolved = true;
         }
       }
 
       if (!subsetResolved) {
+        if (timing.budgetExceeded()) return { error: "アルバムの作成に時間がかかっています。", status: "retryable" };
         if (stats) logAlbumLayoutRecovery(timing, plan.spreads.length, stats);
         return { error: "この条件ではアルバムを完成できませんでした。別の写真で組み直すか、写真を追加できます。", status: "action_required" };
       }
@@ -724,6 +716,8 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
   }
   logAlbumLayoutRecovery(timing, plan.spreads.length, editorial.recovery);
   plan.spreads = editorial.stories;
+  const selectedEditorialById = new Map([...rankedPhotos, ...plan.selected].map((photo) => [photo.photoId, photo]));
+  plan.selected = editorial.selectedPhotoIds.map((id) => selectedEditorialById.get(id)!);
   timing.end("09_layout_planning", editorial.spreads.length);
   timing.measured("10_crop_calculation", editorial.performance.cropStartedAt, editorial.performance.cropDurationMs, editorial.performance.cropItemCount);
   timing.work({ sourceQueryCount, analysisQueryCount: inputs.metadataQueryCount, cropCalculatedCount: editorial.performance.cropItemCount, cropReusedCount: editorial.performance.cropReusedCount, layoutCandidateCount: editorial.performance.layoutCandidateCount, visionCallCount: 0, originalDownloadCount: 0 });
@@ -811,6 +805,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       p_album_id: album.id,
       p_payload: buildDraftSavePayload(persistableSpreads, [], composition, {
         editorial_version: EDITORIAL_VERSION,
+        safe_subset: snapshotSafeSubset(subsetScope, subsetTokens, editorial, plan.selected),
         generation_intent_key: intentId ? intentKey : null,
         requested_body_pages: setup.pageCount,
         selected_pet_ids: setup.petIds,

@@ -177,18 +177,7 @@ function main() {
   }
 
   const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-  const args = [
-    "--yes",
-    "vercel@latest",
-    "logs",
-    "--project", PROJECT,
-    "--environment", ENVIRONMENT,
-    "--since", options.since,
-    "--limit", String(options.limit),
-    "--expand",
-    "--json",
-    "--non-interactive",
-  ];
+  const args = ["--yes", "vercel@latest", "logs", "--project", PROJECT, "--environment", ENVIRONMENT, "--since", options.since, "--limit", String(options.limit), "--expand", "--json", "--non-interactive"];
   const result = spawnSync(npx, args, { encoding: "utf8", maxBuffer: 20 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
   if (result.error) {
     console.error(`Unable to run npx Vercel CLI: ${result.error.message}`);

@@ -289,14 +289,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   const blocked = !readiness || shortage || readiness.state === "action_required";
   const activeRecovery = recovery ?? (state.status === "action_required" || state.status === "failed" ? (state.error ?? "作成条件を確認できます。") : null);
 
-  const showGenerating =
-    (pending && state.status !== "action_required") ||
-    (state.status === "complete" && Boolean(state.previewHref)) ||
-    (!activeRecovery &&
-      !state.error &&
-      state.status !== "action_required" &&
-      state.status !== "failed" &&
-      (intent?.phase === "generating" || (intent && readiness?.state === "ready")));
+  const showGenerating = (pending && state.status !== "action_required") || (state.status === "complete" && Boolean(state.previewHref)) || (!activeRecovery && !state.error && state.status !== "action_required" && state.status !== "failed" && (intent?.phase === "generating" || (intent && readiness?.state === "ready")));
 
   if (showGenerating) {
     return (
