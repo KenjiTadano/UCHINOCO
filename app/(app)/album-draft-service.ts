@@ -320,10 +320,11 @@ export async function overrideCover(coverId: string, expectedRevision: number, c
   if (!user) return { ok: false, message: "ログインが必要です。", writeStatus: null, cover: null };
   const { data: cover } = await supabase.from("album_draft_covers").select("id, draft_version_id").eq("id", coverId).maybeSingle();
   if (!cover) return { ok: false, message: "表紙が見つかりません。", writeStatus: null, cover: null };
-  const { data: version } = await supabase.from("album_draft_versions").select("album_id").eq("id", cover.draft_version_id).maybeSingle();
-  if (!version) return { ok: false, message: "表紙が見つかりません。", writeStatus: null, cover: null };
+  const { data: version } = await supabase.from("album_draft_versions").select("album_id").eq("id", cover.draft_version_id).eq("is_active", true).maybeSingle();
+  if (!version) return { ok: false, message: "編集対象の初稿が変更されました。再読み込みしてください。", writeStatus: "conflict", cover: null };
+  const { data: album } = await supabase.from("albums").select("id, pet_id, owner_user_id").eq("id", version.album_id).eq("owner_user_id", user.id).maybeSingle();
+  if (!album) return { ok: false, message: "アルバムが見つかりません。", writeStatus: null, cover: null };
   if (field === "photo" && value) {
-    const { data: album } = await supabase.from("albums").select("id, pet_id, owner_user_id").eq("id", version.album_id).eq("owner_user_id", user.id).maybeSingle();
     const { data: photo } = await supabase.from("photos").select("id, pet_id, uploader_user_id").eq("id", value).maybeSingle();
     if (!album || !photo || photo.pet_id !== album.pet_id || photo.uploader_user_id !== user.id) {
       return { ok: false, message: "この写真はこのアルバムに使えません。", writeStatus: null, cover: null };
@@ -342,8 +343,17 @@ export async function overrideCover(coverId: string, expectedRevision: number, c
     return { ok: false, message: messageFromError(updated.error), writeStatus: null, cover: null };
   }
   const status = (updated.data as { status?: WriteStatus } | null)?.status ?? "missing";
-  const { data: fresh } = await supabase.from("album_draft_covers").select("*").eq("id", coverId).maybeSingle();
+  const { data: active } = await supabase.from("album_draft_versions").select("id").eq("id", cover.draft_version_id).eq("is_active", true).maybeSingle();
+  if (!active) return { ok: false, message: "編集対象の初稿が変更されました。再読み込みしてください。", writeStatus: "conflict", cover: null };
+  const { data: fresh } = await supabase.from("album_draft_covers").select("*").eq("id", coverId).eq("draft_version_id", active.id).maybeSingle();
   if (!fresh) return { ok: false, message: "保存後の読み込みに失敗しました。", writeStatus: status, cover: null };
+  if (status === "applied") {
+    // Preview is a search-param view of the detail page; base invalidation covers both.
+    const base = `/pets/${album.pet_id}/album/${album.id}`;
+    revalidatePath(base);
+    revalidatePath(`${base}/edit`);
+    revalidatePath(`${base}/print`);
+  }
   return {
     ok: status !== "conflict" && status !== "missing",
     message: status === "conflict" ? "保存が競合しました。再試行できます。" : null,

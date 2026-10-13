@@ -167,6 +167,6 @@ export function applyCoverColor(
 
 /** A slower cover save must not replace a newer local edit. */
 export function mergeServerCover(local: CoverEditorModel, server: CoverEditorModel, sentSeq: number): CoverEditorModel {
-  if (local.clientSeq > sentSeq) return local;
+  if (local.id !== server.id || local.draftVersionId !== server.draftVersionId || local.clientSeq > sentSeq || server.clientSeq < local.clientSeq) return local;
   return server;
 }

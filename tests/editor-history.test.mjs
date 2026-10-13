@@ -460,7 +460,7 @@ test("23. undo saves through the newest client sequence", () => {
   assert.match(pageHook, /const nextSeq = bump\(spreadId, spread\.source\.clientSeq\)/);
   assert.match(pageHook, /overrideSpreadLayout\(spreadId, revision, nextSeq, layoutId\)/);
   assert.match(pageHook, /overrideFrameCrop\(frameId, revision, nextSeq, crop\)/);
-  assert.match(coverHook, /overrideCover\(current\.id, revision, nextSeq, field, value\)/);
+  assert.match(coverHook, /overrideCover\(coverId, revisionRef\.current, sent\.seq, sent\.field, sent\.value\)/);
   assert.equal(decideWrite({ storedRevision: 2, storedSeq: 5, expectedRevision: 2, clientSeq: 6 }), "applied");
   assert.equal(pageHook.includes("save_album_draft_version"), false);
 });
