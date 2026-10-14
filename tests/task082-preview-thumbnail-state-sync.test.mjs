@@ -233,3 +233,45 @@ test('/edit loads the active draft and never rebuilds body pages from album_phot
     assert.ok(html.includes('?spread=0'));
   } finally { serverHarness = null; }
 });
+
+
+// Structural contracts complement the real-browser width matrix recorded in
+// task082-3-preview-main-sizing-mobile-rail.md; SSR alone cannot measure layout.
+const previewCss = require('postcss').parse(fs.readFileSync(path.join(root, 'app/globals.css'), 'utf8'));
+function previewRule(selector) {
+  const declarations = {};
+  previewCss.walkRules(selector, (rule) => rule.walkDecls((decl) => { declarations[decl.prop] = decl.value; }));
+  return declarations;
+}
+
+test('Preview main canvas has a definite width without a fixed height or a second renderer', () => {
+  const html = renderToStaticMarkup(React.createElement(AlbumPreviewScreen, { spreads: [], draft: fixture(), backHref: '/', editHref: '/', orderHref: '/', printHref: '/' }));
+  assert.match(html, /class="album-preview-main-canvas"[^>]*><div class="page-edit-draft/);
+  const canvas = previewRule('.album-preview-main-canvas');
+  assert.equal(canvas.width, '100%');
+  assert.equal(canvas['min-width'], '0');
+  assert.equal(canvas.height, undefined);
+  assert.equal(canvas.position, undefined);
+  assert.equal(canvas['max-width'], previewRule('.album-preview-stage')['max-width']);
+  assert.equal(canvas['max-width'], '362px');
+  assert.match(render(fixture()).main, /aspect-ratio:847 \/ 587\.432/);
+});
+
+test('Preview navigation has inset touch targets anchored to the main stage', () => {
+  const stage = previewRule('.album-preview-stage');
+  const arrow = previewRule('.album-preview-arrow');
+  assert.equal(stage.position, 'relative');
+  assert.equal(arrow.position, 'absolute');
+  assert.equal(arrow.top, '50%');
+  assert.ok(parseFloat(arrow.width) >= 44 && parseFloat(arrow.height) >= 44);
+  assert.equal(previewRule('.album-preview-arrow-left').left, '0');
+  assert.equal(previewRule('.album-preview-arrow-right').right, '0');
+});
+
+test('Preview rail reserves both end paddings and does not shrink its thumbnails', () => {
+  const rail = previewRule('.album-preview-thumbs');
+  assert.equal(rail['overflow-x'], 'auto');
+  assert.equal(rail.padding, '2px 12px 4px');
+  assert.equal(rail['scroll-padding-inline'], '12px');
+  assert.equal(previewRule('.album-preview-thumb').flex, '0 0 auto');
+});

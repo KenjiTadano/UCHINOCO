@@ -138,7 +138,7 @@ export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHr
               <button type="button" className="album-preview-arrow album-preview-arrow-left ds-focus" aria-label="前の見開き" onClick={() => go(index - 1)} disabled={sequence.length <= 1}>
                 <ChevronLeft size={20} strokeWidth={1.8} aria-hidden="true" />
               </button>
-              <div data-page-role={currentItem?.kind === "draft-spread" ? currentItem.role : undefined} data-page-density={currentItem?.kind === "draft-spread" ? currentItem.density : undefined}>
+              <div className="album-preview-main-canvas" data-page-role={currentItem?.kind === "draft-spread" ? currentItem.role : undefined} data-page-density={currentItem?.kind === "draft-spread" ? currentItem.density : undefined}>
                 <DraftSpreadView {...draftSpreadRenderProps(draftSpread, savedDraft.previewUrls)} />
               </div>
               <button type="button" className="album-preview-arrow album-preview-arrow-right ds-focus" aria-label="次の見開き" onClick={() => go(index + 1)} disabled={sequence.length <= 1}>
