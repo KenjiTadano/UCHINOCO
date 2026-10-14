@@ -231,6 +231,11 @@ test('/edit loads the active draft and never rebuilds body pages from album_phot
     const html = renderToStaticMarkup(tree);
     assert.ok(html.includes('https://example.com/new.jpg') && html.includes('data-crop="0.2,0.7,1.6"'));
     assert.ok(html.includes('?spread=0'));
+    assert.match(html, /class="album-edit-page-spread-link"[^>]*><span class="draft-spread-thumbnail"/);
+    const link = previewRule('.album-edit-page-spread-link');
+    assert.equal(link.display, 'block');
+    assert.equal(link.width, '100%');
+    assert.equal(link['min-width'], '0');
   } finally { serverHarness = null; }
 });
 

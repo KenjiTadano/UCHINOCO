@@ -3662,6 +3662,11 @@ button:disabled,
     background: #efe8e2;
     padding: 0;
   }
+  .album-edit-page-spread-link {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
   .album-edit-page-cover.album-cover-book {
     width: 76%;
   }

@@ -72,3 +72,29 @@ The static SSR fixture verifies geometry and native rail scrolling. It does not 
 The existing cover/title/event branches remain structurally unchanged and do not always display the body thumbnail rail. No expansion of those screen branches was included in this minimal main-canvas fix. Validate those branches during Preview Acceptance as applicable.
 
 Stop here before Preview Acceptance, pending the user's next instruction.
+
+
+## Acceptance follow-up — /edit body thumbnails (2026-10-14)
+
+Task082.3 Preview commit 185b55d742d044985beaa35c42165a7acd73f60f revealed a separate issue on /edit. Opening the user's 24-page album showed the cover, but all 12 body thumbnail cards were blank. Acceptance remains NOT PASS.
+
+Expected: each card displays its saved draft spread. Actual: the card itself had positive dimensions (approximately 86.67 × 115.56px at a 319px viewport), but its Link and DraftSpreadThumbnail outer span were both 0 × 0. The inspected images had completed loading with naturalWidth 400. Thus image loading was not the cause for the sampled cards.
+
+The Link was an unsized flex item. Its percentage-width child and absolutely positioned thumbnail canvas did not establish an intrinsic link width. The zero-width thumbnail wrapper clipped its otherwise nonzero inner renderer with overflow:hidden.
+
+Authorized minimal follow-up: add album-edit-page-spread-link to the existing body edit Link, with display:block, width:100%, min-width:0. Keep the active draft source, shared renderer, thumbnail scaling, persistence, and navigation destinations unchanged. Extend the existing active-draft /edit SSR regression to assert the actual wrapper and sizing contract.
+
+This working-tree follow-up is not included in the deployed Task082.3 Preview. No commit, push, or deployment is performed for this follow-up without the next instruction. Verification results are recorded below when complete.
+
+
+### Follow-up local verification result
+
+- Full suite: 1,126 PASS / 0 FAIL.
+- npm run lint: 0 errors, 12 existing warnings.
+- npm run build: PASS.
+- npx tsc --noEmit and git diff --check: PASS.
+- Actual AlbumEditScreen SSR plus newly built production CSS: all 14 fixture thumbnail outer spans and edit links have positive dimensions at 319, 375, 390, 430, 768, and 1280px. First link dimensions respectively: 83.664 × 58.023; 97 × 67.273; 102 × 70.734; 110.336 × 76.516; 110.336 × 76.516; 110.336 × 76.516px.
+- No document horizontal overflow at 375/390/430/768/1280px. The additional 319px static fixture did report horizontal overflow; its source has not been established and is not claimed fixed by this link sizing change. Thumbnail dimensions are positive there as well.
+- Browser viewport override reset; local fixture tab closed. Evidence: outputs/task082-edit-thumbnail-widths.json and outputs/task082-edit-thumbnail-local-375.png in the chat workspace.
+
+The static fixture does not hydrate React or run ResizeObserver/image loading effects. This verifies the missing parent width contract, not real-photo browser acceptance. Authenticated deployed Preview must still confirm visible images, photo edits/reload, and navigation. Current Preview remains unchanged until a subsequent authorized commit/push/deployment.

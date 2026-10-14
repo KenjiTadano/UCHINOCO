@@ -196,7 +196,7 @@ export function AlbumEditScreen({
                           className="album-edit-page-cover"
                         />
                       ) : (
-                        <Link href={`${pageEditHref}?spread=${draft?.spreads.findIndex((spread) => spread.id === page.id) ?? 0}`} aria-label={`${page.label}を編集`}>
+                        <Link className="album-edit-page-spread-link" href={`${pageEditHref}?spread=${draft?.spreads.findIndex((spread) => spread.id === page.id) ?? 0}`} aria-label={`${page.label}を編集`}>
                           <DraftSpreadThumbnail spread={page.spread} previewUrls={draft?.previewUrls ?? {}} />
                         </Link>
                       )}
