@@ -1,5 +1,7 @@
 "use server";
 
+import { hasMeaningfulEditorialText } from "@/lib/album-draft/editorial-density";
+
 import { redirect, unstable_rethrow } from "next/navigation";
 import { ALBUM_INTENT_TTL_MS } from "@/lib/album-readiness";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -480,7 +482,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
     const analysis = inputs.geometry.get(photo.photoId);
     const preview = previews.get(photo.photoId);
     if (!analysis || !preview) return { error: "写真の表示を確認しています。", status: "retryable" };
-    layoutPhotos.push({ photoId: photo.photoId, petId: photo.petId, timeline: photo.timeline, groupId: photo.groupId, scene: photo.scene, activity: photo.activity, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: photo.candidate, confidence: photo.confidence }, captionAvailable: true });
+    layoutPhotos.push({ photoId: photo.photoId, petId: photo.petId, timeline: photo.timeline, groupId: photo.groupId, scene: photo.scene, activity: photo.activity, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: photo.candidate, confidence: photo.confidence }, captionAvailable: hasMeaningfulEditorialText(candidateById.get(photo.photoId)?.caption) });
   }
   const textForStories = (stories: typeof plan.spreads) =>
     Object.fromEntries(
@@ -613,7 +615,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
       const preview = replacementPreviews.get(photoId);
       const ranked = rankedPhotos.find((photo) => photo.photoId === photoId);
       if (!analysis || !preview || !ranked) return [];
-      return [{ photoId, petId: ranked.petId, timeline: ranked.timeline, groupId: ranked.groupId, scene: ranked.scene, activity: ranked.activity, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: ranked.candidate, confidence: ranked.confidence }, captionAvailable: true }];
+      return [{ photoId, petId: ranked.petId, timeline: ranked.timeline, groupId: ranked.groupId, scene: ranked.scene, activity: ranked.activity, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: ranked.candidate, confidence: ranked.confidence }, captionAvailable: hasMeaningfulEditorialText(candidateById.get(photoId)?.caption) }];
     });
     const replacementInputsById = new Set(replacementInputs.map((photo) => photo.photoId));
     for (const [spreadIndex, funnel] of replacementFunnelBySpread) {
@@ -690,7 +692,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
               const analysis = inputs.geometry.get(photo.photoId);
               const preview = altPreviews.get(photo.photoId);
               if (!analysis || !preview) throw new Error("Subset photo assets unavailable");
-              return { photoId: photo.photoId, petId: photo.petId, timeline: photo.timeline, groupId: photo.groupId, scene: photo.scene, activity: photo.activity, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: photo.candidate, confidence: photo.confidence }, captionAvailable: true };
+              return { photoId: photo.photoId, petId: photo.petId, timeline: photo.timeline, groupId: photo.groupId, scene: photo.scene, activity: photo.activity, analysis, imageUrl: preview, previewUrl: preview, bestShot: { candidate: photo.candidate, confidence: photo.confidence }, captionAvailable: hasMeaningfulEditorialText(candidateById.get(photo.photoId)?.caption) };
             });
             const altEditorial = buildEditorialDraft(altPlan.spreads, altLayoutPhotos, textForStories(altPlan.spreads), undefined, {}, {}, minimumUniquePhotoCount, eligibleReady, availablePhotoCountByPet, undefined, altPlan.preservedLayouts);
             return altEditorial;
@@ -810,6 +812,7 @@ async function generateAlbumDraft(petId: string, formData: FormData, timing: Ret
         requested_body_pages: setup.pageCount,
         selected_pet_ids: setup.petIds,
         rhythm_audit: editorial.audit,
+        editorial_density: editorial.recovery.editorialDensity,
         rhythm_audit_before: editorial.beforeAudit,
         generation_photo_ids: scopedCandidates.map((photo) => photo.id).sort(),
       }) as unknown as Json,
