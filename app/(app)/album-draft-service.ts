@@ -15,6 +15,8 @@ import { isElementBackgroundId, normalizePageElement, type PageElement, type Pag
 import type { Json } from "@/lib/supabase/database.types";
 import { recordAlbumAnalyticsEvent, type AlbumAnalyticsEventType } from "@/lib/album-analytics-server";
 
+import { canUsePhotoInAlbum, type AlbumPhotoEligibility } from "@/lib/album-persistence/photo-eligibility";
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 async function finishWrite(supabase: Awaited<ReturnType<typeof createClient>>, albumId: string, writeStatus: PersistenceResult["writeStatus"]): Promise<PersistenceResult> {
@@ -76,6 +78,18 @@ export async function refreshDraftPhotoUrls(albumId: string): Promise<{
   return { ok: true, message: null, urls: loaded.view.previewUrls };
 }
 
+// Fail closed on missing membership or ownership reads; never trust client pet IDs.
+async function photoEligibility(supabase: Awaited<ReturnType<typeof createClient>>, albumId: string, userId: string): Promise<AlbumPhotoEligibility | null> {
+  const { data: album, error } = await supabase.from("albums").select("id, pet_id, owner_user_id").eq("id", albumId).eq("owner_user_id", userId).maybeSingle();
+  if (error || !album) return null;
+  const { data: links, error: linksError } = await supabase.from("album_pets").select("pet_id").eq("album_id", albumId);
+  if (linksError || !links?.length) return null;
+  const petIds = [...new Set(links.map((link) => link.pet_id))];
+  const { data: owned, error: ownedError } = await supabase.from("pets").select("id").in("id", petIds).eq("owner_user_id", userId);
+  if (ownedError || owned?.length !== petIds.length || !petIds.includes(album.pet_id)) return null;
+  return { ownerUserId: album.owner_user_id, allowedPetIds: petIds };
+}
+
 export async function loadEditorCandidates(petId: string, albumId?: string): Promise<{ id: string; src: string; thumb: string }[]> {
   if (!UUID_PATTERN.test(petId)) return [];
   const supabase = await createClient();
@@ -90,13 +104,11 @@ export async function loadEditorCandidates(petId: string, albumId?: string): Pro
     if (!UUID_PATTERN.test(albumId)) return [];
     const { data: album, error: albumError } = await supabase.from("albums").select("id").eq("id", albumId).eq("pet_id", petId).eq("owner_user_id", user.id).maybeSingle();
     if (albumError || !album) return [];
-    const { data: links, error: linksError } = await supabase.from("album_pets").select("pet_id").eq("album_id", albumId);
-    if (linksError) return [];
-    petIds = [...new Set([petId, ...(links ?? []).map((link) => link.pet_id)])];
-    const { data: ownedPets, error: petsError } = await supabase.from("pets").select("id").in("id", petIds).eq("owner_user_id", user.id);
-    if (petsError || ownedPets?.length !== petIds.length) return [];
+    const eligibility = await photoEligibility(supabase, albumId, user.id);
+    if (!eligibility) return [];
+    petIds = [...eligibility.allowedPetIds];
   }
-  const { data: photos } = await supabase.from("photos").select("id, storage_path, thumbnail_path").in("pet_id", petIds).eq("uploader_user_id", user.id).order("taken_at", { ascending: false }).limit(80);
+  const { data: photos } = await supabase.from("photos").select("id, pet_id, uploader_user_id, storage_path, thumbnail_path").in("pet_id", petIds).eq("uploader_user_id", user.id).order("taken_at", { ascending: false }).limit(80);
   let rows = photos ?? [];
   // The recent-photo cap must not hide photographs explicitly added to this album.
   if (albumId) {
@@ -105,11 +117,13 @@ export async function loadEditorCandidates(petId: string, albumId?: string): Pro
     const visibleIds = new Set(rows.map((photo) => photo.id));
     const missingIds = (selected ?? []).map((row) => row.photo_id).filter((id) => !visibleIds.has(id));
     if (missingIds.length > 0) {
-      const { data: added, error: addedError } = await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", missingIds).in("pet_id", petIds).eq("uploader_user_id", user.id);
+      const { data: added, error: addedError } = await supabase.from("photos").select("id, pet_id, uploader_user_id, storage_path, thumbnail_path").in("id", missingIds).in("pet_id", petIds).eq("uploader_user_id", user.id);
       if (addedError) return [];
       rows = [...rows, ...(added ?? [])];
     }
   }
+  const eligibility = albumId ? await photoEligibility(supabase, albumId, user.id) : { ownerUserId: user.id, allowedPetIds: petIds };
+  rows = rows.filter((photo) => canUsePhotoInAlbum(eligibility, photo, user.id));
   const previews = await signedPreviewUrls(
     supabase,
     rows.map((photo) => photo.id),
@@ -188,10 +202,12 @@ export async function overrideFramePhoto(frameId: string, expectedRevision: numb
   if (!frame) return fail("フレームが見つかりません。");
   const albumId = await albumIdForSpread(supabase, frame.draft_spread_id);
   if (!albumId) return fail("見開きが見つかりません。");
+  const { data: spread } = await supabase.from("album_draft_spreads").select("draft_version_id").eq("id", frame.draft_spread_id).maybeSingle();
+  const { data: active } = await supabase.from("album_draft_versions").select("id").eq("album_id", albumId).eq("is_active", true).maybeSingle();
+  if (!spread || !active || spread.draft_version_id !== active.id) return fail("編集対象の初稿が変更されました。再読み込みしてください。");
   if (photoId) {
-    const { data: album } = await supabase.from("albums").select("id, pet_id, owner_user_id").eq("id", albumId).eq("owner_user_id", user.id).maybeSingle();
     const { data: photo } = await supabase.from("photos").select("id, pet_id, uploader_user_id").eq("id", photoId).maybeSingle();
-    if (!album || !photo || photo.pet_id !== album.pet_id || photo.uploader_user_id !== user.id) {
+    if (!canUsePhotoInAlbum(await photoEligibility(supabase, albumId, user.id), photo, user.id)) {
       return fail("この写真はこのアルバムに使えません。");
     }
   }
@@ -326,7 +342,7 @@ export async function overrideCover(coverId: string, expectedRevision: number, c
   if (!album) return { ok: false, message: "アルバムが見つかりません。", writeStatus: null, cover: null };
   if (field === "photo" && value) {
     const { data: photo } = await supabase.from("photos").select("id, pet_id, uploader_user_id").eq("id", value).maybeSingle();
-    if (!album || !photo || photo.pet_id !== album.pet_id || photo.uploader_user_id !== user.id) {
+    if (!canUsePhotoInAlbum(await photoEligibility(supabase, album.id, user.id), photo, user.id)) {
       return { ok: false, message: "この写真はこのアルバムに使えません。", writeStatus: null, cover: null };
     }
   }

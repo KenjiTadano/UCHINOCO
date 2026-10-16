@@ -55,7 +55,7 @@ function database() {
   store = { row: { id: ids.cover, draft_version_id: ids.version, ai_photo_id: ids.a, user_photo_id: null, ai_title: 'Title', ai_subtitle: 'Subtitle', ai_template_id: 'simple', ai_color_id: 'white', revision: 1, client_seq: 0 }, active: ids.version, routes: [], calls: [], rpcCalls: 0 };
   store.client = { auth: { getUser: async () => ({ data: { user: { id: 'owner' } } }) }, from(table) {
     const filters = new Map();
-    const query = { select() { return this; }, eq(k, v) { filters.set(k, v); return this; }, async maybeSingle() {
+    const query = { select() { return this; }, in(k, v) { filters.set(k, v); return this; }, then(resolve, reject) { return Promise.resolve({ data: table === 'album_pets' ? [{ pet_id: ids.pet }] : table === 'pets' ? [{ id: ids.pet, owner_user_id: 'owner' }] : [], error: null }).then(resolve, reject); }, eq(k, v) { filters.set(k, v); return this; }, async maybeSingle() {
       store.calls.push({ table, filters: Object.fromEntries(filters) });
       let data = table === 'albums' ? { id: ids.album, pet_id: ids.pet, owner_user_id: 'owner', status: 'draft', title: 'Album', period_from: '2026-01-01', period_to: '2026-02-01', cover_photo_id: ids.a } : table === 'pets' ? { id: ids.pet, name: 'Pet', owner_user_id: 'owner' } : table === 'photos' ? { id: filters.get('id'), pet_id: ids.pet, uploader_user_id: 'owner' } : table === 'album_draft_covers' ? structuredClone(store.row) : table === 'album_draft_versions' ? { id: ids.version, album_id: ids.album } : null;
       if (table === 'album_draft_versions' && filters.get('is_active') === true && store.active !== ids.version) data = null;

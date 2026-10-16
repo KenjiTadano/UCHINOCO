@@ -321,7 +321,7 @@ test("15. missing draft does not create an empty draft", () => {
 
 test("16. cross-owner photo replacement is denied on the server", () => {
   assert.match(service, /uploader_user_id/);
-  assert.match(service, /photo\.pet_id !== album\.pet_id/);
+  assert.match(service, /canUsePhotoInAlbum\(await photoEligibility/);
   assert.match(migration, /この写真はこのアルバムに使えません/);
   assert.match(migration, /p\.uploader_user_id = v_owner/);
 });
