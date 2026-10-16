@@ -1,4 +1,4 @@
-import { rebalanceEditorialDensity, MAX_REBALANCE_LAYOUTS, type DensityDiagnostics } from "./editorial-density.ts";
+import { completionFirstEditorialQuality, MAX_REBALANCE_LAYOUTS, type DensityDiagnostics } from "./editorial-density.ts";
 import { TEXT_LENGTH_LIMIT } from "../album-persistence/config.ts";
 import { buildSpreadDraft } from "./draft.ts";
 import type { AlbumSpreadDraft } from "./types.ts";
@@ -500,9 +500,9 @@ function diagnoseDrafts(story: StorySpread, photos: LayoutPhotoInput[], drafts: 
   };
 }
 
-function candidateLayoutStages(story: StorySpread, photos: LayoutPhotoInput[], allowClosing = true) {
+function candidateLayoutStages(story: StorySpread, photos: LayoutPhotoInput[]) {
   const scoped = scopedPhotos(story, photos);
-  const layouts = EDITORIAL_TEMPLATES.filter((layout) => layout.photoCount === story.photoIds.length && (allowClosing || layout.editorialRole !== "closing"));
+  const layouts = EDITORIAL_TEMPLATES.filter((layout) => layout.photoCount === story.photoIds.length);
   const regular = layouts.filter((layout) => !layout.id.startsWith("E_SAFE_FALLBACK_") && layout.imageFit !== "contain");
   const ranked = rankTemplateCandidates(regular, scoped, {
     captionAvailable: scoped.some((photo) => photo.captionAvailable),
@@ -615,7 +615,6 @@ export function buildEditorialDraft(
   evaluateDraft: typeof buildSpreadDraft = buildSpreadDraft,
   preservedLayouts: Readonly<Record<string, string>> = {},
 ) {
-  const stagesForStory = (story: StorySpread, items: LayoutPhotoInput[]) => candidateLayoutStages(story, items, story.id === stories.at(-1)?.id);
   // Draft-scoped history; never shared across requests or unrelated spreads.
   const failedReplacementVariants: Array<{ story: StorySpread; method: ReplacementMethod }> = [];
   const photoFrameMatchingWork = emptyPhotoFrameMatchingDiagnostics();
@@ -677,9 +676,8 @@ export function buildEditorialDraft(
   const recoveryLayoutIds = new Map<number, Set<string>>();
   const unsafePhotoCounts = workingStories.map(() => new Map<string, number>());
   const initialEvaluations = workingStories.map((story, index) => {
-    const stages = stagesForStory(story, photos);
-    const requested = editorialTemplate(preservedLayouts[story.id]);
-    const preserved = requested?.editorialRole === "closing" && index !== stories.length - 1 ? undefined : requested;
+    const stages = candidateLayoutStages(story, photos);
+    const preserved = editorialTemplate(preservedLayouts[story.id]);
     const initial = preserved ? [preserved] : stages.initial;
     // A preserved layout still passes the original evaluator and all safety gates.
     const evaluated = evaluateSpreadLayoutCandidates(story, photos, initial, work, evaluateDraft, "initial", stages.matchingLayoutExists);
@@ -719,7 +717,7 @@ export function buildEditorialDraft(
   };
 
   const recoverCandidates = (story: StorySpread, diagnostic: SpreadLayoutRecoveryDiagnostic, photoFailures: Map<string, number>, replacementTrace?: ReplacementLayoutTrace) => {
-    const stages = stagesForStory(story, photos);
+    const stages = candidateLayoutStages(story, photos);
     const templateLayouts = replacementTrace ? [...stages.initial, ...stages.templates] : stages.templates;
     if (replacementTrace) {
       replacementTrace.normalTemplatesAvailable ||= stages.normalTemplateCount > 0;
@@ -879,7 +877,7 @@ export function buildEditorialDraft(
       let variantCandidates = recoverCandidates(variant, diagnostic, unsafePhotoCounts[index], replacementTrace);
       let recoveredWithSparseLayout = false;
       if (!variantCandidates.length && variant.photoIds.length === 1) {
-        const sparseLayouts = stagesForStory(variant, photos).sparseFallbacks;
+        const sparseLayouts = candidateLayoutStages(variant, photos).sparseFallbacks;
         diagnostic.replacementSparseCandidateCount += sparseLayouts.length;
         if (sparseLayouts.length) {
           markRecoveryStage(diagnostic, "safe_sparse_layout");
@@ -1050,7 +1048,7 @@ export function buildEditorialDraft(
           diagnostic.noCropRejectReasons[geometryFailure]++;
           continue;
         }
-        const noCropLayouts = stagesForStory(candidate.story, photos).noCropFinalLayouts;
+        const noCropLayouts = candidateLayoutStages(candidate.story, photos).noCropFinalLayouts;
         if (!noCropLayouts.length) {
           diagnostic.noCropRejectCount++;
           diagnostic.noCropRejectReasons.frameInvalid++;
@@ -1192,11 +1190,14 @@ export function buildEditorialDraft(
     }
     throw new EditorialGenerationError("アルバムを完成できませんでした。別の写真を見直すか、写真を追加してください。", unrecoveredSpreadIndices, recoveryStats, [...new Set(workingStories.flatMap((story) => story.photoIds))], workingStories, blockingIssues);
   }
-  const density = rebalanceEditorialDensity({ stories: workingStories, spreads: selected, photos, texts: textByStory,
-    evaluate: (story) => {
+  // Completion baseline is now safe and blocking-audit clean. Quality cannot invalidate it.
+  const density = completionFirstEditorialQuality({ stories: workingStories, spreads: selected, photos, texts: textByStory,
+    evaluate: (story, index, cleanup = false) => {
       if (scopedPhotos(story, photos).some(sourceSubjectClipped)) return { drafts: [], rejection: "sourceClipping" };
-      const stages = stagesForStory(story, photos);
-      const layouts = [...stages.initial, ...stages.templates, ...stages.safeFallbacks].slice(0, MAX_REBALANCE_LAYOUTS);
+      const stages = candidateLayoutStages(story, photos);
+      const layouts = [...stages.initial, ...stages.templates, ...stages.safeFallbacks]
+        .filter(layout => editorialTemplate(layout.id)?.editorialRole !== "closing" || (!cleanup && index === workingStories.length - 1))
+        .slice(0, MAX_REBALANCE_LAYOUTS);
       const result = evaluateSpreadLayoutCandidates(story, photos, layouts, work, evaluateDraft);
       return { drafts: result.drafts.sort((a,b) => b.layoutScore - a.layoutScore || a.layoutId.localeCompare(b.layoutId)), rejection: result.diagnostics.failureReasonCounts.cropUnsafe ? "cropSafety" : "templateIncompatibility" };
     },

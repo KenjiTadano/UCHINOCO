@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { classifyEditorialText, hasMeaningfulEditorialText, editorialDensityMetrics, rebalanceEditorialDensity, MAX_REBALANCE_ATTEMPTS, MAX_REBALANCE_LAYOUTS } from '../lib/album-draft/editorial-density.ts';
+import { classifyEditorialText, hasMeaningfulEditorialText, editorialDensityMetrics, rebalanceEditorialDensity, MAX_REBALANCE_ATTEMPTS, MAX_REBALANCE_LAYOUTS, completionFirstEditorialQuality } from '../lib/album-draft/editorial-density.ts';
 import { buildEditorialDraft, auditAlbumRhythm, sourceSubjectClipped } from '../lib/album-draft/editorial.ts';
 import { buildSpreadDraft } from '../lib/album-draft/draft.ts';
 import { EDITORIAL_TEMPLATES } from '../lib/smart-layout/editorial-library.ts';
@@ -151,8 +151,38 @@ test('G: full planner repeats the same assignments and density diagnostics',()=>
   assert.deepEqual(a.recovery.editorialDensity,b.recovery.editorialDensity);
 });
 
-test('E: a preserved intermediate Closing cannot bypass the position rule',()=>{
+test('E: intermediate Closing is handled after completion and never breaks its audit',()=>{
   const f=fixture([1,2,3,1,2,2,1,1,3,1,1,1]);
   const result=buildEditorialDraft(f.stories,f.photos,f.texts,undefined,{}, {},12,19,{},undefined,{[f.stories[6].id]:'E_CLOSING'});
-  assert.ok(result.spreads.slice(0,-1).every(s=>s.layoutId!=='E_CLOSING'&&s.alternatives.every(a=>a.layoutId!=='E_CLOSING')));
+  assert.equal(result.recovery.unrecoveredCount,0);
+  assert.ok(!result.audit.issues.some(i=>i.blocking));
+  assert.ok(result.recovery.editorialDensity.closingCleanupAttemptCount>0);
+});
+
+
+for (const accepted of [true,false]) test(`Closing cleanup ${accepted?'accepts an audited improvement':'retains the baseline on REPEATED_TEMPLATE'}`,()=>{
+  const f=fixture([1,1]);
+  const spreads=f.stories.map((s,i)=>buildSpreadDraft(s,f.photos,undefined,[i===0?'E_CLOSING':'E_1_RIGHT_FULL']));
+  assert.ok(spreads.every(s=>s.status!=='unusable'));
+  const candidate=buildSpreadDraft(f.stories[0],f.photos,undefined,[accepted?'E_1_LEFT_WIDE':'E_1_RIGHT_FULL']);
+  const result=completionFirstEditorialQuality({...f,spreads,evaluate:()=>({drafts:[candidate],rejection:null}),validBook:s=>!auditAlbumRhythm(s,f.texts).issues.some(i=>i.blocking)});
+  assert.equal(result.diagnostics.initialClosingSparseSpreadCount,1);
+  assert.equal(result.diagnostics.finalClosingSparseSpreadCount,accepted?0:1);
+  assert.equal(result.diagnostics.closingCleanupSuccessCount,accepted?1:0);
+  assert.equal(result.diagnostics.closingCleanupAttemptCount,1);
+  if(!accepted) { assert.deepEqual(result.spreads,spreads); assert.ok(result.diagnostics.closingCleanupFailureReasonCounts.blockingAudit>0); }
+  assert.ok(!auditAlbumRhythm(result.spreads,f.texts).issues.some(i=>i.blocking));
+});
+
+test('density evaluation errors preserve completed baseline rather than escaping as action_required',()=>{
+  const f=fixture([1,3]);
+  const evaluate=(story,...args)=>{
+    if(story.photoIds.length===2) throw new Error('quality evaluation failure');
+    return buildSpreadDraft(story,...args);
+  };
+  const result=buildEditorialDraft(f.stories,f.photos,f.texts,undefined,{}, {},2,4,{},evaluate);
+  assert.equal(result.recovery.unrecoveredCount,0);
+  assert.deepEqual(result.stories.map(s=>s.photoIds.length),[1,3]);
+  assert.equal(result.recovery.editorialDensity.closingCleanupFailureReasonCounts.qualityPassRolledBack,1);
+  assert.ok(!result.audit.issues.some(i=>i.blocking));
 });

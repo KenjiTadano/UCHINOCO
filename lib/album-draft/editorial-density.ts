@@ -25,12 +25,15 @@ export function editorialDensityMetrics(spreads: AlbumSpreadDraft[], texts: Reco
   }
   return { photoOccupiedPageCount, emptyPhotoPageCount: spreads.length * 2 - photoOccupiedPageCount, dateOnlyPageCount, meaningfulTextOnlyPageCount,
     singlePhotoSpreadCount: spreads.filter(s => s.assignments.length === 1).length,
-    closingSparseSpreadCount: spreads.filter((s, i) => i === spreads.length - 1 && s.layoutId === 'E_CLOSING' && s.assignments.length === 1).length };
+    closingSparseSpreadCount: spreads.filter(s => s.layoutId === 'E_CLOSING' && s.assignments.length === 1).length };
 }
 export const MAX_REBALANCE_ATTEMPTS = 12;
 export const MAX_REBALANCE_LAYOUTS = 3;
 const REASONS = ['noSafeDonor', 'chronologyConstraint', 'petBalanceConstraint', 'sceneConstraint', 'cropSafety', 'sourceClipping', 'templateIncompatibility', 'boundedSearchExhausted'] as const;
 export type DensityDiagnostics = ReturnType<typeof editorialDensityMetrics> & {
+  initialClosingSparseSpreadCount: number; finalClosingSparseSpreadCount: number;
+  closingCleanupAttemptCount: number; closingCleanupSuccessCount: number;
+  closingCleanupFailureReasonCounts: Record<string, number>;
   rebalanceAttemptCount: number; rebalanceSuccessCount: number; initialDateOnlyPageCount: number; finalDateOnlyPageCount: number;
   rebalanceFailureReasonCounts: Record<typeof REASONS[number], number>;
 };
@@ -92,6 +95,59 @@ export function rebalanceEditorialDensity(input: { stories: StorySpread[]; sprea
   }
   const metrics = editorialDensityMetrics(spreads, input.texts);
   if (attempts >= MAX_REBALANCE_ATTEMPTS && stories.some(story => story.photoIds.length >= 3) && metrics.dateOnlyPageCount > 0 && !failures.boundedSearchExhausted) failures.boundedSearchExhausted++;
-  const diagnostics: DensityDiagnostics = { ...metrics, rebalanceAttemptCount: attempts, rebalanceSuccessCount: successes, initialDateOnlyPageCount: initial.dateOnlyPageCount, finalDateOnlyPageCount: metrics.dateOnlyPageCount, rebalanceFailureReasonCounts: failures };
+  const diagnostics: DensityDiagnostics = { ...metrics, initialClosingSparseSpreadCount: initial.closingSparseSpreadCount, finalClosingSparseSpreadCount: metrics.closingSparseSpreadCount, closingCleanupAttemptCount: 0, closingCleanupSuccessCount: 0, closingCleanupFailureReasonCounts: {}, rebalanceAttemptCount: attempts, rebalanceSuccessCount: successes, initialDateOnlyPageCount: initial.dateOnlyPageCount, finalDateOnlyPageCount: metrics.dateOnlyPageCount, rebalanceFailureReasonCounts: failures };
   return { stories, spreads, diagnostics };
+}
+
+
+export const MAX_CLOSING_CLEANUP_ATTEMPTS = 8;
+type QualityInput = Parameters<typeof rebalanceEditorialDensity>[0] & {
+  evaluate: (story: StorySpread, index: number, cleanup?: boolean) => ReturnType<Evaluate>;
+};
+
+/** Completion has already passed every blocking audit. Quality can only replace it transactionally. */
+export function completionFirstEditorialQuality(input: QualityInput) {
+  const initial = editorialDensityMetrics(input.spreads, input.texts);
+  const closingFailures: Record<string, number> = {};
+  let attempts = 0, successes = 0;
+  const fail = (reason: string) => { closingFailures[reason] = (closingFailures[reason] ?? 0) + 1; };
+  const cleaned = input.spreads.slice();
+  try {
+    for (let i = 0; i < cleaned.length - 1; i++) {
+      if (cleaned[i].layoutId !== 'E_CLOSING') continue;
+      if (attempts >= MAX_CLOSING_CLEANUP_ATTEMPTS) { fail('boundedSearchExhausted'); break; }
+      attempts++;
+      const result = input.evaluate(input.stories[i], i, true);
+      const alternatives = result.drafts.filter(s => s.status !== 'unusable' && s.layoutId !== 'E_CLOSING')
+        .sort((a,b) => b.layoutScore - a.layoutScore || a.layoutId.localeCompare(b.layoutId)).slice(0, MAX_REBALANCE_LAYOUTS);
+      if (!alternatives.length) { fail(result.rejection ?? 'noSafeAlternative'); continue; }
+      for (const candidate of alternatives) {
+        const trial = cleaned.slice(); trial[i] = candidate;
+        if (!input.validBook(trial)) { fail('blockingAudit'); continue; }
+        cleaned[i] = candidate; successes++; break;
+      }
+    }
+    const density = rebalanceEditorialDensity({ ...input, spreads: cleaned });
+    // Defense in depth: neither a photo-set change nor a failing final audit may escape quality.
+    const ids = (spreads: AlbumSpreadDraft[]) => spreads.flatMap(s => s.assignments.map(a => a.photoId)).sort().join('\n');
+    if (ids(density.spreads) !== ids(input.spreads) || !input.validBook(density.spreads)) throw new Error('qualityFinalValidation');
+    return { ...density, diagnostics: { ...density.diagnostics,
+      initialDateOnlyPageCount: initial.dateOnlyPageCount,
+      initialClosingSparseSpreadCount: initial.closingSparseSpreadCount,
+      finalClosingSparseSpreadCount: editorialDensityMetrics(density.spreads, input.texts).closingSparseSpreadCount,
+      closingCleanupAttemptCount: attempts, closingCleanupSuccessCount: successes,
+      closingCleanupFailureReasonCounts: closingFailures,
+    } };
+  } catch {
+    // Evaluation errors or late audit failures must never turn a completed album into action_required.
+    fail('qualityPassRolledBack');
+    const diagnostics: DensityDiagnostics = { ...initial,
+      initialDateOnlyPageCount: initial.dateOnlyPageCount, finalDateOnlyPageCount: initial.dateOnlyPageCount,
+      initialClosingSparseSpreadCount: initial.closingSparseSpreadCount, finalClosingSparseSpreadCount: initial.closingSparseSpreadCount,
+      closingCleanupAttemptCount: attempts, closingCleanupSuccessCount: 0, closingCleanupFailureReasonCounts: closingFailures,
+      rebalanceAttemptCount: 0, rebalanceSuccessCount: 0,
+      rebalanceFailureReasonCounts: { ...Object.fromEntries(REASONS.map(r => [r, 0])) } as DensityDiagnostics['rebalanceFailureReasonCounts'],
+    };
+    return { stories: input.stories, spreads: input.spreads, diagnostics };
+  }
 }
