@@ -1,7 +1,7 @@
 # Task083.3 — Completion-First Closing Quality Pass
 
 Date: 2026-10-16 JST
-Status: local verification PASS; Preview Acceptance not performed. No commit, push, merge or deployment.
+Status: local verification PASS; Preview Completion regression verification PASS (see dated acceptance section). No main merge or Production deployment.
 
 ## Regression root cause
 
@@ -91,3 +91,57 @@ Preview Acceptance is pending. The deployed Task083.1 Preview is unchanged and i
 The regression-derived fixture proves offline planner/subset completion, not authenticated UI completion, runtime outcome=ready, Preview reachability or production timing. Those must be confirmed on the next authorized Preview with the same real-photo conditions. Real density may remain seven; quality improvement is not a Completion acceptance gate.
 
 Stop before Preview Acceptance as requested.
+
+
+## Preview Acceptance — 2026-10-16 JST
+
+Completion regression verification: **PASS**. Editorial density improvement is not a gate; date-only count remains seven. No application code changed during acceptance.
+
+- Git Integration Preview commit: c12b5466d4dcb560038843d718f02a3c55a773cc.
+- New Album Preview: https://uchinoco-dqk5rbp3y-tadanokenjis-projects.vercel.app/pets/645f30fe-700f-441c-8878-6658caef0870/album/0733c1b1-7de4-4597-96a7-30ea8cbef711?view=preview
+- runId: ea98d017-e7eb-45ba-b213-707c6d82d684.
+- requestId: hph9m-1792109811335-2951a8d110d7.
+- Completed at 2026-10-16 09:17:06.879 JST. Runtime generation duration 15114.68ms (15.115 seconds), within 80 seconds.
+
+### Actual input identity
+
+Used the authenticated browser to create a new Album for both pets, recent three months, 24 body pages. A custom-date fill attempt left blank date inputs; no generation was submitted with that state. The existing recent-three-month preset was selected and readiness confirmed 24 eligible photos before generation.
+
+Read-only persisted metadata comparison proves the original 28 source-photo IDs, two-pet set and final 19 selected-photo IDs are all identical to the previous successful Album. Thus no forced extra/unsafe photo was introduced. Source date boundaries differ with the moving preset, but the exact photo sets match.
+
+### Completion / Task081
+
+- generationCompleted=true (albumAutoResume completion event).
+- outcome=ready (performance finished event).
+- unrecoveredCount=0; initialUnsafeSpreadCount=4; spreadCount=12.
+- Browser navigated normally from generating screen to the new Album's Preview. No action_required/error card was observed.
+- subsetAttemptCount=1; subsetSuccessCount=1; selectedPhotoCount=19; unusedPhotoCount=5; finalUnrecoveredCount=0.
+
+### Closing quality
+
+- initialClosingSparseSpreadCount=2; finalClosingSparseSpreadCount=1.
+- closingCleanupAttemptCount=1; closingCleanupSuccessCount=1.
+- closingCleanupFailureReasonCounts={}.
+
+DOM and selection checks confirm middle 13–14P now uses E_1_LEFT_WIDE; final 23–24P alone uses E_CLOSING. Thumbnail clicks selected the matching main spreads.
+
+### Density quality
+
+- initialDateOnlyPageCount=7; finalDateOnlyPageCount=7.
+- photoOccupiedPageCount=17; emptyPhotoPageCount=7; meaningfulTextOnlyPageCount=0; singlePhotoSpreadCount=7.
+- rebalanceAttemptCount=12; rebalanceSuccessCount=0.
+- rebalanceFailureReasonCounts: chronologyConstraint=2, petBalanceConstraint=2, sceneConstraint=2, templateIncompatibility=6, boundedSearchExhausted=1; noSafeDonor/cropSafety/sourceClipping=0.
+
+Runtime values equal persisted editorial_density metadata. Date-only pages observed in rendered spread structure are 2, 7, 14, 16, 19, 21, 23P. The old 13P date moved to 14P because Closing cleanup switched the photo from the right page to the left page. Count remains seven, consistent with diagnostics. Density quality failure did not cause Completion failure.
+
+### UI / safety evidence and limits
+
+All 19 body thumbnail images finished loading; main canvas measured 348 × 241.344px at the existing browser size. First, cleaned-middle and final Closing spreads were captured. Existing safety gates accepted the final composition; source clipping and crop rejections remain in Recovery counters, and the selected photo set is unchanged. This is not an independent human review of every crop. Saved rhythm audit has no blocking issues; score 64 and nonblocking streak issues remain quality follow-up items, outside this Completion regression gate.
+
+Evidence in chat outputs:
+- task083-3-preview-acceptance.json
+- task083-3-preview-first-spread.png
+- task083-3-preview-cleaned-closing.png
+- task083-3-preview-final-closing.png
+
+No code fix, additional deployment, merge, production change or photo editing was performed after acceptance began. This result verifies the requested Completion regression; final product/visual approval remains the user's decision.
