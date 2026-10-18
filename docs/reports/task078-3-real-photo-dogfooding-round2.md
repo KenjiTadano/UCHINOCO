@@ -4,7 +4,7 @@
 - 担当: GitHub Copilot
 - Branch: `feature/task078-3-real-photo-dogfooding`
 - ローカル評価対象: `0571a1fd2f0a360af9ae1a9e86079ecb14ff3b3c`
-- Production: https://www.uchinoco.app
+- Production: https://production.example.test
 - 実施状態: **BLOCKED / 開始条件未確認。実写真の品質評価は開始していない。**
 - Product verdict: **未判定**。A — READY / B — CONDITIONAL / C — NOT READY のいずれも、今回の実写真評価として選べる証拠がない。評価開始・商品受入判定は保留する。未測定を品質不良や成功として扱わない。
 

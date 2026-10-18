@@ -88,6 +88,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   }
 
   function beginGeneration(current: AlbumIntent, autoResumeTriggered = true) {
+    if (state.status === "action_required") return;
     const valid = validAlbumIntent(current, petId, ownedPetKey.split(","));
     const matchesSetup = albumIntentMatchesSetup(current, { petId, petIds: selectedIds, period: selected, pageCount, periodFrom, periodTo });
     if (!valid || !matchesSetup) {
@@ -101,6 +102,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
     }
     if (autoResumeTriggered && !shouldAutoResumeAlbum({ intentPresent: true, intentValid: valid, readiness, generationRunning: false })) return;
     executing.current = true;
+    setRecovery(null);
     saveIntent({ ...current, phase: "generating" });
     const form = intentFormData(current);
     form.set("autoResumeTriggered", String(autoResumeTriggered));
@@ -140,6 +142,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
     if (state.status === "complete" && state.previewHref) {
       logAutoResume(intent, readiness, { autoResumeTriggered: true, generationStarted: true, generationCompleted: true, duplicateSuppressed: false });
       saveIntent(null);
+      setRecovery(null);
       router.replace(state.previewHref);
       return;
     }
@@ -155,7 +158,17 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
       const timer = setTimeout(() => beginGeneration(intent), delay);
       return () => clearTimeout(timer);
     }
-    setRecovery(state.status === "action_required" ? (state.error ?? "作成条件を確認できます。") : "作成を完了できませんでした。作成状況をもう一度確認できます。");
+    if (state.status === "action_required") {
+      saveIntent(null);
+      polls.current = 0;
+      generationRetries.current = 0;
+      setRecovery(state.error ?? "作成条件を確認できます。");
+      return;
+    }
+    saveIntent(null);
+    polls.current = 0;
+    generationRetries.current = 0;
+    setRecovery("作成を完了できませんでした。作成状況をもう一度確認できます。");
   });
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -170,6 +183,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
 
   const checkReadiness = useEffectEvent((data: FormData) => (services?.readiness ?? checkAlbumReadiness)(petId, data));
   const observeReadyIntent = useEffectEvent((current: AlbumIntent | null, currentReadiness: AlbumReadiness) => {
+    if (state.status === "action_required" || state.status === "failed") return;
     const valid = Boolean(current && validAlbumIntent(current, petId, ownedPetKey.split(",")));
     const matchesSetup = Boolean(current && albumIntentMatchesSetup(current, { petId, petIds: selectedIds, period: selected, pageCount, periodFrom, periodTo }));
     const canResume = shouldAutoResumeAlbum({ intentPresent: Boolean(current), intentValid: valid && matchesSetup, readiness: currentReadiness, generationRunning: pending || executing.current });
@@ -248,6 +262,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   function requestCreation(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (executing.current || pending || intent) return;
+    setRecovery(null);
     const current: AlbumIntent = { id: crypto.randomUUID(), petId, petIds: selectedIds, period: selected, pageCount, periodFrom, periodTo, requestedAt: new Date().toISOString(), phase: "preparing" };
     polls.current = 0;
     generationRetries.current = 0;
@@ -263,6 +278,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   }
 
   function selectSmallerPages(pages: 24 | 48 | 72) {
+    setRecovery(null);
     if (intent) saveIntent({ ...intent, pageCount: pages, phase: "preparing" });
     else cancelIntent();
     setPageCount(pages);
@@ -271,8 +287,11 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
   const shortage = readiness?.state === "shortage";
   const locked = Boolean(intent);
   const blocked = !readiness || shortage || readiness.state === "action_required";
+  const activeRecovery = recovery ?? (state.status === "action_required" || state.status === "failed" ? (state.error ?? "作成条件を確認できます。") : null);
 
-  if (pending || (!recovery && (intent?.phase === "generating" || (intent && readiness?.state === "ready")))) {
+  const showGenerating = (pending && state.status !== "action_required") || (state.status === "complete" && Boolean(state.previewHref)) || (!activeRecovery && !state.error && state.status !== "action_required" && state.status !== "failed" && (intent?.phase === "generating" || (intent && readiness?.state === "ready")));
+
+  if (showGenerating) {
     return (
       <div role="status" aria-live="polite">
         <AlbumGeneratingScreen petName={selectedPetLabel} photoCount={readiness?.total ?? selectedPhotoCount} backHref={backHref} activeStep={generatingStep} />
@@ -396,10 +415,10 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
           </fieldset>
         </fieldset>
 
-        {recovery ? (
+        {activeRecovery ? (
           <RecoveryState
             title={state.recoveryReason === "layout" ? "別の写真でアルバムを完成できます" : "ここから続けられます"}
-            description={recovery}
+            description={activeRecovery}
             primaryAction={
               state.recoveryReason === "layout"
                 ? { label: "別の写真を見直す", href: `/pets/${petId}`, onClick: cancelIntent }
@@ -447,7 +466,7 @@ export function AlbumCreateForm({ petId, petName, petOptions, backHref, services
           </p>
         ) : null}
 
-        {!intent && !recovery ? (
+        {!intent && !activeRecovery ? (
           <button type="submit" disabled={blocked} className="app-button-primary min-h-11">
             {readiness?.state === "preparing" ? "準備してアルバムを作る" : "アルバムを作る"}
           </button>

@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 
 const PROJECT = "uchinoco";
 const ENVIRONMENT = "production";
-const EVENT_NAMES = ["albumLayoutRecovery", "photoFrameMatching"];
+const EVENT_NAMES = ["albumLayoutRecovery", "photoFrameMatching", "photoSubsetSelection", "editorialDensity", "albumGenerationCompletion", "completion"];
 const SENSITIVE_KEY = /(?:photo|pet|album|user|request|deployment|project).*id|email|caption|storage.?path|signed.?url|token|cookie/i;
 
 export function parseOptions(args) {
@@ -40,14 +40,115 @@ function redact(value) {
   return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, SENSITIVE_KEY.test(key) ? "[redacted]" : redact(child)]));
 }
 
-function parseMessagePayload(message) {
-  const start = message.indexOf("{");
-  if (start < 0) return message;
-  try {
-    return JSON.parse(message.slice(start));
-  } catch {
-    return message;
+const MAX_PAYLOAD_LENGTH = 1024 * 1024;
+const MAX_DEPTH = 32;
+const MAX_VALUES = 10000;
+const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+
+// Only a data grammar: objects, arrays, quoted strings, finite numbers and literals.
+// Node inspection placeholders remain opaque strings, never invented nested data.
+function parseLegacyPayload(source) {
+  let index = 0, values = 0;
+  const invalid = () => { throw new Error("Unsupported log payload"); };
+  const whitespace = () => { while (/\s/.test(source[index] ?? "") && index < source.length) index++; };
+  function quoted() {
+    const quote = source[index++];
+    let value = "";
+    while (index < source.length) {
+      const char = source[index++];
+      if (char === quote) return value;
+      if (char.charCodeAt(0) < 32) invalid();
+      if (char !== "\\") { value += char; continue; }
+      const escaped = source[index++];
+      const escapes = { '"': '"', "'": "'", "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
+      if (Object.hasOwn(escapes, escaped)) value += escapes[escaped];
+      else if (escaped === "u" && /^[\da-f]{4}$/i.test(source.slice(index, index + 4))) {
+        value += String.fromCharCode(Number.parseInt(source.slice(index, index + 4), 16)); index += 4;
+      } else invalid();
+    }
+    invalid();
   }
+  function value(depth) {
+    if (depth > MAX_DEPTH || ++values > MAX_VALUES) invalid();
+    whitespace();
+    for (const placeholder of ["[Object]", "[Array]"]) {
+      if (source.startsWith(placeholder, index)) { index += placeholder.length; return placeholder; }
+    }
+    const char = source[index];
+    if (char === '"' || char === "'") return quoted();
+    if (char === "{" || char === "[") {
+      const object = char === "{", close = object ? "}" : "]";
+      const items = [], keys = new Set(); index++; whitespace();
+      if (source[index] === close) { index++; return object ? {} : []; }
+      while (index < source.length) {
+        if (object) {
+          whitespace();
+          let key;
+          if (source[index] === '"' || source[index] === "'") key = quoted();
+          else {
+            const match = /^[A-Za-z_$][\w$]*/.exec(source.slice(index));
+            if (!match) invalid();
+            key = match[0]; index += key.length;
+          }
+          if (UNSAFE_KEYS.has(key) || keys.has(key)) invalid();
+          keys.add(key); whitespace();
+          if (source[index++] !== ":") invalid();
+          items.push([key, value(depth + 1)]);
+        } else items.push(value(depth + 1));
+        whitespace();
+        if (source[index] === close) { index++; return object ? Object.fromEntries(items) : items; }
+        if (source[index++] !== ",") invalid();
+        whitespace();
+        if (source[index] === close) { index++; return object ? Object.fromEntries(items) : items; }
+      }
+      invalid();
+    }
+    for (const [literal, result] of [["true", true], ["false", false], ["null", null]]) {
+      if (source.startsWith(literal, index)) { index += literal.length; return result; }
+    }
+    const number = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(source.slice(index));
+    if (!number || !Number.isFinite(Number(number[0]))) invalid();
+    index += number[0].length;
+    return Number(number[0]);
+  }
+  const result = value(0); whitespace();
+  if (index !== source.length) invalid();
+  return result;
+}
+
+function validatePayload(value, depth = 0, budget = { count: 0 }) {
+  if (depth > MAX_DEPTH || ++budget.count > MAX_VALUES) throw new Error("Log payload limit exceeded");
+  if (typeof value === "number" && !Number.isFinite(value)) throw new Error("Nonfinite log number");
+  if (value && typeof value === "object") for (const [key, child] of Object.entries(value)) {
+    if (UNSAFE_KEYS.has(key)) throw new Error("Unsupported log key");
+    validatePayload(child, depth + 1, budget);
+  }
+  return value;
+}
+
+export function parseMessagePayload(message) {
+  if (typeof message !== "string") return message;
+  if (message.length > MAX_PAYLOAD_LENGTH) return message;
+  const start = message.indexOf("{");
+  const end = message.lastIndexOf("}");
+  if (start < 0 || end < start) return message;
+  if (message.slice(end + 1).trim()) return message;
+  const slice = message.slice(start, end + 1);
+
+  // 1. First attempt standard JSON parsing
+  try {
+    return validatePayload(JSON.parse(slice));
+  } catch {
+    // Try only the restricted legacy data grammar below.
+  }
+
+  try {
+    return validatePayload(parseLegacyPayload(slice));
+  } catch {
+    // continue
+  }
+
+  return message;
 }
 
 export function matchingEvents(record) {
@@ -74,19 +175,44 @@ export function matchingEvents(record) {
     const matchingName = EVENT_NAMES.find((name) => fields.some((field) => field.includes(name)));
     if (matchingName) {
       const message = fields.find((field) => field.includes(matchingName));
+      const parsedMessage = message ? parseMessagePayload(message) : null;
       const payload = { ...value };
       delete payload.message;
       delete payload.msg;
       delete payload.event;
       delete payload.name;
-      const parsedMessage = message ? parseMessagePayload(message) : null;
-      matches.push({ event: matchingName, timestamp: value.timestamp ?? record.timestamp ?? null, level: value.level ?? record.level ?? null, data: redact(Object.keys(payload).length ? payload : parsedMessage) });
+      delete payload.level;
+      delete payload.timestamp;
+
+      let combinedData = {};
+      if (parsedMessage && typeof parsedMessage === "object") {
+        combinedData = { ...payload, ...parsedMessage };
+      } else if (Object.keys(payload).length > 0) {
+        combinedData = payload;
+      }
+
+      matches.push({
+        event: matchingName,
+        timestamp: value.timestamp ?? record.timestamp ?? null,
+        level: value.level ?? record.level ?? null,
+        data: redact(combinedData),
+      });
       return;
     }
     for (const [key, child] of Object.entries(value)) {
       const matchingKey = EVENT_NAMES.find((name) => key.includes(name));
       if (matchingKey) {
-        matches.push({ event: matchingKey, timestamp: value.timestamp ?? record.timestamp ?? null, level: value.level ?? record.level ?? null, data: redact(child) });
+        let childData = child;
+        if (typeof child === "string") {
+          const parsed = parseMessagePayload(child);
+          childData = typeof parsed === "object" ? parsed : {};
+        }
+        matches.push({
+          event: matchingKey,
+          timestamp: value.timestamp ?? record.timestamp ?? null,
+          level: value.level ?? record.level ?? null,
+          data: redact(childData),
+        });
       } else {
         visit(child);
       }
@@ -111,7 +237,7 @@ export function parseJsonLines(text) {
 
 function printHelp() {
   console.log("Usage: node scripts/vercel-album-logs.mjs [--since 1h] [--limit 100]");
-  console.log("Read-only Production logs for albumLayoutRecovery and photoFrameMatching.");
+  console.log(`Read-only Production logs for ${EVENT_NAMES.join(", ")}.`);
 }
 
 function main() {
@@ -129,18 +255,7 @@ function main() {
   }
 
   const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-  const args = [
-    "--yes",
-    "vercel@latest",
-    "logs",
-    "--project", PROJECT,
-    "--environment", ENVIRONMENT,
-    "--since", options.since,
-    "--limit", String(options.limit),
-    "--expand",
-    "--json",
-    "--non-interactive",
-  ];
+  const args = ["--yes", "vercel@latest", "logs", "--project", PROJECT, "--environment", ENVIRONMENT, "--since", options.since, "--limit", String(options.limit), "--expand", "--json", "--non-interactive"];
   const result = spawnSync(npx, args, { encoding: "utf8", maxBuffer: 20 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
   if (result.error) {
     console.error(`Unable to run npx Vercel CLI: ${result.error.message}`);

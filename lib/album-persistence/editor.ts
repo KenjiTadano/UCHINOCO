@@ -184,11 +184,11 @@ export function toAlbumEditorSpread(spread: PersistedSpreadView, previewUrls: Re
     layoutOverridden: effective.layoutOverridden,
     revision: spread.source.revision,
     clientSeq: spread.source.clientSeq,
-    frames: spread.sourceFrames.map((frame) => {
+    frames: spread.sourceFrames.map((frame, index) => {
       const shown = resolveEffectiveFrame(frame);
       return {
         id: frame.id,
-        frameId: frame.frameId,
+        frameId: spread.preview.assignments[index]?.frameId ?? frame.frameId,
         role: frame.role,
         position: frame.position,
         photoId: shown.photoId,
@@ -315,7 +315,39 @@ export function clientSeqOf(view: PersistedDraftView, id: string) {
 }
 
 /** A slower response must not replace a newer local edit. */
-export function mergeServerDraft(local: PersistedDraftView, server: PersistedDraftView, sentSeq: number, targetId: string): PersistedDraftView {
-  if (clientSeqOf(local, targetId) > sentSeq) return local;
-  return server;
+export function mergeServerDraft(local: PersistedDraftView, server: PersistedDraftView, sentSeq: number, targetId: string, dirty: ReadonlyMap<string, number> = new Map()): PersistedDraftView {
+  if (local.versionId !== server.versionId || clientSeqOf(local, targetId) > sentSeq) return local;
+  let preserved = false;
+  const newest = <T extends { clientSeq: number; revision: number }>(current: T | undefined, incoming: T): T => {
+    if (current && (current.clientSeq > incoming.clientSeq || current.revision > incoming.revision)) {
+      preserved = true;
+      return { ...current, revision: Math.max(current.revision, incoming.revision) };
+    }
+    return incoming;
+  };
+  const previewUrls = { ...server.previewUrls, ...local.previewUrls };
+  const spreads = server.spreads.map((incoming) => {
+    const current = local.spreads.find((spread) => spread.id === incoming.id);
+    if (!current) return incoming;
+    const source = newest(current.source, incoming.source);
+    const frames = incoming.sourceFrames.map((frame) => newest(current.sourceFrames.find((row) => row.id === frame.id), frame));
+    const mergeRows = <T extends { clientSeq: number; revision: number }>(before: T[], after: T[], key: (row: T) => string, target: (row: T) => string) => {
+      const merged = after.filter((row) => before.some((other) => key(other) === key(row)) || (dirty.get(target(row)) ?? 0) <= row.clientSeq).map((row) => newest(before.find((other) => key(other) === key(row)), row));
+      if (merged.length !== after.length) preserved = true;
+      for (const row of before) if (!after.some((other) => key(other) === key(row)) && dirty.has(target(row))) { preserved = true; merged.push(row); }
+      return merged;
+    };
+    const texts = mergeRows(current.texts, incoming.texts, (row) => row.slotId, (row) => `text:${incoming.id}:${row.slotId}`);
+    const decorations = mergeRows(current.decorations, incoming.decorations, (row) => row.slotId, (row) => `decoration:${incoming.id}:${row.slotId}`);
+    const elements = mergeRows(current.elements, incoming.elements, (row) => row.id, (row) => `element:${incoming.id}:${row.id}`);
+    const backgrounds = { left: newest(current.backgrounds.left, incoming.backgrounds.left), right: newest(current.backgrounds.right, incoming.backgrounds.right) };
+    return { ...assembleEditorSpread(source, frames, new Map(Object.entries(previewUrls)), texts, decorations, elements, backgrounds), layoutRanking: incoming.layoutRanking };
+  });
+  return preserved ? { ...server, previewUrls, spreads } : server;
+}
+
+
+/** Every draft surface projects from the same effective rows and visual layers. */
+export function draftSpreadRenderProps(spread: PersistedSpreadView, previewUrls: Record<string, string>) {
+  return { preview: spread.preview, frames: toAlbumEditorSpread(spread, previewUrls).frames, texts: spread.texts, decorations: spread.decorations, elements: spread.elements, backgrounds: spread.backgrounds, layoutId: spread.effectiveLayoutId, digital: true as const };
 }

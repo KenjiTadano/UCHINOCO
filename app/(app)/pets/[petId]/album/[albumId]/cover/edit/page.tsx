@@ -72,6 +72,7 @@ export default async function CoverEditPage({ params }: Props) {
 
   return (
     <CoverEditScreen
+      key={loaded.cover ? `${loaded.cover.draftVersionId}:${loaded.cover.id}` : albumId}
       petName={pet.name}
       dateLabel={periodLabels.coverDateLabel}
       cover={loaded.cover}

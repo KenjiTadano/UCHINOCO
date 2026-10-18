@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ChevronLeft, Image as ImageIcon, X } from "lucide-react";
 import type { CoverSeed } from "@/app/(app)/album-draft-service";
@@ -55,7 +56,11 @@ export function CoverEditScreen({
   doneHref,
   generateHref,
 }: CoverEditScreenProps) {
+  const router = useRouter();
   const draft = useCoverEditDraft(initialCover, albumId, seed, readonly);
+  const leaveEditor = async (href: string) => {
+    if (await draft.flushPending()) router.push(href);
+  };
   const cover = draft.cover;
   const [tab, setTab] = useState<TabId>("design");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -77,6 +82,7 @@ export function CoverEditScreen({
       <header className="cover-edit-header">
         <Link
           href={backHref}
+          onClick={(event) => { event.preventDefault(); void leaveEditor(backHref); }}
           className="cover-edit-header-side cover-edit-back ds-focus"
           aria-label="戻る"
           data-testid="cover-edit-back"
@@ -95,6 +101,7 @@ export function CoverEditScreen({
         </div>
         <Link
           href={doneHref}
+          onClick={(event) => { event.preventDefault(); void leaveEditor(doneHref); }}
           className="cover-edit-header-side cover-edit-done ds-focus"
           data-testid="cover-edit-done"
         >

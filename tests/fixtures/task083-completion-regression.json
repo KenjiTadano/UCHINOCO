@@ -1,0 +1,1974 @@
+{
+  "description": "Task083.2 regression: numeric geometry and scores only; IDs, dates and scene labels replaced; no images or captions",
+  "records": [
+    {
+      "photo": {
+        "photoId": "photo-02",
+        "petId": "pet-0",
+        "groupId": "group-12",
+        "timeline": "2020-01-01T00:00:00.000Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-02",
+          "scores": {
+            "photoIntelligence": 83,
+            "expression": 85,
+            "petVisibility": 90,
+            "technical": 94,
+            "composition": 91,
+            "memoryValue": 75,
+            "relativeUniqueness": 100,
+            "sharpness": 96,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 88
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.197,
+              "y": 0.123,
+              "width": 0.7129999999999999,
+              "height": 0.683
+            },
+            "face": {
+              "x": 0.197,
+              "y": 0.123,
+              "width": 0.413,
+              "height": 0.313
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.395,
+          "y": 0.28
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "heroScore": 87,
+          "analyzedAt": null,
+          "squareScore": 81,
+          "portraitScore": 71,
+          "subjectAnchor": "center",
+          "fullBleedScore": 86,
+          "landscapeScore": 81,
+          "squareCropSafe": true,
+          "subjectSafeArea": {
+            "x": 0.07505,
+            "y": 0,
+            "width": 0.8949499999999999,
+            "height": 0.8660000000000002
+          },
+          "portraitCropSafe": false,
+          "landscapeCropSafe": true,
+          "sourceAspectRatio": 1.3333333333333333,
+          "sourceOrientation": "landscape",
+          "sourceSubjectClipped": false
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-21",
+        "petId": "pet-0",
+        "groupId": "group-07",
+        "timeline": "2020-01-01T13:29:00.000Z",
+        "scene": "semantic-1",
+        "candidate": {
+          "photoId": "photo-21",
+          "scores": {
+            "photoIntelligence": 74,
+            "expression": 75,
+            "petVisibility": 89,
+            "technical": 67,
+            "composition": 87,
+            "memoryValue": 65,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 86,
+            "overall": 79
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 5712,
+        "height": 4284,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.14,
+              "y": 0.42,
+              "width": 0.56,
+              "height": 0.27999999999999997
+            },
+            "face": {
+              "x": 0.49,
+              "y": 0.56,
+              "width": 0.15000000000000002,
+              "height": 0.10999999999999999
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.565,
+          "y": 0.675
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 77,
+          "landscapeScore": 93,
+          "squareScore": 87,
+          "heroScore": 81,
+          "fullBleedScore": 93,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.08000000000000002,
+            "y": 0.36,
+            "width": 0.6800000000000002,
+            "height": 0.4
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-04",
+        "petId": "pet-0",
+        "groupId": "group-20",
+        "timeline": "2020-01-03T00:42:00.000Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-04",
+          "scores": {
+            "photoIntelligence": 83,
+            "expression": 90,
+            "petVisibility": 92,
+            "technical": 67,
+            "composition": 91,
+            "memoryValue": 80,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 87
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 5712,
+        "height": 4284,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.1,
+              "y": 0.25,
+              "width": 0.8,
+              "height": 0.55
+            },
+            "face": {
+              "x": 0.3,
+              "y": 0.25,
+              "width": 0.3,
+              "height": 0.25
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.45,
+          "y": 0.35
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "heroScore": 92,
+          "analyzedAt": null,
+          "squareScore": 88,
+          "portraitScore": 76,
+          "subjectAnchor": "center",
+          "fullBleedScore": 91,
+          "landscapeScore": 89,
+          "squareCropSafe": true,
+          "subjectSafeArea": {
+            "x": 0.04000000000000001,
+            "y": 0.10250000000000001,
+            "width": 0.9200000000000002,
+            "height": 0.7575000000000001
+          },
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "sourceAspectRatio": 1.3333333333333333,
+          "sourceOrientation": "landscape",
+          "sourceSubjectClipped": false
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-19",
+        "petId": "pet-0",
+        "groupId": "group-10",
+        "timeline": "2020-01-28T06:16:37.757Z",
+        "scene": "semantic-1",
+        "activity": "semantic-2",
+        "candidate": {
+          "photoId": "photo-19",
+          "scores": {
+            "photoIntelligence": 78,
+            "expression": 85,
+            "petVisibility": 92,
+            "technical": 62,
+            "composition": 91,
+            "memoryValue": 70,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 84
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 3024,
+        "height": 4032,
+        "orientation": "portrait",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.15,
+              "y": 0.15,
+              "width": 0.7,
+              "height": 0.7
+            },
+            "face": {
+              "x": 0.5,
+              "y": 0.2,
+              "width": 0.4,
+              "height": 0.4000000000000001
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.55,
+          "y": 0.35
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "portrait",
+          "sourceAspectRatio": 0.75,
+          "portraitScore": 83,
+          "landscapeScore": 66,
+          "squareScore": 83,
+          "heroScore": 88,
+          "fullBleedScore": 87,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": false,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.09,
+            "y": 0,
+            "width": 0.91,
+            "height": 0.9100000000000001
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-05",
+        "petId": "pet-0",
+        "groupId": "group-00",
+        "timeline": "2020-01-28T06:16:38.313Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-05",
+          "scores": {
+            "photoIntelligence": 78,
+            "expression": 75,
+            "petVisibility": 89,
+            "technical": 62,
+            "composition": 89,
+            "memoryValue": 80,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 82
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4284,
+        "height": 5712,
+        "orientation": "portrait",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.05,
+              "y": 0.15,
+              "width": 0.4,
+              "height": 0.7
+            },
+            "face": {
+              "x": 0.1,
+              "y": 0.2,
+              "width": 0.15,
+              "height": 0.14999999999999997
+            },
+            "confidence": 0.9
+          },
+          {
+            "bbox": {
+              "x": 0.35,
+              "y": 0.3,
+              "width": 0.55,
+              "height": 0.5999999999999999
+            },
+            "face": {
+              "x": 0.65,
+              "y": 0.35,
+              "width": 0.15000000000000002,
+              "height": 0.15000000000000002
+            },
+            "confidence": 0.9
+          }
+        ],
+        "focalPoint": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "analysisConfidence": {
+          "petDetection": 0.9
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "portrait",
+          "sourceAspectRatio": 0.75,
+          "portraitScore": 80,
+          "landscapeScore": 72,
+          "squareScore": 85,
+          "heroScore": 90,
+          "fullBleedScore": 88,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": false,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0,
+            "y": 0.08750000000000002,
+            "width": 0.96,
+            "height": 0.8725
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-03",
+        "petId": "pet-0",
+        "groupId": "group-02",
+        "timeline": "2020-01-28T06:16:38.808Z",
+        "scene": "semantic-1",
+        "activity": "semantic-0",
+        "candidate": {
+          "photoId": "photo-03",
+          "scores": {
+            "photoIntelligence": 78,
+            "expression": 78,
+            "petVisibility": 93,
+            "technical": 62,
+            "composition": 89,
+            "memoryValue": 72,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 82
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.01,
+              "y": 0.13,
+              "width": 0.49,
+              "height": 0.74
+            },
+            "face": {
+              "x": 0.08,
+              "y": 0.16,
+              "width": 0.18,
+              "height": 0.25
+            },
+            "confidence": 0.95
+          },
+          {
+            "bbox": {
+              "x": 0.34,
+              "y": 0.11,
+              "width": 0.5899999999999999,
+              "height": 0.77
+            },
+            "face": {
+              "x": 0.63,
+              "y": 0.18,
+              "width": 0.18000000000000005,
+              "height": 0.23000000000000004
+            },
+            "confidence": 0.95
+          }
+        ],
+        "focalPoint": {
+          "x": 0.49,
+          "y": 0.44
+        },
+        "analysisConfidence": {
+          "petDetection": 0.95
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 40,
+          "landscapeScore": 84,
+          "squareScore": 82,
+          "heroScore": 89,
+          "fullBleedScore": 88,
+          "portraitCropSafe": false,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0,
+            "y": 0.012500000000000011,
+            "width": 0.99,
+            "height": 0.9275
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-16",
+        "petId": "pet-0",
+        "groupId": "group-22",
+        "timeline": "2020-01-28T06:16:39.348Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-16",
+          "scores": {
+            "photoIntelligence": 77,
+            "expression": 85,
+            "petVisibility": 90,
+            "technical": 62,
+            "composition": 91,
+            "memoryValue": 70,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 83
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 3024,
+        "height": 4032,
+        "orientation": "portrait",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.2,
+              "y": 0.1,
+              "width": 0.6000000000000001,
+              "height": 0.8
+            },
+            "face": {
+              "x": 0.25,
+              "y": 0.1,
+              "width": 0.30000000000000004,
+              "height": 0.24999999999999997
+            },
+            "confidence": 0.95
+          }
+        ],
+        "focalPoint": {
+          "x": 0.4,
+          "y": 0.2
+        },
+        "analysisConfidence": {
+          "petDetection": 0.95
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "portrait",
+          "sourceAspectRatio": 0.75,
+          "portraitScore": 85,
+          "landscapeScore": 71,
+          "squareScore": 84,
+          "heroScore": 90,
+          "fullBleedScore": 88,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.14,
+            "y": 0,
+            "width": 0.7200000000000002,
+            "height": 0.9600000000000001
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-15",
+        "petId": "pet-0",
+        "groupId": "group-13",
+        "timeline": "2020-03-03T05:47:04.343Z",
+        "scene": "semantic-1",
+        "activity": "semantic-2",
+        "candidate": {
+          "photoId": "photo-15",
+          "scores": {
+            "photoIntelligence": 87,
+            "expression": 88,
+            "petVisibility": 92,
+            "technical": 89,
+            "composition": 91,
+            "memoryValue": 80,
+            "relativeUniqueness": 100,
+            "sharpness": 90,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 90
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 1108,
+        "height": 1477,
+        "orientation": "portrait",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.23,
+              "y": 0.23,
+              "width": 0.5,
+              "height": 0.5
+            },
+            "face": {
+              "x": 0.32,
+              "y": 0.18,
+              "width": 0.3499999999999999,
+              "height": 0.2
+            },
+            "confidence": 0.99
+          }
+        ],
+        "focalPoint": {
+          "x": 0.5,
+          "y": 0.45
+        },
+        "analysisConfidence": {
+          "petDetection": 0.99
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "portrait",
+          "sourceAspectRatio": 0.7501692620176033,
+          "portraitScore": 87,
+          "landscapeScore": 77,
+          "squareScore": 89,
+          "heroScore": 90,
+          "fullBleedScore": 91,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.17,
+            "y": 0.05,
+            "width": 0.6200000000000001,
+            "height": 0.74
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-22",
+        "petId": "pet-1",
+        "groupId": "group-14",
+        "timeline": "2020-01-28T06:43:36.964Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-22",
+          "scores": {
+            "photoIntelligence": 79,
+            "expression": 85,
+            "petVisibility": 92,
+            "technical": 62,
+            "composition": 91,
+            "memoryValue": 75,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 84
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 5712,
+        "height": 4284,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.275,
+              "y": 0.25,
+              "width": 0.55,
+              "height": 0.6
+            },
+            "face": {
+              "x": 0.55,
+              "y": 0.29,
+              "width": 0.25,
+              "height": 0.25000000000000006
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.675,
+          "y": 0.415
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 82,
+          "landscapeScore": 82,
+          "squareScore": 89,
+          "heroScore": 92,
+          "fullBleedScore": 91,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.21500000000000002,
+            "y": 0.14249999999999996,
+            "width": 0.6825000000000001,
+            "height": 0.7675000000000001
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-10",
+        "petId": "pet-1",
+        "groupId": "group-21",
+        "timeline": "2020-01-28T06:43:37.289Z",
+        "scene": "semantic-1",
+        "candidate": {
+          "photoId": "photo-10",
+          "scores": {
+            "photoIntelligence": 80,
+            "expression": 85,
+            "petVisibility": 92,
+            "technical": 62,
+            "composition": 84,
+            "memoryValue": 80,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 86,
+            "overall": 84
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.18,
+              "y": 0.18,
+              "width": 0.6300000000000001,
+              "height": 0.6800000000000002
+            },
+            "face": {
+              "x": 0.35,
+              "y": 0.64,
+              "width": 0.24,
+              "height": 0.18000000000000005
+            },
+            "confidence": 0.95
+          }
+        ],
+        "focalPoint": {
+          "x": 0.45,
+          "y": 0.73
+        },
+        "analysisConfidence": {
+          "petDetection": 0.95
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 77,
+          "landscapeScore": 84,
+          "squareScore": 87,
+          "heroScore": 91,
+          "fullBleedScore": 89,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.12,
+            "y": 0.12,
+            "width": 0.7500000000000002,
+            "height": 0.8000000000000003
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-07",
+        "petId": "pet-1",
+        "groupId": "group-19",
+        "timeline": "2020-01-28T06:43:37.556Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-07",
+          "scores": {
+            "photoIntelligence": 78,
+            "expression": 85,
+            "petVisibility": 83,
+            "technical": 62,
+            "composition": 88,
+            "memoryValue": 75,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 83
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.08,
+              "y": 0.02,
+              "width": 0.84,
+              "height": 0.96
+            },
+            "face": {
+              "x": 0.25,
+              "y": 0.11,
+              "width": 0.47,
+              "height": 0.47
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.49,
+          "y": 0.33
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 71,
+          "landscapeScore": 72,
+          "squareScore": 72,
+          "heroScore": 80,
+          "fullBleedScore": 80,
+          "portraitCropSafe": false,
+          "landscapeCropSafe": false,
+          "squareCropSafe": false,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.020000000000000004,
+            "y": 0,
+            "width": 0.96,
+            "height": 1
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-14",
+        "petId": "pet-1",
+        "groupId": "group-23",
+        "timeline": "2020-01-28T06:43:37.970Z",
+        "scene": "semantic-1",
+        "candidate": {
+          "photoId": "photo-14",
+          "scores": {
+            "photoIntelligence": 80,
+            "expression": 85,
+            "petVisibility": 92,
+            "technical": 62,
+            "composition": 91,
+            "memoryValue": 70,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 86,
+            "overall": 83
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 5712,
+        "height": 4284,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.203,
+              "y": 0.158,
+              "width": 0.6859999999999999,
+              "height": 0.664
+            },
+            "face": {
+              "x": 0.475,
+              "y": 0.215,
+              "width": 0.20899999999999996,
+              "height": 0.215
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.579,
+          "y": 0.323
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 80,
+          "landscapeScore": 86,
+          "squareScore": 88,
+          "heroScore": 92,
+          "fullBleedScore": 90,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.14300000000000002,
+            "y": 0.07974999999999999,
+            "width": 0.806,
+            "height": 0.8022500000000001
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-06",
+        "petId": "pet-1",
+        "groupId": "group-09",
+        "timeline": "2020-01-28T06:43:38.364Z",
+        "scene": "semantic-1",
+        "activity": "semantic-2",
+        "candidate": {
+          "photoId": "photo-06",
+          "scores": {
+            "photoIntelligence": 75,
+            "expression": 75,
+            "petVisibility": 88,
+            "technical": 62,
+            "composition": 91,
+            "memoryValue": 65,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 80
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.2,
+              "y": 0.1,
+              "width": 0.6000000000000001,
+              "height": 0.6
+            },
+            "face": {
+              "x": 0.2,
+              "y": 0.1,
+              "width": 0.6000000000000001,
+              "height": 0.5
+            },
+            "confidence": 0.95
+          }
+        ],
+        "focalPoint": {
+          "x": 0.5,
+          "y": 0.4
+        },
+        "analysisConfidence": {
+          "petDetection": 0.95
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 66,
+          "landscapeScore": 72,
+          "squareScore": 72,
+          "heroScore": 80,
+          "fullBleedScore": 80,
+          "portraitCropSafe": false,
+          "landscapeCropSafe": false,
+          "squareCropSafe": false,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.05,
+            "y": 0,
+            "width": 0.9000000000000001,
+            "height": 0.76
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-00",
+        "petId": "pet-1",
+        "groupId": "group-01",
+        "timeline": "2020-01-28T06:43:38.667Z",
+        "scene": "semantic-1",
+        "candidate": {
+          "photoId": "photo-00",
+          "scores": {
+            "photoIntelligence": 76,
+            "expression": 75,
+            "petVisibility": 92,
+            "technical": 62,
+            "composition": 91,
+            "memoryValue": 70,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 86,
+            "overall": 81
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.1,
+              "y": 0.3,
+              "width": 0.6,
+              "height": 0.39999999999999997
+            },
+            "face": {
+              "x": 0.1,
+              "y": 0.3,
+              "width": 0.4,
+              "height": 0.3
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.3,
+          "y": 0.45
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 74,
+          "landscapeScore": 87,
+          "squareScore": 90,
+          "heroScore": 92,
+          "fullBleedScore": 91,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0,
+            "y": 0.135,
+            "width": 0.76,
+            "height": 0.625
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-12",
+        "petId": "pet-1",
+        "groupId": "group-11",
+        "timeline": "2020-01-28T06:43:38.915Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-12",
+          "scores": {
+            "photoIntelligence": 76,
+            "expression": 78,
+            "petVisibility": 84,
+            "technical": 62,
+            "composition": 88,
+            "memoryValue": 75,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 81
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 5712,
+        "height": 4284,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0,
+              "y": 0.1,
+              "width": 0.95,
+              "height": 0.8
+            },
+            "face": {
+              "x": 0.7,
+              "y": 0.1,
+              "width": 0.21999999999999997,
+              "height": 0.24999999999999997
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.485,
+          "y": 0.5
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 75,
+          "landscapeScore": 76,
+          "squareScore": 82,
+          "heroScore": 87,
+          "fullBleedScore": 86,
+          "portraitCropSafe": false,
+          "landscapeCropSafe": false,
+          "squareCropSafe": false,
+          "sourceSubjectClipped": true,
+          "subjectSafeArea": {
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 0.9600000000000001
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-11",
+        "petId": "pet-1",
+        "groupId": "group-18",
+        "timeline": "2020-01-28T06:43:39.169Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-11",
+          "scores": {
+            "photoIntelligence": 79,
+            "expression": 80,
+            "petVisibility": 88,
+            "technical": 62,
+            "composition": 91,
+            "memoryValue": 75,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 83
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.25,
+              "y": 0.1,
+              "width": 0.5,
+              "height": 0.8
+            },
+            "face": {
+              "x": 0.3,
+              "y": 0.15,
+              "width": 0.39999999999999997,
+              "height": 0.44999999999999996
+            },
+            "confidence": 0.95
+          }
+        ],
+        "focalPoint": {
+          "x": 0.5,
+          "y": 0.375
+        },
+        "analysisConfidence": {
+          "petDetection": 0.95
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 72,
+          "landscapeScore": 72,
+          "squareScore": 72,
+          "heroScore": 80,
+          "fullBleedScore": 80,
+          "portraitCropSafe": false,
+          "landscapeCropSafe": false,
+          "squareCropSafe": false,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.18,
+            "y": 0,
+            "width": 0.6399999999999999,
+            "height": 0.96
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-18",
+        "petId": "pet-1",
+        "groupId": "group-15",
+        "timeline": "2020-01-28T06:43:39.643Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-18",
+          "scores": {
+            "photoIntelligence": 79,
+            "expression": 85,
+            "petVisibility": 88,
+            "technical": 62,
+            "composition": 91,
+            "memoryValue": 75,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 84
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.076,
+              "y": 0,
+              "width": 0.83,
+              "height": 0.84
+            },
+            "face": {
+              "x": 0.56,
+              "y": 0.03,
+              "width": 0.3400000000000001,
+              "height": 0.28
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.73,
+          "y": 0.17
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 65,
+          "landscapeScore": 72,
+          "squareScore": 72,
+          "heroScore": 80,
+          "fullBleedScore": 80,
+          "portraitCropSafe": false,
+          "landscapeCropSafe": false,
+          "squareCropSafe": false,
+          "sourceSubjectClipped": true,
+          "subjectSafeArea": {
+            "x": 0.016,
+            "y": 0,
+            "width": 0.984,
+            "height": 0.8999999999999999
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-13",
+        "petId": "pet-1",
+        "groupId": "group-06",
+        "timeline": "2020-02-13T12:28:00.000Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-13",
+          "scores": {
+            "photoIntelligence": 81,
+            "expression": 85,
+            "petVisibility": 92,
+            "technical": 62,
+            "composition": 91,
+            "memoryValue": 80,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 85
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 5712,
+        "height": 4284,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.18,
+              "y": 0.3,
+              "width": 0.72,
+              "height": 0.6499999999999999
+            },
+            "face": {
+              "x": 0.5,
+              "y": 0.45,
+              "width": 0.28,
+              "height": 0.2
+            },
+            "confidence": 0.95
+          }
+        ],
+        "focalPoint": {
+          "x": 0.64,
+          "y": 0.55
+        },
+        "analysisConfidence": {
+          "petDetection": 0.95
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 79,
+          "landscapeScore": 86,
+          "squareScore": 90,
+          "heroScore": 93,
+          "fullBleedScore": 91,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.12,
+            "y": 0.24,
+            "width": 0.8400000000000001,
+            "height": 0.76
+          },
+          "subjectAnchor": "bottom",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-01",
+        "petId": "pet-1",
+        "groupId": "group-17",
+        "timeline": "2020-02-20T10:48:00.000Z",
+        "scene": "semantic-1",
+        "candidate": {
+          "photoId": "photo-01",
+          "scores": {
+            "photoIntelligence": 85,
+            "expression": 85,
+            "petVisibility": 92,
+            "technical": 93,
+            "composition": 91,
+            "memoryValue": 75,
+            "relativeUniqueness": 100,
+            "sharpness": 90,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 86,
+            "overall": 88
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.285,
+              "y": 0.255,
+              "width": 0.43,
+              "height": 0.51
+            },
+            "face": {
+              "x": 0.35,
+              "y": 0.3,
+              "width": 0.29999999999999993,
+              "height": 0.3
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.5,
+          "y": 0.45
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 85,
+          "landscapeScore": 85,
+          "squareScore": 90,
+          "heroScore": 86,
+          "fullBleedScore": 91,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.22499999999999998,
+            "y": 0.135,
+            "width": 0.55,
+            "height": 0.6900000000000002
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-08",
+        "petId": "pet-1",
+        "groupId": "group-16",
+        "timeline": "2020-02-21T09:44:00.000Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-08",
+          "scores": {
+            "photoIntelligence": 80,
+            "expression": 85,
+            "petVisibility": 92,
+            "technical": 62,
+            "composition": 91,
+            "memoryValue": 75,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 85
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.102,
+              "y": 0.089,
+              "width": 0.785,
+              "height": 0.822
+            },
+            "face": {
+              "x": 0.295,
+              "y": 0.196,
+              "width": 0.532,
+              "height": 0.462
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.511,
+          "y": 0.427
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 74,
+          "landscapeScore": 83,
+          "squareScore": 86,
+          "heroScore": 90,
+          "fullBleedScore": 89,
+          "portraitCropSafe": false,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.041999999999999996,
+            "y": 0,
+            "width": 0.9248000000000001,
+            "height": 0.9709999999999999
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-20",
+        "petId": "pet-1",
+        "groupId": "group-08",
+        "timeline": "2020-02-21T09:44:00.000Z",
+        "scene": "semantic-1",
+        "activity": "semantic-2",
+        "candidate": {
+          "photoId": "photo-20",
+          "scores": {
+            "photoIntelligence": 82,
+            "expression": 85,
+            "petVisibility": 92,
+            "technical": 67,
+            "composition": 91,
+            "memoryValue": 80,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 86
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 5712,
+        "height": 4284,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.1,
+              "y": 0.2,
+              "width": 0.8,
+              "height": 0.7
+            },
+            "face": {
+              "x": 0.6,
+              "y": 0.2,
+              "width": 0.25,
+              "height": 0.25
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.725,
+          "y": 0.325
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 79,
+          "landscapeScore": 82,
+          "squareScore": 86,
+          "heroScore": 90,
+          "fullBleedScore": 89,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.04000000000000001,
+            "y": 0.05250000000000002,
+            "width": 0.9200000000000002,
+            "height": 0.9075
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-23",
+        "petId": "pet-1",
+        "groupId": "group-03",
+        "timeline": "2020-02-28T01:22:00.000Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-23",
+          "scores": {
+            "photoIntelligence": 82,
+            "expression": 88,
+            "petVisibility": 88,
+            "technical": 62,
+            "composition": 87,
+            "memoryValue": 80,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 85
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.168,
+              "y": 0.139,
+              "width": 0.533,
+              "height": 0.594
+            },
+            "face": {
+              "x": 0.256,
+              "y": 0.627,
+              "width": 0.202,
+              "height": 0.138
+            },
+            "confidence": 0.95
+          }
+        ],
+        "focalPoint": {
+          "x": 0.365,
+          "y": 0.696
+        },
+        "analysisConfidence": {
+          "petDetection": 0.95
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 78,
+          "landscapeScore": 83,
+          "squareScore": 88,
+          "heroScore": 91,
+          "fullBleedScore": 90,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.10800000000000001,
+            "y": 0.07900000000000001,
+            "width": 0.653,
+            "height": 0.7598
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-09",
+        "petId": "pet-1",
+        "groupId": "group-04",
+        "timeline": "2020-02-29T10:34:00.000Z",
+        "scene": "semantic-1",
+        "activity": "semantic-2",
+        "candidate": {
+          "photoId": "photo-09",
+          "scores": {
+            "photoIntelligence": 80,
+            "expression": 85,
+            "petVisibility": 92,
+            "technical": 62,
+            "composition": 91,
+            "memoryValue": 75,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 85
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.08,
+              "y": 0.36,
+              "width": 0.84,
+              "height": 0.4600000000000001
+            },
+            "face": {
+              "x": 0.42,
+              "y": 0.28,
+              "width": 0.36000000000000004,
+              "height": 0.24
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.56,
+          "y": 0.47
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 75,
+          "landscapeScore": 89,
+          "squareScore": 87,
+          "heroScore": 92,
+          "fullBleedScore": 91,
+          "portraitCropSafe": true,
+          "landscapeCropSafe": true,
+          "squareCropSafe": true,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.020000000000000004,
+            "y": 0.13600000000000004,
+            "width": 0.96,
+            "height": 0.744
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    },
+    {
+      "photo": {
+        "photoId": "photo-17",
+        "petId": "pet-1",
+        "groupId": "group-05",
+        "timeline": "2020-03-01T02:02:00.000Z",
+        "scene": "semantic-1",
+        "activity": "semantic-3",
+        "candidate": {
+          "photoId": "photo-17",
+          "scores": {
+            "photoIntelligence": 78,
+            "expression": 85,
+            "petVisibility": 88,
+            "technical": 62,
+            "composition": 88,
+            "memoryValue": 75,
+            "relativeUniqueness": 100,
+            "sharpness": 62,
+            "duplicationPenalty": 0,
+            "sceneRepresentativeness": 100,
+            "overall": 83
+          },
+          "rank": 1,
+          "role": "primary"
+        },
+        "confidence": 1
+      },
+      "analysis": {
+        "width": 4032,
+        "height": 3024,
+        "orientation": "landscape",
+        "pets": [
+          {
+            "bbox": {
+              "x": 0.1,
+              "y": 0.05,
+              "width": 0.8,
+              "height": 0.9
+            },
+            "face": {
+              "x": 0.3,
+              "y": 0.1,
+              "width": 0.5,
+              "height": 0.5
+            },
+            "confidence": 0.98
+          }
+        ],
+        "focalPoint": {
+          "x": 0.5,
+          "y": 0.35
+        },
+        "analysisConfidence": {
+          "petDetection": 0.98
+        },
+        "layoutSuitability": {
+          "version": 1,
+          "sourceOrientation": "landscape",
+          "sourceAspectRatio": 1.3333333333333333,
+          "portraitScore": 72,
+          "landscapeScore": 72,
+          "squareScore": 72,
+          "heroScore": 80,
+          "fullBleedScore": 80,
+          "portraitCropSafe": false,
+          "landscapeCropSafe": false,
+          "squareCropSafe": false,
+          "sourceSubjectClipped": false,
+          "subjectSafeArea": {
+            "x": 0.04000000000000001,
+            "y": 0,
+            "width": 0.9200000000000002,
+            "height": 1
+          },
+          "subjectAnchor": "center",
+          "analyzedAt": null
+        }
+      },
+      "captionAvailable": false
+    }
+  ]
+}

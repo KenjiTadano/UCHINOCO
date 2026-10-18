@@ -43,7 +43,7 @@ bucketはprivate `print-files`、file size limitは52,428,800 bytes、許可MIME
 
 upload失敗時はsnapshot rowを作らない。snapshot save失敗時はupload objectをcleanupする。attach失敗時はobjectと未attach snapshot rowをbest-effort cleanupする。
 
-最終E2E snapshot `59551f2f-a956-4f91-a9b0-5ad260758d72`で`pdf_path`と`content_hash`の両方、Storage download成功、MIME、byte sizeを確認した。`finalized_at`はnullのままで、これは注文確定前の正しい状態である。注文確定用RPCは実行せず、provider注文・課金も行っていない。
+最終E2E snapshot `reference-fixture-03`で`pdf_path`と`content_hash`の両方、Storage download成功、MIME、byte sizeを確認した。`finalized_at`はnullのままで、これは注文確定前の正しい状態である。注文確定用RPCは実行せず、provider注文・課金も行っていない。
 
 ## 6. Fix
 
@@ -120,8 +120,8 @@ A5 trim + 3 mm bleedのPrintSpecと一致する。
 
 最終snapshot対象8枚のうち、thumbnail readyは6枚、legacy thumbnail未生成は2枚だった。
 
-- `2f44d467-e84c-46ed-9775-d795e143631d`
-- `72730214-38ed-49cf-8022-fc2da74e6387`
+- `reference-fixture-04`
+- `reference-fixture-05`
 
 Editor/PDFはoriginalが必要なためTask052.1のoriginal image delivery方針を変更していない。無制限bulk backfillは実行していない。既存の安全なユーザー起動backfill経路を使用する対象として残す。
 

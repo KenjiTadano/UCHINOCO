@@ -82,7 +82,10 @@ test("stored input validates versions/fingerprints, supports legacy and terminal
   const storedSuitability = analyzePhotoLayoutSuitability(legacyGeometry, "2026-10-12T00:00:00.000Z");
   const geometryRow = rows.find((row) => row.photo_id === photos[35].id && row.analysis_type === SUBJECT_GEOMETRY);
   geometryRow.result = { ...geometryRow.result, layoutSuitability: storedSuitability };
-  const reused = storedGenerationInputs(photos.slice(-1), rows.filter((row) => row.photo_id === photos[35].id));
+  const reused = storedGenerationInputs(
+    photos.slice(-1),
+    rows.filter((row) => row.photo_id === photos[35].id),
+  );
   assert.deepEqual(reused.geometry.get(photos[35].id).layoutSuitability, storedSuitability);
   rows[0].source_fingerprint = "stale";
   rows[3].analysis_version = "old";

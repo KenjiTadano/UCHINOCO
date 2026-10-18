@@ -43,31 +43,31 @@ type Intent =
 function rememberDraft(next: PersistedDraftView, seq: Map<string, number>, revision: Map<string, number>) {
   for (const spread of next.spreads) {
     seq.set(spread.id, Math.max(seq.get(spread.id) ?? 0, spread.source.clientSeq));
-    revision.set(spread.id, spread.source.revision);
+    revision.set(spread.id, Math.max(revision.get(spread.id) ?? 0, spread.source.revision));
     for (const frame of spread.sourceFrames) {
       seq.set(frame.id, Math.max(seq.get(frame.id) ?? 0, frame.clientSeq));
-      revision.set(frame.id, frame.revision);
+      revision.set(frame.id, Math.max(revision.get(frame.id) ?? 0, frame.revision));
     }
     for (const text of spread.texts ?? []) {
       const key = textTargetId(spread.id, text.slotId);
       seq.set(key, Math.max(seq.get(key) ?? 0, text.clientSeq));
-      revision.set(key, text.revision);
+      revision.set(key, Math.max(revision.get(key) ?? 0, text.revision));
     }
     for (const decoration of spread.decorations ?? []) {
       const key = decorationTargetId(spread.id, decoration.slotId);
       seq.set(key, Math.max(seq.get(key) ?? 0, decoration.clientSeq));
-      revision.set(key, decoration.revision);
+      revision.set(key, Math.max(revision.get(key) ?? 0, decoration.revision));
     }
     for (const element of spread.elements ?? []) {
       const key = `element:${spread.id}:${element.id}`;
       seq.set(key, Math.max(seq.get(key) ?? 0, element.clientSeq));
-      revision.set(key, element.revision);
+      revision.set(key, Math.max(revision.get(key) ?? 0, element.revision));
     }
     for (const side of ["left", "right"] as const) {
       const background = spread.backgrounds?.[side];
       const key = `background:${spread.id}:${side}`;
       seq.set(key, Math.max(seq.get(key) ?? 0, background?.clientSeq ?? 0));
-      revision.set(key, background?.revision ?? 0);
+      revision.set(key, Math.max(revision.get(key) ?? 0, background?.revision ?? 0));
     }
   }
 }
@@ -80,8 +80,13 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
   const revisionRef = useRef(new Map<string, number>());
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const inFlight = useRef(0);
+  const activeWrites = useRef(new Set<Promise<PersistenceResult>>());
+  const pendingSends = useRef(new Map<string, () => Promise<PersistenceResult>>());
+  const failures = useRef(new Set<string>());
+  const lastSaveError = useRef<string | null>(null);
   const initialized = useRef(false);
-  const intent = useRef<Intent | null>(null);
+  const intents = useRef(new Map<string, Intent>());
+  const dirty = useRef(new Map<string, number>());
   const viewRef = useRef(view);
   const history = useEditorHistory("page");
 
@@ -98,36 +103,44 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
   function bump(id: string, fallback: number) {
     const next = (seqRef.current.get(id) ?? fallback) + 1;
     seqRef.current.set(id, next);
+    dirty.current.set(id, next);
     return next;
   }
 
   function noteWrite(result: PersistenceResult, sentSeq: number, targetId: string) {
     if (result.view) {
+      rememberDraft(result.view, seqRef.current, revisionRef.current);
       setView((current) => {
         const base = current ?? viewRef.current;
         if (!base) return result.view;
         if (!result.ok || clientSeqOf(base, targetId) > sentSeq || (seqRef.current.get(targetId) ?? 0) > sentSeq) return base;
-        const next = mergeServerDraft(base, result.view as PersistedDraftView, sentSeq, targetId);
-        if (next === result.view) rememberDraft(next, seqRef.current, revisionRef.current);
+        const next = mergeServerDraft(base, result.view as PersistedDraftView, sentSeq, targetId, dirty.current);
+        rememberDraft(next, seqRef.current, revisionRef.current);
         viewRef.current = next;
         return next;
       });
     }
     if (!result.ok || result.writeStatus === "conflict") {
+      failures.current.add(targetId);
+      lastSaveError.current = presentSaveError(result.message);
       setSaveState("error");
-      setError(presentSaveError(result.message));
+      setError(lastSaveError.current);
       return;
     }
     if (result.writeStatus === "stale") {
       const newer = (seqRef.current.get(targetId) ?? 0) > sentSeq || timers.current.has(targetId);
       if (!newer) {
+        failures.current.add(targetId);
+        lastSaveError.current = presentSaveError(result.message ?? "保存が競合しました。再試行できます。");
         setSaveState("error");
-        setError(presentSaveError(result.message ?? "保存が競合しました。再試行できます。"));
+        setError(lastSaveError.current);
       }
       return;
     }
     if ((seqRef.current.get(targetId) ?? 0) > sentSeq || timers.current.has(targetId)) return;
-    intent.current = null;
+    failures.current.delete(targetId);
+    dirty.current.delete(targetId);
+    intents.current.delete(targetId);
     if (inFlight.current === 0 && timers.current.size === 0) {
       setSaveState("saved");
       setError(null);
@@ -138,18 +151,45 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
     inFlight.current += 1;
     setSaveState("saving");
     setError(null);
-    return work()
+    const task = Promise.resolve().then(work)
       .then((result) => {
         noteWrite(result, sentSeq, targetId);
         return result;
       })
+      .catch(() => {
+        failures.current.add(targetId);
+        lastSaveError.current = "保存に失敗しました。再試行できます。";
+        setSaveState("error");
+        setError(lastSaveError.current);
+        return { ok: false, message: lastSaveError.current, writeStatus: null, view: null } satisfies PersistenceResult;
+      })
       .finally(() => {
+        activeWrites.current.delete(task);
         inFlight.current = Math.max(0, inFlight.current - 1);
         if (inFlight.current === 0 && timers.current.size === 0) {
-          setSaveState((state) => (state === "saving" ? "saved" : state));
+          setSaveState(failures.current.size ? "error" : "saved");
+          if (failures.current.size) setError(lastSaveError.current);
         }
       });
+    activeWrites.current.add(task);
+    return task;
   }
+
+  async function flushPending() {
+    const sends = [...pendingSends.current];
+    for (const [id] of sends) clearTimeout(timers.current.get(id));
+    const writes = sends.map(([, send]) => send());
+    await Promise.all([...writes, ...activeWrites.current]);
+    return failures.current.size === 0 && timers.current.size === 0 && inFlight.current === 0;
+  }
+
+  useEffect(() => {
+    const warnUnsaved = (event: BeforeUnloadEvent) => {
+      if (timers.current.size || inFlight.current || failures.current.size) { event.preventDefault(); event.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", warnUnsaved);
+    return () => window.removeEventListener("beforeunload", warnUnsaved);
+  }, []);
 
   function revisionOf(id: string, fallback: number) {
     return revisionRef.current.get(id) ?? fallback;
@@ -168,7 +208,7 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
     const before = spread.userLayoutId;
     const nextSeq = bump(spreadId, spread.source.clientSeq);
     const revision = revisionOf(spreadId, spread.source.revision);
-    intent.current = { kind: "layout", spreadId, layoutId };
+    intents.current.set(spreadId, { kind: "layout", spreadId, layoutId });
     const nextView = applySpreadLayout(current, spreadId, layoutId, nextSeq);
     viewRef.current = nextView;
     setView(nextView);
@@ -184,7 +224,7 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
     const before = readUserCrop(frameId);
     const nextSeq = bump(frameId, frame.clientSeq);
     const revision = revisionOf(frameId, frame.revision);
-    intent.current = { kind: "crop", frameId, crop };
+    intents.current.set(frameId, { kind: "crop", frameId, crop });
     const nextView = applyFrameCrop(current, frameId, crop, nextSeq);
     viewRef.current = nextView;
     setView(nextView);
@@ -192,7 +232,8 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
     if (pending) clearTimeout(pending);
     const send = () => {
       timers.current.delete(frameId);
-      void track(() => overrideFrameCrop(frameId, revision, nextSeq, crop), nextSeq, frameId);
+      pendingSends.current.delete(frameId);
+      return track(() => overrideFrameCrop(frameId, revision, nextSeq, crop), nextSeq, frameId);
     };
     if (record) {
       const edit = { targetId: frameId, field: "crop" as const, before, after: crop };
@@ -204,6 +245,7 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
       return;
     }
     setSaveState("saving");
+    pendingSends.current.set(frameId, send);
     timers.current.set(frameId, setTimeout(send, AUTOSAVE_DEBOUNCE_MS));
   }
 
@@ -215,7 +257,7 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
     const before = frame.userPhotoId;
     const nextSeq = bump(frameId, frame.clientSeq);
     const revision = revisionOf(frameId, frame.revision);
-    intent.current = { kind: "photo", frameId, photoId, previewUrl };
+    intents.current.set(frameId, { kind: "photo", frameId, photoId, previewUrl });
     const nextView = applyFramePhoto(current, frameId, photoId, nextSeq, previewUrl);
     viewRef.current = nextView;
     setView(nextView);
@@ -244,7 +286,7 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
     const row = spread.texts.find((item) => item.slotId === slotId);
     const nextSeq = bump(targetId, row?.clientSeq ?? 0);
     const revision = revisionOf(targetId, row?.revision ?? 0);
-    intent.current = { kind: "text", spreadId, slotId, mode: next.mode, text: next.text, styleId: next.styleId };
+    intents.current.set(targetId, { kind: "text", spreadId, slotId, mode: next.mode, text: next.text, styleId: next.styleId });
     const nextView = applyTextState(current, spreadId, slotId, { ...next, kind }, nextSeq);
     viewRef.current = nextView;
     setView(nextView);
@@ -252,7 +294,8 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
     if (pending) clearTimeout(pending);
     const send = () => {
       timers.current.delete(targetId);
-      void track(() => overrideSpreadText(spreadId, slotId, kind, revision, nextSeq, next.mode, next.text, next.styleId), nextSeq, targetId);
+      pendingSends.current.delete(targetId);
+      return track(() => overrideSpreadText(spreadId, slotId, kind, revision, nextSeq, next.mode, next.text, next.styleId), nextSeq, targetId);
     };
     if (record) {
       if (field === "textStyle") {
@@ -273,6 +316,7 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
       return;
     }
     setSaveState("saving");
+    pendingSends.current.set(targetId, send);
     timers.current.set(targetId, setTimeout(send, AUTOSAVE_DEBOUNCE_MS));
   }
 
@@ -299,14 +343,14 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
     const row = spread.decorations.find((item) => item.slotId === slotId);
     const nextSeq = bump(targetId, row?.clientSeq ?? 0);
     const revision = revisionOf(targetId, row?.revision ?? 0);
-    intent.current = {
+    intents.current.set(targetId, {
       kind: "decoration",
       spreadId,
       slotId,
       mode: next.mode,
       decorationId: next.decorationId,
       scale: next.scale,
-    };
+    });
     const pending = timers.current.get(targetId);
     if (pending) clearTimeout(pending);
     const nextView = applyDecorationState(current, spreadId, slotId, next, nextSeq);
@@ -331,7 +375,7 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
     const nextSeq = bump(targetId, before?.clientSeq ?? 0);
     const revision = revisionOf(targetId, before?.revision ?? 0);
     const element = normalized ? { ...normalized, revision, clientSeq: nextSeq } : null;
-    intent.current = { kind: "element", spreadId, elementId, element };
+    intents.current.set(targetId, { kind: "element", spreadId, elementId, element });
     revisionRef.current.set(targetId, revision);
     const nextView: PersistedDraftView = {
       ...current,
@@ -353,13 +397,15 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
     if (pending) clearTimeout(pending);
     const send = () => {
       timers.current.delete(targetId);
-      void track(() => overridePageElement(spreadId, elementId, revision, nextSeq, element), nextSeq, targetId);
+      pendingSends.current.delete(targetId);
+      return track(() => overridePageElement(spreadId, elementId, revision, nextSeq, element), nextSeq, targetId);
     };
     if (!debounce) {
       send();
       return;
     }
     setSaveState("saving");
+    pendingSends.current.set(targetId, send);
     timers.current.set(targetId, setTimeout(send, AUTOSAVE_DEBOUNCE_MS));
   }
 
@@ -371,7 +417,7 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
     const before = spread.backgrounds[pageSide];
     const nextSeq = bump(targetId, before.clientSeq);
     const revision = revisionOf(targetId, before.revision);
-    intent.current = { kind: "background", spreadId, pageSide, backgroundId };
+    intents.current.set(targetId, { kind: "background", spreadId, pageSide, backgroundId });
     revisionRef.current.set(targetId, revision);
     const nextView: PersistedDraftView = {
       ...current,
@@ -533,7 +579,7 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
   }
 
   function retry() {
-    const pending = intent.current;
+    const pending = [...intents.current].find(([id]) => failures.current.has(id))?.[1] ?? [...intents.current.values()][0];
     if (!pending || readonly) return;
     if (pending.kind === "layout") writeLayout(pending.spreadId, pending.layoutId);
     if (pending.kind === "crop") writeCrop(pending.frameId, pending.crop, false);
@@ -623,5 +669,6 @@ export function usePageEditDraft(initial: PersistedDraftView | null, albumId: st
     canRedo: !readonly && Boolean(view) && history.canRedo,
     retry,
     refreshUrls,
+    flushPending,
   };
 }

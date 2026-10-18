@@ -2877,7 +2877,7 @@ button:disabled,
     flex: 1;
     flex-direction: column;
     align-items: center;
-    padding: 0 12px 44px;
+    padding: 0 16px 44px;
   }
   .album-preview-page-num {
     margin: 0 0 12px;
@@ -2893,6 +2893,11 @@ button:disabled,
     max-width: 362px;
     align-items: center;
     justify-content: center;
+  }
+  .album-preview-main-canvas {
+    width: 100%;
+    min-width: 0;
+    max-width: 362px;
   }
   .album-preview-stage--single {
     min-height: 320px;
@@ -3119,8 +3124,8 @@ button:disabled,
     z-index: 4;
     top: 50%;
     display: inline-flex;
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     align-items: center;
     justify-content: center;
     border: none;
@@ -3136,10 +3141,10 @@ button:disabled,
     cursor: default;
   }
   .album-preview-arrow-left {
-    left: -8px;
+    left: 0;
   }
   .album-preview-arrow-right {
-    right: -8px;
+    right: 0;
   }
   .album-preview-thumbs {
     display: flex;
@@ -3148,7 +3153,8 @@ button:disabled,
     gap: 9px;
     margin-top: 12px;
     overflow-x: auto;
-    padding: 2px 2px 4px;
+    padding: 2px 12px 4px;
+    scroll-padding-inline: 12px;
     scrollbar-width: none;
     justify-content: flex-start;
   }
@@ -3655,6 +3661,11 @@ button:disabled,
   .album-edit-page-thumb.is-spread {
     background: #efe8e2;
     padding: 0;
+  }
+  .album-edit-page-spread-link {
+    display: block;
+    width: 100%;
+    min-width: 0;
   }
   .album-edit-page-cover.album-cover-book {
     width: 76%;

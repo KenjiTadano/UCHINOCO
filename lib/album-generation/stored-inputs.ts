@@ -52,8 +52,12 @@ export function storedGenerationInputs(photos: GenerationSourcePhoto[], rows: An
     const current = photoRows.filter((row) => row.source_fingerprint === fingerprint);
     const hasSemantic = current.some((row) => row.analysis_type === PHOTO_INTELLIGENCE_SEMANTIC && row.analysis_version === PHOTO_INTELLIGENCE_VERSION && ["success", "fallback"].includes(row.result_status));
     const hasGeometry = current.some((row) => row.analysis_type === SUBJECT_GEOMETRY && row.analysis_version === SUBJECT_GEOMETRY_VERSION && ["success", "fallback"].includes(row.result_status));
-    const staleVersion = (!hasSemantic && photoRows.some((row) => row.analysis_type === PHOTO_INTELLIGENCE_SEMANTIC && row.source_fingerprint === fingerprint && row.analysis_version !== PHOTO_INTELLIGENCE_VERSION)) || (!hasGeometry && photoRows.some((row) => row.analysis_type === SUBJECT_GEOMETRY && row.source_fingerprint === fingerprint && row.analysis_version !== SUBJECT_GEOMETRY_VERSION));
-    const staleFingerprint = (!hasSemantic && photoRows.some((row) => row.analysis_type === PHOTO_INTELLIGENCE_SEMANTIC && row.analysis_version === PHOTO_INTELLIGENCE_VERSION && row.source_fingerprint !== fingerprint)) || (!hasGeometry && photoRows.some((row) => row.analysis_type === SUBJECT_GEOMETRY && row.analysis_version === SUBJECT_GEOMETRY_VERSION && row.source_fingerprint !== fingerprint));
+    const staleVersion =
+      (!hasSemantic && photoRows.some((row) => row.analysis_type === PHOTO_INTELLIGENCE_SEMANTIC && row.source_fingerprint === fingerprint && row.analysis_version !== PHOTO_INTELLIGENCE_VERSION)) ||
+      (!hasGeometry && photoRows.some((row) => row.analysis_type === SUBJECT_GEOMETRY && row.source_fingerprint === fingerprint && row.analysis_version !== SUBJECT_GEOMETRY_VERSION));
+    const staleFingerprint =
+      (!hasSemantic && photoRows.some((row) => row.analysis_type === PHOTO_INTELLIGENCE_SEMANTIC && row.analysis_version === PHOTO_INTELLIGENCE_VERSION && row.source_fingerprint !== fingerprint)) ||
+      (!hasGeometry && photoRows.some((row) => row.analysis_type === SUBJECT_GEOMETRY && row.analysis_version === SUBJECT_GEOMETRY_VERSION && row.source_fingerprint !== fingerprint));
     const failed = current.some((row) => row.result_status === "failed" && ((row.analysis_type === PHOTO_INTELLIGENCE_SEMANTIC && row.analysis_version === PHOTO_INTELLIGENCE_VERSION) || (row.analysis_type === SUBJECT_GEOMETRY && row.analysis_version === SUBJECT_GEOMETRY_VERSION)));
     if (staleVersion) staleVersionCount++;
     if (staleFingerprint) staleFingerprintCount++;
@@ -65,15 +69,17 @@ export function storedGenerationInputs(photos: GenerationSourcePhoto[], rows: An
     const fallbackReady = semanticRow?.result_status === "fallback" && ["vision_failed", "vision_skipped"].includes(saved?.reason ?? "");
     const parsedAnalysis = parseStoredGeometry(geometryRow?.result);
     const storedSuitability = parsedAnalysis ? parsePhotoLayoutSuitability((geometryRow?.result as { layoutSuitability?: unknown } | undefined)?.layoutSuitability) : null;
-    const analysis = parsedAnalysis ? {
-      ...parsedAnalysis,
-      layoutSuitability: storedSuitability ?? analyzePhotoLayoutSuitability(parsedAnalysis, geometryRow?.created_at ?? null),
-    } : null;
+    const analysis = parsedAnalysis
+      ? {
+          ...parsedAnalysis,
+          layoutSuitability: storedSuitability ?? analyzePhotoLayoutSuitability(parsedAnalysis, geometryRow?.created_at ?? null),
+        }
+      : null;
     if (vision || fallbackReady) existingIntelligenceCount++;
     if (!vision && !fallbackReady) missingSemanticCount++;
     if (analysis) geometry.set(photo.id, analysis);
     else missingGeometryCount++;
-    const lastProgressAt = photoRows.reduce<string | null>((latest, row) => row.created_at && (!latest || row.created_at > latest) ? row.created_at : latest, null);
+    const lastProgressAt = photoRows.reduce<string | null>((latest, row) => (row.created_at && (!latest || row.created_at > latest) ? row.created_at : latest), null);
     preparationByPhoto.set(photo.id, {
       ready: Boolean((vision || fallbackReady) && analysis),
       failed,

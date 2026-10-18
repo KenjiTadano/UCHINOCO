@@ -85,8 +85,7 @@ function noCropCell(photo: LayoutPhotoInput, cropFrame: ReturnType<typeof resolv
   }
   const started = performance.now();
   const transform = { x: 0.5, y: 0.5, scale: 1 };
-  const validRect = (rect: { x: number; y: number; width: number; height: number }) =>
-    [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) && rect.width > 0 && rect.height > 0 && rect.x >= 0.005 && rect.y >= 0.005 && rect.x + rect.width <= 0.995 && rect.y + rect.height <= 0.995;
+  const validRect = (rect: { x: number; y: number; width: number; height: number }) => [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) && rect.width > 0 && rect.height > 0 && rect.x >= 0.005 && rect.y >= 0.005 && rect.x + rect.width <= 0.995 && rect.y + rect.height <= 0.995;
   const dimensionsValid = Number.isFinite(photo.analysis.width) && photo.analysis.width > 0 && Number.isFinite(photo.analysis.height) && photo.analysis.height > 0 && Number.isFinite(photo.analysis.focalPoint.x) && Number.isFinite(photo.analysis.focalPoint.y);
   const subjectGeometryValid = photo.analysis.pets.length > 0 && photo.analysis.pets.every((pet) => validRect(pet.bbox) && (!pet.face || validRect(pet.face)));
   const validGeometry = dimensionsValid && subjectGeometryValid;
@@ -209,9 +208,7 @@ function scoreAssignment(layout: AlbumLayoutDefinition, photos: LayoutPhotoInput
     const compatibility = compatibilityByPhotoFrame.get(`${assignment.photoId}|${assignment.frameId}`);
     return compatibility === undefined ? [] : [{ score: compatibility.score, weight: Math.max(assignment.importance, 0.4) }];
   });
-  const suitabilityFit = compatibilityPairs.length
-    ? Math.round(compatibilityPairs.reduce((sum, pair) => sum + pair.score * pair.weight, 0) / compatibilityPairs.reduce((sum, pair) => sum + pair.weight, 0) * 100)
-    : 0;
+  const suitabilityFit = compatibilityPairs.length ? Math.round((compatibilityPairs.reduce((sum, pair) => sum + pair.score * pair.weight, 0) / compatibilityPairs.reduce((sum, pair) => sum + pair.weight, 0)) * 100) : 0;
   let hierarchyFit = scoreHierarchyFit(photos, layout, assignments, qualityProfile, heroProfile);
   hierarchyFit = clampScore(hierarchyFit + weakPhotoHeroPenalty(photos, assignments, qualityProfile));
 
@@ -349,9 +346,7 @@ export function evaluateLayout(layout: AlbumLayoutDefinition, photos: LayoutPhot
     comparedPairCount: photos.length * layout.frames.length,
     matchedPairCount: compatibilityByPhotoFrame.size,
     suitabilityPhotoCount,
-    averageScore: compatibilityByPhotoFrame.size
-      ? [...compatibilityByPhotoFrame.values()].reduce((sum, compatibility) => sum + compatibility.score, 0) / compatibilityByPhotoFrame.size
-      : 0,
+    averageScore: compatibilityByPhotoFrame.size ? [...compatibilityByPhotoFrame.values()].reduce((sum, compatibility) => sum + compatibility.score, 0) / compatibilityByPhotoFrame.size : 0,
     assignmentCandidateCount: 0,
     optimizedAssignmentCount: 0,
     legacyFallbackCount: 0,
@@ -449,7 +444,8 @@ export function evaluateLayout(layout: AlbumLayoutDefinition, photos: LayoutPhot
   }
   if (work?.photoFrameMatching) {
     const aggregate = work.photoFrameMatching;
-    for (const key of ["frameEvaluatedCount", "comparedPairCount", "matchedPairCount", "suitabilityPhotoCount", "assignmentCandidateCount", "optimizedAssignmentCount", "legacyFallbackCount", "portraitMatchedCount", "landscapeMatchedCount", "squareMatchedCount", "cropSafePreferredCount", "heroPreferredCount", "fullBleedPreferredCount"] as const) aggregate[key] += compatibilityDiagnostics[key];
+    for (const key of ["frameEvaluatedCount", "comparedPairCount", "matchedPairCount", "suitabilityPhotoCount", "assignmentCandidateCount", "optimizedAssignmentCount", "legacyFallbackCount", "portraitMatchedCount", "landscapeMatchedCount", "squareMatchedCount", "cropSafePreferredCount", "heroPreferredCount", "fullBleedPreferredCount"] as const)
+      aggregate[key] += compatibilityDiagnostics[key];
     aggregate.totalScore += compatibilityDiagnostics.averageScore * compatibilityDiagnostics.matchedPairCount;
     aggregate.averageScore = aggregate.matchedPairCount ? aggregate.totalScore / aggregate.matchedPairCount : 0;
   }

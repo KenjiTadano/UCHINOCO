@@ -55,6 +55,7 @@ export default async function PageEditPage({ params, searchParams }: Props) {
     <>
       {suggestion && !suggestion.dismissed ? <div className="mx-auto w-full max-w-2xl px-4 pt-3"><NewPhotoSuggestionNotice href={`${base}/new-photos`} count={suggestion.candidates.length} /></div> : null}
       <PageEditScreen
+        key={view?.versionId ?? albumId}
         view={view}
         albumId={albumId}
         readonly={editorIsReadonly(album.status)}

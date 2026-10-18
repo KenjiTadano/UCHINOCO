@@ -1,8 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
+import { readDraft, signedPreviewUrls } from "@/lib/album-persistence/read-draft";
+import { mapDraftCoverRow, toCoverEditor } from "@/lib/album-persistence/cover";
+import { EDITOR_MISSING_DRAFT_MESSAGE } from "@/lib/album-persistence/editor";
 import { buildCoverTitleLines, formatAlbumPeriodLabels } from "@/lib/album-cover-title";
-import { buildAlbumPreviewSpreads } from "@/lib/album-preview-spreads";
+
 import {
   AlbumEditScreen,
   type AlbumEditPageEntry,
@@ -42,97 +44,17 @@ export default async function AlbumEditPage({ params }: Props) {
     .maybeSingle();
   if (!pet) notFound();
 
-  const { data: rawAlbumPhotos } = await supabase
-    .from("album_photos")
-    .select("album_id, photo_id, position")
-    .eq("album_id", albumId)
-    .order("position", { ascending: true });
-
-  const albumPhotos = rawAlbumPhotos ?? [];
-  const photoIds = albumPhotos.map((ap) => ap.photo_id);
-
-  const { data: photos } = await supabase
-    .from("photos")
-    .select("id, storage_path, thumbnail_path, caption, taken_at")
-    .in("id", photoIds.length > 0 ? photoIds : ["00000000-0000-0000-0000-000000000000"]);
-
-  const photoById = new Map((photos ?? []).map((p) => [p.id, p]));
-  const photosForUrls = albumPhotos
-    .map((ap) => photoById.get(ap.photo_id))
-    .filter(Boolean) as Array<{
-    id: string;
-    storage_path: string;
-    thumbnail_path: string | null;
-  }>;
-
-  const { signedUrlByPath } = await createListImageUrls(supabase, photosForUrls);
-
-  const ordered = albumPhotos
-    .map((ap) => {
-      const photo = photoById.get(ap.photo_id);
-      if (!photo) return null;
-      const src = signedUrlByPath.get(listImagePath(photo)) ?? null;
-      return {
-        photo_id: ap.photo_id,
-        src,
-        caption: photo.caption ?? null,
-        taken_at: photo.taken_at ?? null,
-      };
-    })
-    .filter(Boolean) as Array<{
-    photo_id: string;
-    src: string | null;
-    caption: string | null;
-    taken_at: string | null;
-  }>;
-
-  const analysesResult = await supabase
-    .from("photo_ai_analyses")
-    .select("photo_id, activity, scene, tags, description")
-    .in(
-      "photo_id",
-      photoIds.length > 0 ? photoIds : ["00000000-0000-0000-0000-000000000000"],
-    )
-    .eq("status", "completed");
-
-  const analysisByPhotoId = new Map(
-    (analysesResult.data ?? []).map((a) => [a.photo_id, a]),
-  );
-
-  const { monthLabel: periodMonthLabel, coverDateLabel } = formatAlbumPeriodLabels(album.period_from, album.period_to);
-  const lines = buildCoverTitleLines(pet.name, album.title ?? "", periodMonthLabel);
-
-  const coverSrc =
-    (album.cover_photo_id
-      ? ordered.find((p) => p.photo_id === album.cover_photo_id)?.src
-      : null) ??
-    ordered.find((p) => p.src)?.src ??
-    null;
-
-  const spreads = buildAlbumPreviewSpreads(
-    ordered
-      .filter((p) => p.src)
-      .map((p) => {
-        const ai = analysisByPhotoId.get(p.photo_id);
-        return {
-          src: p.src as string,
-          alt: `${pet.name}の思い出`,
-          caption: p.caption,
-          taken_at: p.taken_at,
-          activity: ai?.activity ?? null,
-          scene: ai?.scene ?? null,
-          description: ai?.description ?? null,
-          tags: ai?.tags ?? null,
-        };
-      }),
-    {
-      petName: pet.name,
-      periodMonthLabel,
-    },
-  );
-
-  const pages = buildEditPageEntries(spreads);
-  const pageCount = Math.max(1 + spreads.length * 2, pages.length > 1 ? 3 : 1);
+  const draft = await readDraft(supabase, albumId);
+  const { monthLabel, coverDateLabel } = formatAlbumPeriodLabels(album.period_from, album.period_to);
+  const lines = buildCoverTitleLines(pet.name, album.title ?? "", monthLabel);
+  const { data: coverRow } = draft ? await supabase.from("album_draft_covers").select("*").eq("draft_version_id", draft.versionId).maybeSingle() : { data: null };
+  const source = coverRow ? mapDraftCoverRow(coverRow as unknown as Record<string, unknown>) : null;
+  const coverIds = source ? [source.aiPhotoId, source.userPhotoId].filter((id): id is string => Boolean(id)) : album.cover_photo_id ? [album.cover_photo_id] : [];
+  const coverUrls = await signedPreviewUrls(supabase, coverIds);
+  const cover = source ? toCoverEditor(source, Object.fromEntries(coverUrls)) : null;
+  const coverSrc = cover?.previewUrl ?? (album.cover_photo_id ? coverUrls.get(album.cover_photo_id) : null) ?? null;
+  const pages: AlbumEditPageEntry[] = [{ kind: "cover", id: "cover", label: "表紙" }, ...(draft?.spreads.map((spread, index): AlbumEditPageEntry => ({ kind: "spread", id: spread.id, label: `${index * 2 + 1} - ${index * 2 + 2}`, spread })) ?? [])];
+  const pageCount = (draft?.spreads.length ?? 0) * 2;
 
   const base = `/pets/${petId}/album/${albumId}`;
 
@@ -140,11 +62,14 @@ export default async function AlbumEditPage({ params }: Props) {
     <AlbumEditScreen
       petName={pet.name}
       coverSrc={coverSrc}
-      dateLabel={coverDateLabel}
-      titlePrefix={lines.prefix}
-      titleMain={lines.main}
+      dateLabel={cover?.subtitle ?? coverDateLabel}
+      titlePrefix={cover ? "" : lines.prefix}
+      titleMain={cover?.title ?? lines.main}
       pageCount={pageCount}
       pages={pages}
+      draft={draft}
+      cover={cover}
+      loadError={draft ? null : EDITOR_MISSING_DRAFT_MESSAGE}
       selectedPageId="cover"
       backHref={`${base}?view=complete`}
       previewHref={`${base}?view=preview`}
@@ -155,28 +80,4 @@ export default async function AlbumEditPage({ params }: Props) {
       pageEditHref={`${base}/pages/edit`}
     />
   );
-}
-
-function buildEditPageEntries(spreads: ReturnType<typeof buildAlbumPreviewSpreads>): AlbumEditPageEntry[] {
-  const pages: AlbumEditPageEntry[] = [
-    {
-      kind: "cover",
-      id: "cover",
-      label: "1 表紙",
-    },
-  ];
-
-  let pageNum = 2;
-  spreads.forEach((spread, i) => {
-    const end = pageNum + 1;
-    pages.push({
-      kind: "spread",
-      id: `spread-${i}`,
-      label: `${pageNum} - ${end}`,
-      spread,
-    });
-    pageNum = end + 1;
-  });
-
-  return pages;
 }

@@ -25,7 +25,7 @@ import type { CoverColorId, CoverTemplateId } from "@/lib/album-cover-templates"
 
 type SaveState = "saved" | "saving" | "error";
 
-type Intent = { field: CoverField; value: string | null; previewUrl?: string };
+type Intent = { field: CoverField; value: string | null; previewUrl?: string; seq: number };
 
 export function useCoverEditDraft(
   initial: CoverEditorModel | null,
@@ -40,9 +40,12 @@ export function useCoverEditDraft(
   const revisionRef = useRef(initial?.revision ?? 1);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSend = useRef<(() => void) | null>(null);
+  const pendingField = useRef<CoverField | null>(null);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const inFlight = useRef(0);
-  const intent = useRef<Intent | null>(null);
+  const intents = useRef(new Map<CoverField, Intent>());
+  const failures = useRef(new Map<CoverField, string>());
+  const queued = useRef(0);
   const coverRef = useRef(cover);
   const history = useEditorHistory("cover");
 
@@ -56,59 +59,84 @@ export function useCoverEditDraft(
     return next;
   }
 
-  function noteWrite(result: CoverWriteResult, sentSeq: number) {
-    const saved = result.cover;
-    if (saved) {
-      setCover((current) => {
-        const base = current ?? coverRef.current;
-        if (!base) return saved;
-        if (!result.ok || base.clientSeq > sentSeq) return base;
-        const next = mergeServerCover(base, saved, sentSeq);
-        if (next === saved) {
-          seqRef.current = Math.max(seqRef.current, next.clientSeq);
-          revisionRef.current = next.revision;
-        }
-        coverRef.current = next;
-        return next;
-      });
-    }
-    if (!result.ok || result.writeStatus === "conflict") {
+  function publishSaveState() {
+    if (failures.current.size) {
       setSaveState("error");
-      setError(presentSaveError(result.message));
-      return;
-    }
-    if (result.writeStatus === "stale") {
-      const newer = seqRef.current > sentSeq || timer.current != null;
-      if (!newer) {
-        setSaveState("error");
-        setError(presentSaveError(result.message ?? "保存が競合しました。再試行できます。"));
-      }
-      return;
-    }
-    if (seqRef.current > sentSeq || timer.current) return;
-    intent.current = null;
-    if (inFlight.current === 0 && !timer.current) {
+      setError([...failures.current.values()][0]);
+    } else if (timer.current || queued.current || inFlight.current) {
+      setSaveState("saving");
+      setError(null);
+    } else {
       setSaveState("saved");
       setError(null);
     }
   }
 
-  function track(work: () => Promise<CoverWriteResult>, sentSeq: number) {
-    inFlight.current += 1;
-    setSaveState("saving");
-    setError(null);
-    return work()
-      .then((result) => {
-        noteWrite(result, sentSeq);
-        return result;
-      })
-      .finally(() => {
-        inFlight.current = Math.max(0, inFlight.current - 1);
-        if (inFlight.current === 0 && !timer.current) {
-          setSaveState((state) => (state === "saving" ? "saved" : state));
-        }
-      });
+  function noteWrite(result: CoverWriteResult, sent: Intent) {
+    const saved = result.cover;
+    const base = coverRef.current;
+    if (saved && base && (saved.id !== base.id || saved.draftVersionId !== base.draftVersionId)) {
+      failures.current.set(sent.field, "編集対象の初稿が変更されました。再読み込みしてください。");
+      publishSaveState();
+      return;
+    }
+    // The queue's next write needs the latest DB revision, even when this
+    // response is too old to replace a newer optimistic cover.
+    if (saved) revisionRef.current = Math.max(revisionRef.current, saved.revision);
+    if (!result.ok || result.writeStatus === "conflict" || result.writeStatus === "stale" || result.writeStatus === "missing") {
+      if (intents.current.get(sent.field)?.seq === sent.seq) {
+        failures.current.set(sent.field, presentSaveError(result.message ?? "保存が競合しました。再試行できます。"));
+      }
+      publishSaveState();
+      return;
+    }
+    if (intents.current.get(sent.field)?.seq === sent.seq) {
+      intents.current.delete(sent.field);
+      failures.current.delete(sent.field);
+    }
+    if (saved && base && seqRef.current <= sent.seq && !failures.current.size) {
+      const next = mergeServerCover(base, saved, sent.seq);
+      seqRef.current = Math.max(seqRef.current, next.clientSeq);
+      coverRef.current = next;
+      setCover(next);
+    }
+    publishSaveState();
   }
+
+  async function track(sent: Intent, coverId: string) {
+    inFlight.current++;
+    publishSaveState();
+    try {
+      const result = await overrideCover(coverId, revisionRef.current, sent.seq, sent.field, sent.value);
+      noteWrite(result, sent);
+    } catch {
+      if (intents.current.get(sent.field)?.seq === sent.seq) {
+        failures.current.set(sent.field, "保存に失敗しました。再試行できます。");
+      }
+    } finally {
+      inFlight.current = Math.max(0, inFlight.current - 1);
+      queued.current = Math.max(0, queued.current - 1);
+      publishSaveState();
+    }
+  }
+
+  async function flushPending() {
+    pendingSend.current?.();
+    const waiting = queue.current;
+    await waiting;
+    return !failures.current.size && !timer.current && !queued.current && !inFlight.current;
+  }
+
+  useEffect(() => {
+    const warnUnsaved = (event: BeforeUnloadEvent) => {
+      if (timer.current || queued.current || inFlight.current || failures.current.size) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", warnUnsaved);
+    return () => window.removeEventListener("beforeunload", warnUnsaved);
+  }, []);
 
   function userValue(field: CoverField) {
     const source = coverRef.current?.source;
@@ -123,10 +151,11 @@ export function useCoverEditDraft(
   function write(field: CoverField, value: string | null, debounce: boolean, previewUrl?: string, record = true) {
     const current = coverRef.current;
     if (!current || readonly) return;
+    if (pendingSend.current && pendingField.current !== field) pendingSend.current();
     const before = userValue(field);
     const nextSeq = bump(current.clientSeq);
-    const revision = revisionRef.current;
-    intent.current = { field, value, previewUrl };
+    const sent: Intent = { field, value, previewUrl, seq: nextSeq };
+    intents.current.set(field, sent);
     let next = current;
     if (field === "photo") next = applyCoverPhoto(current, value, nextSeq, previewUrl);
     if (field === "title") next = applyCoverTitle(current, value, nextSeq);
@@ -144,10 +173,10 @@ export function useCoverEditDraft(
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
       pendingSend.current = null;
-      queue.current = queue.current.then(
-        () => track(() => overrideCover(current.id, revision, nextSeq, field, value), nextSeq),
-        () => track(() => overrideCover(current.id, revision, nextSeq, field, value), nextSeq),
-      );
+      pendingField.current = null;
+      queued.current++;
+      publishSaveState();
+      queue.current = queue.current.then(() => track(sent, current.id));
     };
     if (!debounce) {
       pendingSend.current?.();
@@ -156,6 +185,7 @@ export function useCoverEditDraft(
     }
     if (timer.current) clearTimeout(timer.current);
     pendingSend.current = send;
+    pendingField.current = field;
     setSaveState("saving");
     timer.current = setTimeout(send, AUTOSAVE_DEBOUNCE_MS);
   }
@@ -184,7 +214,7 @@ export function useCoverEditDraft(
   }
 
   function retry() {
-    const pending = intent.current;
+    const pending = [...intents.current.values()].find((item) => failures.current.has(item.field)) ?? [...intents.current.values()][0];
     if (!pending || readonly) return;
     write(pending.field, pending.value, false, pending.previewUrl);
   }
@@ -219,5 +249,6 @@ export function useCoverEditDraft(
     canRedo: !readonly && Boolean(cover) && history.canRedo,
     retry,
     refreshUrls,
+    flushPending,
   };
 }
