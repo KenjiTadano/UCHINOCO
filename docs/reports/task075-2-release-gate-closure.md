@@ -68,7 +68,7 @@ Task075.1の隔離fixture結果を再監査した。Task075.2ではProduction bl
 
 - Vercel project: `uchinoco`
 - latest Production deployment: **Ready**
-- canonical aliases include `https://www.uchinoco.app` and `https://uchinoco.app`
+- canonical aliases include `https://production.example.test` and `https://production.example.test`
 - public health probes:
   - `/`: 307 to authenticated entry flow
   - `/login`: 200
@@ -104,7 +104,7 @@ Task075.1の隔離fixture結果を再監査した。Task075.2ではProduction bl
 
 Supabase remote configをread-onlyで比較した。
 
-- Site URL: `https://www.uchinoco.app` — **PASS**
+- Site URL: `https://production.example.test` — **PASS**
 - Additional redirect URLs:
   - Production canonical confirm URL — PRESENT
   - Production Vercel alias confirm URL — PRESENT

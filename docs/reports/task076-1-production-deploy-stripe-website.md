@@ -1,7 +1,7 @@
 # Task076.1 Production Deploy & Stripe Website Verification
 
 - Date: 2026-10-08
-- Production site: https://www.uchinoco.app
+- Production site: https://production.example.test
 - Task076 implementation: `c580824` (`feat: add public website for stripe onboarding`)
 - Production code commit on main: `879976837edf5e0beb37eab1f847649945ca894d`
 - Task076.1 report commit on main / origin/main: `431946eae2a07f4ee013483236cfec39d7c7bc5b`
@@ -31,7 +31,7 @@ The public pages explain UCHINOCO as a pet photo organization and AI Album servi
 
 All six public routes were checked at widths 375, 390, and 430 CSS pixels (18 route/viewport combinations). Every request returned 200, document width matched the viewport, the mobile header login link was visible, and the footer was present.
 
-The URL suitable to enter in Stripe’s “Business website” field is `https://www.uchinoco.app`. The site is publicly accessible and identifies the service, features, plan policy, and legal/contact pages. Stripe acceptance is not guaranteed: the Contact page has no confirmed contact channel or response estimate, and operator/seller disclosures remain pending verification.
+The URL suitable to enter in Stripe’s “Business website” field is `https://production.example.test`. The site is publicly accessible and identifies the service, features, plan policy, and legal/contact pages. Stripe acceptance is not guaranteed: the Contact page has no confirmed contact channel or response estimate, and operator/seller disclosures remain pending verification.
 
 ## Print safety
 

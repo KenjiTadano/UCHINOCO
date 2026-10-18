@@ -14,8 +14,8 @@ main push and Production deploy have not been performed or authorized by this re
 - B1 fixed in independent commit 7bb3233. Only parser and parser tests changed there.
 - B2 fixed in independent commit 8f29f68. No duplicate B2 commit was created.
 - This re-audit finalization is a subsequent report-only commit. Final candidate
-  range is origin/main..HEAD including that report; application/parser/test content
-  is unchanged by finalization. The exact final commit is available from git log.
+  range is origin/main..HEAD including report finalization and a documentation-only public-host anonymization follow-up; application/parser/test content
+  is unchanged by these documentation commits. The exact final commit is available from git log.
 - Re-audit source diff: 60 files, 6404 insertions / 537 deletions, including canonical
   report relocations and privacy cleanup. The task classification and initial
   commit inventory below are historical snapshots, not the final commit count.
@@ -26,7 +26,7 @@ main push and Production deploy have not been performed or authorized by this re
   is no uncommitted report/evidence in the candidate at handoff.
 - tracked outputs = 0. Eight private PNG/JSON evidence files are ignored; local
   output originals (17/17 files) remain byte-identical. No evidence was force-added.
-- Privacy scan of 60 candidate files and all 87 canonical reports: zero detected
+- Privacy scan of 63 candidate files and all 87 canonical reports: zero detected
   actual fixture/reference IDs, real deployment hosts, machine-specific absolute
   paths, credential-bearing URLs or credential values. Synthetic test examples and
   redaction field names are not credentials. Ignored originals are intentionally
@@ -316,3 +316,9 @@ identifier/credential/path findings. No outputs are tracked; all private evidenc
 is ignored and all 17 original output files remain unchanged. B2 is addressed for
 the current candidate tree. Historical-exposure limits above remain. This is not
 a main merge or Production authorization.
+
+Final re-audit privacy follow-up: four historical reports still named the public
+Production application host. These public (non-credential) host references are also
+replaced by production.example.test to meet the stricter no-real-host condition.
+Their originals are retained under the ignored local backup. This follow-up changes
+only canonical documentation; no application/parser/test change or history rewrite.

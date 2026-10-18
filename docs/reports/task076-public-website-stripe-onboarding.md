@@ -41,6 +41,6 @@ FREE features reflect current entitlements, including photo addition, Photo Inte
 
 ## Production and remaining items
 
-At verification time `https://www.uchinoco.app` still redirected to `/login`. This branch was not merged or deployed, as required; production behavior therefore remains unchanged. A production-domain check after an approved deployment is still required.
+At verification time `https://production.example.test` still redirected to `/login`. This branch was not merged or deployed, as required; production behavior therefore remains unchanged. A production-domain check after an approved deployment is still required.
 
 Before treating the website as fully Stripe-ready or starting paid sales, the operator must confirm and publish the contact channel and response estimate, seller identity and publishable address, legally reviewed sales/subscription/cancellation/refund terms, and production price/charges/payment timing. Production Print provider and availability must also be confirmed before displaying an order CTA. These values were intentionally not inferred or fabricated.
