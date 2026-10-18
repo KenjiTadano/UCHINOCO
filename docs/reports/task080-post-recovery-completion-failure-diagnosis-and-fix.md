@@ -25,11 +25,11 @@ Production 実写真・24P において、Vercel ログ上では以下の通り 
 
 ### サーバー側の実行状況
 
-Production ログ（タイムスタンプ `1791857659710`、runId `9830a9f0-4ed0-44c9-9c07-5c5565ca3bd8`）の全41件のログトレースを精査した結果：
+Production ログ（タイムスタンプ `0`、runId `reference-fixture-02`）の全41件のログトレースを精査した結果：
 
 1. `09_layout_planning`: `completed` (427.5ms, 12 spreads, `unrecoveredCount: 0`)
 2. `10_crop_calculation`: `completed` (37.11ms, 158 crops)
-3. `12_album_row_creation`: `completed` (313.26ms, album id: `f317b7f9-a0d2-4e8b-b418-f39f0d29e5d5`)
+3. `12_album_row_creation`: `completed` (313.26ms, album id: `album-fixture-08`)
 4. `13_spread_page_persistence`: `completed` (3706.63ms, 12 spreads)
 5. `14_cover_persistence`: `completed` (2494.55ms)
 6. `15_metadata_persistence`: `completed` (604.86ms)
@@ -37,7 +37,7 @@ Production ログ（タイムスタンプ `1791857659710`、runId `9830a9f0-4ed0
 8. `finished`: `outcome: 'ready'`, `durationMs: 9928.53ms`
 9. `albumAutoResume`: `generationCompleted: true`
 10. HTTP レスポンス: **200 OK**
-    - 返却ペイロード: `{ error: null, status: "complete", previewHref: "/pets/645f30fe-700f-441c-8878-6658caef0870/album/f317b7f9-a0d2-4e8b-b418-f39f0d29e5d5?view=preview" }`
+    - 返却ペイロード: `{ error: null, status: "complete", previewHref: "/pets/pet-fixture-01/album/album-fixture-08?view=preview" }`
 
 **結論**: `unrecoveredCount = 0` の実行において、サーバー側の処理（レイアウト、保存、メタデータ、HTTP返却）はすべて正常完了しており、サーバー起因の失敗は発生していなかった。
 

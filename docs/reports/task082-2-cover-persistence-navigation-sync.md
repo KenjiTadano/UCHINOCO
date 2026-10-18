@@ -4,7 +4,7 @@
 
 ## 背景と受入状況
 
-Task082.1の正しいPreviewで、album `38768139-f147-4904-9174-0516bbef4793` の表紙写真を変更し、`/edit`一覧へ戻ると表紙サムネイルへ反映されないとのユーザー報告があった。詳細は `task082-preview-thumbnail-state-sync.md` に記録済み。
+Task082.1の正しいPreviewで、album `album-fixture-07` の表紙写真を変更し、`/edit`一覧へ戻ると表紙サムネイルへ反映されないとのユーザー報告があった。詳細は `task082-preview-thumbnail-state-sync.md` に記録済み。
 
 Task082.1全体はまだ受入PASSにしない。今回の変更は表紙Editorと表紙mutationに限定した。既存のTask082報告書差分は保持している。
 

@@ -45,6 +45,6 @@ Git push後にVercel Git Integration経由で自動デプロイされたUCHINOCO
 - **空白チェック**: `git diff --check`
   - エラー 0 件。
 - **実環境実行確認 (Read-only)**:
-  - `npm run vercel:wait-production`: 現在のHEAD commit (`996e84c...`) に紐づくProduction deployment (`https://uchinoco-mi4ejxa7l-tadanokenjis-projects.vercel.app`) を即時検出・Ready判定を確認。
+  - `npm run vercel:wait-production`: 現在のHEAD commit (`996e84c...`) に紐づくProduction deployment (`https://preview.example.test`) を即時検出・Ready判定を確認。
   - `npm run vercel:wait-production -- --logs`: Ready検出後に `npm run vercel:album-logs` のチェーン起動が正常に動作することを確認。
   - `--commit 0000000 --timeout 1s`: 存在しないコミットでのタイムアウト終了（exit code 1）を確認。

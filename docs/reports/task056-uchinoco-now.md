@@ -84,7 +84,7 @@ petsの `birthday` と `adoption_date` をAsia/Tokyoの当月日で比較する�
 ## 14. Browser Verification
 
 - 認証済み実ブラウザで `/home` を開き、わかの編集中アルバムHero、最近の思い出、編集再開CTAを確認。モバイル幅のスクリーンショットで画像・見出し・CTA・下部ナビの配置を目視した。
-- `/home?pet=cf788a9a-a613-4a22-bf5e-8285a6a4142a` では、今日の写真がないヒメにCapture Promptが表示され、CTAがヒメの写真追加routeを指すことを確認。最近の写真は表示され、今月件数は0枚。
+- `/home?pet=pet-fixture-02` では、今日の写真がないヒメにCapture Promptが表示され、CTAがヒメの写真追加routeを指すことを確認。最近の写真は表示され、今月件数は0枚。
 - `/home?pet=all` では2匹のsummaryと複数ペットの思い出が表示された。無効な `pet` 値は先頭の所有ペットへfallbackすることも確認。
 - 実データでは album progress / ready の状態を確認できなかったため、該当状態はselector fixtureによる自動検証を根拠とする。production buildでHomeのServer Component/CSSも検証済み。
 

@@ -13,7 +13,7 @@ Task076 implementation commit `c580824` is an ancestor of both local `main` and 
 
 ## Production deployment
 
-GitHub deployment record `6933717360` is `Production`, targets SHA `879976837edf5e0beb37eab1f847649945ca894d`, and has status `success` / “Deployment has completed” at 2026-10-08 10:59:37 UTC. Its deployment URL is `https://uchinoco-kemu49k2x-tadanokenjis-projects.vercel.app`.
+GitHub deployment record `6933717360` is `Production`, targets SHA `879976837edf5e0beb37eab1f847649945ca894d`, and has status `success` / “Deployment has completed” at 2026-10-08 10:59:37 UTC. Its deployment URL is `https://preview.example.test`.
 
 The canonical domain returned HTTP/2 200 from Vercel and rendered the Task076 public landing page. The production deployment target URL and GitHub status were confirmed; direct Vercel Dashboard inspection and opening the target URL were blocked by Vercel SSO in this browser session. Thus the provider status record is successful, while independent alias mapping in the Dashboard was not directly inspected.
 

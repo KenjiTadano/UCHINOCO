@@ -98,9 +98,9 @@ Stop before Preview Acceptance as requested.
 Completion regression verification: **PASS**. Editorial density improvement is not a gate; date-only count remains seven. No application code changed during acceptance.
 
 - Git Integration Preview commit: c12b5466d4dcb560038843d718f02a3c55a773cc.
-- New Album Preview: https://uchinoco-dqk5rbp3y-tadanokenjis-projects.vercel.app/pets/645f30fe-700f-441c-8878-6658caef0870/album/0733c1b1-7de4-4597-96a7-30ea8cbef711?view=preview
-- runId: ea98d017-e7eb-45ba-b213-707c6d82d684.
-- requestId: hph9m-1792109811335-2951a8d110d7.
+- New Album Preview: https://preview.example.test/pets/pet-fixture-01/album/album-fixture-05?view=preview
+- runId: reference-fixture-01.
+- requestId: request-fixture.
 - Completed at 2026-10-16 09:17:06.879 JST. Runtime generation duration 15114.68ms (15.115 seconds), within 80 seconds.
 
 ### Actual input identity

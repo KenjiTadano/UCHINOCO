@@ -1,5 +1,10 @@
 # Vercel Log Automation — Step 5 Preserve Full Structured Log Payload レポート
 
+> Historical investigation. The executable VM fallback described below was found unsafe
+> in the final audit and replaced by commit `7bb3233`. Current parsing uses JSON.parse
+> plus a bounded, non-executing legacy data grammar. The historical validation counts
+> below do not describe the current suite (parser 17 / repository 1161 tests).
+
 ## 1. 現象と根本原因の分析
 
 ### 現象
@@ -7,7 +12,7 @@
 `npm run vercel:album-logs` で対象イベントが抽出された際、`data` フィールドの内容が
 
 ```json
-{ "event": "albumLayoutRecovery", "timestamp": 1791857659710, "level": "info", "data": { "level": "info" } }
+{ "event": "albumLayoutRecovery", "timestamp": 0, "level": "info", "data": { "level": "info" } }
 ```
 
 となり、`spreadCount` や `photoFrameMatching` などの構造化ペイロードが欠落して `{"level":"info"}` のみが出力されていた。
@@ -26,8 +31,8 @@
 
 ### [scripts/vercel-album-logs.mjs](scripts/vercel-album-logs.mjs) の修正
 
-1. **Node.js オブジェクトリテラルの安全なパース**:
-   - `parseMessagePayload` において、`JSON.parse` の試行に加えて、Node.js 組み込みの `runInNewContext`（セキュアな隔離サンドボックス + タイムアウト 200ms）による JavaScript オブジェクト表現の評価をフォールバックとして導入。
+1. **旧Node.jsオブジェクトリテラル処理（廃止済み・unsafe）**:
+   - `parseMessagePayload` において、`JSON.parse` の試行に加えて、Node.js 組み込みの `runInNewContext`（当時の隔離context + タイムアウト 200ms。セキュリティ境界ではなかった）による JavaScript オブジェクト表現の評価をフォールバックとして導入。
    - `[Object]` などのプレースホルダー表記に対しても参照エラーを起こさないサンドボックス環境を提供。
    - クロスレルム（VM context）のオブジェクトをメインコンテキストのプレーンオブジェクトへ正規化。
 2. **ペイロード統合ロジックの適正化**:
@@ -53,7 +58,7 @@
 - **空白チェック**: `git diff --check`
   - エラー 0 件。
 - **実環境ログ検証**:
-  - `node scripts/vercel-album-logs.mjs --since 7d --limit 100` を実行し、タイムスタンプ `1791857659710` のログから、以下のように完全な復旧・マッチングメトリクスが正しく抽出されることを確認:
+  - `node scripts/vercel-album-logs.mjs --since 7d --limit 100` を実行し、タイムスタンプ `0` のログから、以下のように完全な復旧・マッチングメトリクスが正しく抽出されることを確認:
     ```json
     {
       "spreadCount": 12,

@@ -48,8 +48,8 @@ All five widths: positive width/height; Main within viewport; no document horizo
 At each width, native horizontal scrolling was performed to both ends, then browser state was observed before measurements. First/last items were entirely visible, with 12px start/end padding. End scrollLeft equaled scrollWidth minus clientWidth (750 / 735 / 731 / 731 / 731px respectively). Intermediate partial peeks remain intentional.
 
 Evidence outside repository:
-- /Users/tadanokenji/Documents/Codex/2026-10-13/uchinoco-next-js-16-supabase-ai/outputs/task082-3-responsive-measurements.json
-- /Users/tadanokenji/Documents/Codex/2026-10-13/uchinoco-next-js-16-supabase-ai/outputs/task082-3-local-sizing-375.png
+- outputs/task082-3-responsive-measurements.json
+- outputs/task082-3-local-sizing-375.png
 
 Temporary browser viewport overrides were reset after verification. The local test tab was closed.
 

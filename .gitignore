@@ -42,3 +42,7 @@ yarn-error.log*
 next-env.d.ts
 
 env-uchinoco.txt
+
+# Generated reports, real-photo screenshots and discovery inventories are local-only.
+# Publish only privacy-reviewed canonical reports under docs/reports/.
+/outputs/

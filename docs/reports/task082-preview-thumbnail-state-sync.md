@@ -91,13 +91,13 @@ Task081 subset、Album generation、Safety threshold、Task078 Recovery、No-Cro
 - Commit: `50be7246aa6ee416c9e0bd32b7d1f4275ce351db`
 - Commit message: `Unify active draft rendering across album previews and thumbnails`
 - Commit範囲: 12ファイル、533 insertions / 181 deletions
-- Preview: https://uchinoco-5zx2slqdp-tadanokenjis-projects.vercel.app
+- Preview: https://preview.example.test
 - Vercel一覧のstate: `READY`
 - 一覧metadataの `githubCommitSha` が上記commitと一致
 - `githubDeployment = 1`、environment = preview
 - 配備直後の作業ツリー: clean
 
-手動deploy、main merge、main push、Production deployは実行していない。Task081.1の旧Preview `uchinoco-683q3y4yp-tadanokenjis-projects.vercel.app` と混同しない。
+手動deploy、main merge、main push、Production deployは実行していない。Task081.1の旧Preview `preview.example.test` と混同しない。
 
 ## Preview acceptanceの経緯と証拠
 
@@ -105,9 +105,9 @@ Task081 subset、Album generation、Safety threshold、Task078 Recovery、No-Cro
 
 ユーザーは「アルバム編集した後のページ一覧のサムネイルが画像反映されていない」と報告し、スクリーンショットを提供した。
 
-- スクリーンショット: `/Users/tadanokenji/Desktop/スクリーンショット 2026-10-13 23.11.47.png`
+- スクリーンショット: `outputs/local-only-reference`
 - 画像にある表示: 「ページ一覧（全11ページ）」「1 表紙」、本文5見開き
-- 対象album: `226f8d64-40a2-4621-827d-d04f72ca2dea`
+- 対象album: `album-fixture-06`
 - 期待: 編集したcrop/layout/写真差し替えが一覧サムネイルへ反映
 - 実際: ユーザーは未反映と報告。ただし画像だけでは変更前後の差分や操作は特定できない
 
@@ -117,7 +117,7 @@ Task081 subset、Album generation、Safety threshold、Task078 Recovery、No-Cro
 
 ### 2. Production URLの提示
 
-ユーザーは `https://www.uchinoco.app/pets/645f30fe-700f-441c-8878-6658caef0870/album/226f8d64-40a2-4621-827d-d04f72ca2dea/edit` を提示した。
+ユーザーは `https://example.test/pets/pet-fixture-01/album/album-fixture-06/edit` を提示した。
 
 Task082.1はPreviewのみの配備で、Productionへのmerge/deployは実行していないことを説明し、新Previewへ案内した。このURLでの未反映をTask082.1 Previewの受入結果には含めない。
 
@@ -125,10 +125,10 @@ Task082.1はPreviewのみの配備で、Productionへのmerge/deployは実行し
 
 ユーザーが新PreviewのページEditor URLを提示した。
 
-- Host: `uchinoco-5zx2slqdp-tadanokenjis-projects.vercel.app`
-- Pet: `645f30fe-700f-441c-8878-6658caef0870`
-- Album: `38768139-f147-4904-9174-0516bbef4793`
-- Page Editor: `/pets/645f30fe-700f-441c-8878-6658caef0870/album/38768139-f147-4904-9174-0516bbef4793/pages/edit`
+- Host: `preview.example.test`
+- Pet: `pet-fixture-01`
+- Album: `album-fixture-07`
+- Page Editor: `/pets/pet-fixture-01/album/album-fixture-07/pages/edit`
 
 正しいTask082.1 Previewであることを確認し、このalbumの編集一覧とPreview URLを案内した。新albumの生成条件・Task081診断値については今回のUI受入調査では検証していない。
 
@@ -137,7 +137,7 @@ Task082.1はPreviewのみの配備で、Productionへのmerge/deployは実行し
 ユーザーは正しい新Previewで「表紙の画像変えたけどサムネイルに反映されない」と報告した。
 
 対象URL:
-https://uchinoco-5zx2slqdp-tadanokenjis-projects.vercel.app/pets/645f30fe-700f-441c-8878-6658caef0870/album/38768139-f147-4904-9174-0516bbef4793/edit
+https://preview.example.test/pets/pet-fixture-01/album/album-fixture-07/edit
 
 - 再現手順（ユーザー報告から整理）: 表紙Editorで写真変更 → `/edit`一覧へ戻る
 - 期待値: 表紙サムネイルが変更後の写真になる
