@@ -1,6 +1,72 @@
 # Final Pre-Merge Audit
 
-Audit date: 2026-10-19 JST. **Recommendation: HOLD — do not merge this candidate yet.**
+## Current final re-audit — 2026-10-19 JST
+
+**Final decision: MERGE READY.** This is a readiness assessment only. Main merge,
+main push and Production deploy have not been performed or authorized by this report.
+
+### Candidate and independent blocker fixes
+
+- Branch: feature/task081-safe-photo-subset-selection.
+- Re-audit source HEAD: 8f29f686ad52e69c3f437acd94b6e55b322f680f.
+- Fetched origin/main: 1f821904cf0f2796ba7cea22bbce9dcd77435134.
+- Source range: origin/main..8f29f68; 14 ahead / 0 behind, ancestor comparison valid.
+- B1 fixed in independent commit 7bb3233. Only parser and parser tests changed there.
+- B2 fixed in independent commit 8f29f68. No duplicate B2 commit was created.
+- This re-audit finalization is a subsequent report-only commit. Final candidate
+  range is origin/main..HEAD including that report; application/parser/test content
+  is unchanged by finalization. The exact final commit is available from git log.
+- Re-audit source diff: 60 files, 6404 insertions / 537 deletions, including canonical
+  report relocations and privacy cleanup. The task classification and initial
+  commit inventory below are historical snapshots, not the final commit count.
+
+### Gate results
+
+- Working tree clean at audit start. Finalization is committed separately so there
+  is no uncommitted report/evidence in the candidate at handoff.
+- tracked outputs = 0. Eight private PNG/JSON evidence files are ignored; local
+  output originals (17/17 files) remain byte-identical. No evidence was force-added.
+- Privacy scan of 60 candidate files and all 87 canonical reports: zero detected
+  actual fixture/reference IDs, real deployment hosts, machine-specific absolute
+  paths, credential-bearing URLs or credential values. Synthetic test examples and
+  redaction field names are not credentials. Ignored originals are intentionally
+  outside the public candidate scan and remain private/local-only.
+- scripts/vercel-album-logs.mjs has no VM, eval, Function constructor or dynamic
+  expression-evaluation fallback. Strict JSON parsing and bounded legacy data
+  parsing remain. Unsupported syntax stays raw internally and is not echoed as
+  event data.
+- Parser/adversarial tests: PASS, 17/17, no host side effects.
+- node --test tests/*.test.mjs: PASS, 1161/1161, zero failures.
+- npx tsc --noEmit: PASS, exit0.
+- npm run lint: PASS, exit0, zero errors / 12 existing warnings.
+- npm run build: PASS, exit0; network allowed for existing Google Fonts fetching.
+- git diff --check: PASS.
+- git diff origin/main...HEAD --check: PASS.
+
+The requested checks are also rerun at the documentation-finalized tip before
+handoff; finalization introduces no source/test/config change. No source modification
+was used to obtain passing checks in this re-audit.
+
+### Acceptance and residual limitations
+
+- PASS: accepted generation/Recovery/Task081 subset, Preview, Body edit persistence,
+  secondary-pet replacement, Cover identity, Background, Elements and reload consistency.
+- Genuine No-Crop/imageFit=contain browser acceptance: **UNVERIFIED due to fixture
+  absence**. No artificial DB/layout fixture was made; this is not marked PASS.
+  Existing automated No-Crop safety/reconstruction/shared-renderer regressions pass.
+  Fixture absence is recorded as a nonblocking validation limitation, not a code FAIL.
+- Historical Git commits may retain previously recorded identifiers. Current-tree
+  cleanup does not erase old commits, cached copies or earlier remote exposure.
+  This is a known limitation; no history rewrite was executed.
+- Existing lint warnings, typography/slot limitations and formatting-only template
+  diff remain documented nonblocking limitations. B1/B2 no longer block the current
+  candidate tree. No additional source commits are required by this re-audit.
+
+## Historical initial audit — superseded readiness recommendation
+
+Audit date: 2026-10-19 JST. Initial recommendation was HOLD until B1/B2 remediation.
+The findings and initial snapshots below are retained for traceability; the current
+MERGE READY assessment above supersedes their readiness recommendation.
 
 No application code, existing evidence or report was changed/deleted by this audit. No merge, push, branch deletion or deployment was performed. Only this new audit report was created. origin/main was fetched for a current comparison.
 
