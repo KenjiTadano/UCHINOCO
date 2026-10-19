@@ -1,3 +1,4 @@
+import { measureEditRequest, measuredEditFetch, traceAlbumLoad } from "@/lib/album-load-trace";
 import { readDraftCover } from "@/lib/album-persistence/read-cover";
 import { createAlbumRequestContext } from "@/lib/album-persistence/request-context";
 import { notFound, redirect } from "next/navigation";
@@ -16,34 +17,39 @@ type Props = {
 };
 
 export default async function AlbumEditPage({ params }: Props) {
+  return measureEditRequest(() => loadAlbumEditPage({ params }));
+}
+
+async function loadAlbumEditPage({ params }: Props) {
   const { petId, albumId } = await params;
-  const supabase = await createClient();
+  const supabase = await traceAlbumLoad("edit.create-client", () => createClient(measuredEditFetch));
   const {
     data: { user },
     error: userError,
-  } = await supabase.auth.getUser();
+  } = await traceAlbumLoad("edit.auth", () => supabase.auth.getUser());
   if (userError || !user) redirect("/login");
 
   const context = createAlbumRequestContext(supabase, user.id);
-  const album = await context.album(albumId);
+  const album = await traceAlbumLoad("edit.album", () => context.album(albumId));
   if (!album || album.owner_user_id !== user.id || album.pet_id !== petId) notFound();
   if (album.status === "ordered") {
     redirect(`/pets/${petId}/album/${albumId}`);
   }
 
-  const { data: pet } = await supabase
+  const { data: pet } = await traceAlbumLoad("edit.pet", () => supabase
     .from("pets")
     .select("id, name, owner_user_id")
     .eq("id", petId)
     .eq("owner_user_id", user.id)
-    .maybeSingle();
+    .maybeSingle());
   if (!pet) notFound();
 
-  const draft = await readDraft(supabase, albumId, undefined, context);
+  const draft = await traceAlbumLoad("edit.read-draft", () => readDraft(supabase, albumId, undefined, context));
   const { monthLabel, coverDateLabel } = formatAlbumPeriodLabels(album.period_from, album.period_to);
   const lines = buildCoverTitleLines(pet.name, album.title ?? "", monthLabel);
-  const cover = draft ? await readDraftCover(supabase, draft.versionId, draft.previewUrls, user.id) : null;
-  const fallbackCoverUrls = !cover?.previewUrl && album.cover_photo_id && !draft?.previewUrls[album.cover_photo_id] ? await signedPreviewUrls(supabase, [album.cover_photo_id], false, user.id) : new Map<string, string>();
+  const cover = draft ? await traceAlbumLoad("edit.cover", () => readDraftCover(supabase, draft.versionId, draft.previewUrls, user.id)) : null;
+  const fallbackCoverUrls = !cover?.previewUrl && album.cover_photo_id && !draft?.previewUrls[album.cover_photo_id] ? await traceAlbumLoad("edit.cover-fallback-urls", () => signedPreviewUrls(supabase, [album.cover_photo_id!], false, user.id)) : new Map<string, string>();
+  return traceAlbumLoad("edit.response-preparation", async () => {
   const coverSrc = cover?.previewUrl ?? (album.cover_photo_id ? draft?.previewUrls[album.cover_photo_id] ?? fallbackCoverUrls.get(album.cover_photo_id) : null) ?? null;
   const pages: AlbumEditPageEntry[] = [{ kind: "cover", id: "cover", label: "表紙" }, ...(draft?.spreads.map((spread, index): AlbumEditPageEntry => ({ kind: "spread", id: spread.id, label: `${index * 2 + 1} - ${index * 2 + 2}`, spread })) ?? [])];
   const pageCount = (draft?.spreads.length ?? 0) * 2;
@@ -72,4 +78,5 @@ export default async function AlbumEditPage({ params }: Props) {
       pageEditHref={`${base}/pages/edit`}
     />
   );
+  });
 }
