@@ -1,3 +1,4 @@
+import { requestModules } from './helpers/album-request-modules.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -18,8 +19,8 @@ test('every displayed candidate satisfies the same authoritative persistence pre
 });
 test('candidate loader, body and cover mutations share eligibility and keep RPC validation',async()=>{
   const source=await readFile('app/(app)/album-draft-service.ts','utf8');
-  assert.equal((source.match(/canUsePhotoInAlbum\(/g)||[]).length,3);
-  assert.match(source,/rows\.filter\(\(photo\) => canUsePhotoInAlbum/);
+  assert.equal((source.match(/canUsePhotoInAlbum\(/g)||[]).length,2);
+  assert.match(await readFile('lib/album-persistence/editor-candidates.ts','utf8'),/rows\.filter\(\(photo\) => canUsePhotoInAlbum/);
   assert.match(source,/rpc\("apply_draft_frame_override"/);
   assert.match(source,/rpc\("apply_draft_cover_override"/);
   assert.doesNotMatch(source,/photo\.pet_id !== album\.pet_id/);
@@ -55,8 +56,15 @@ async function actionsFixture() {
   },rpc:async(name,args)=>{state.writes.push({name,args});return {data:{status:'applied'}}}};
   const source=await readFile('app/(app)/album-draft-service.ts','utf8');
   const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  const internal=requestModules({
+    '../photo-image-delivery.ts':{createPhotoPreviewUrls:async(_db,rows)=>new Map(rows.map(p=>[p.id,'preview']))},
+    '../photo-list-images.ts':{createListImageUrls:async()=>({signedUrlByPath:new Map()})},
+    '../album-load-trace.ts':{traceAlbumLoad:async(_stage,work)=>work()},
+  });
   const exports={};
   vm.runInNewContext(compiled,{exports,require:(name)=>{
+    if(name==='@/lib/album-persistence/request-context')return internal('lib/album-persistence/request-context.ts');
+    if(name==='@/lib/album-persistence/editor-candidates')return internal('lib/album-persistence/editor-candidates.ts');
     if(name==='@/lib/album-persistence/photo-eligibility')return {canUsePhotoInAlbum};
     if(name==='@/lib/supabase/server')return {createClient:async()=>db};
     if(name==='@/lib/album-persistence/read-draft')return {fail:message=>({ok:false,message}),readDraft:async()=>({versionId:'v'}),signedPreviewUrls:async(_db,ids)=>new Map(ids.map(id=>[id,'preview']))};

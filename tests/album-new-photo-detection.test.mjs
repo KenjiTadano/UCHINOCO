@@ -14,7 +14,7 @@ const { findNewPhotoSuggestion } = await import(`data:text/javascript;base64,${B
 function client(failure, legacy = false) {
   const calls = [];
   const responses = {
-    albums: [{ data: { id: 'album', pet_id: 'a', status: 'draft', period_from: '2026-09-01', period_to: '2026-10-01' } }],
+    albums: [{ data: { id: 'album', owner_user_id: 'owner', pet_id: 'a', status: 'draft', period_from: '2026-09-01', period_to: '2026-10-01' } }],
     album_pets: [{ data: [{ pet_id: 'b' }] }],
     album_draft_versions: [{ data: { id: 'draft', status: 'editing', created_at: '2026-09-01', generation_metadata: legacy ? {} : { generation_photo_ids: ['old'] } } }],
     album_analytics_events: [{ data: null }, { data: null }],

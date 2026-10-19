@@ -11,6 +11,8 @@ import type { DraftFrameRow, DraftSpreadRow } from "./types.ts";
 import type { PersistedDraftView, PersistenceResult } from "./view.ts";
 import { parseAlbumCompositionPlan } from "../album-draft/composition.ts";
 
+import type { AlbumRequestContext } from "./request-context.ts";
+
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 export function fail(message: string): PersistenceResult {
@@ -88,16 +90,17 @@ export function mapFrame(row: Record<string, unknown>): DraftFrameRow {
   };
 }
 
-export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], refresh = false) {
+export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], refresh = false, userId?: string) {
   const ids = [...new Set(photoIds)];
   if (ids.length === 0) return new Map<string, string>();
   const { data: photos } = await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", ids);
-  return createPhotoPreviewUrls(supabase, photos ?? [], true, refresh);
+  return createPhotoPreviewUrls(supabase, photos ?? [], true, refresh, userId);
 }
 
 /** Active draft only. Does not create a version and does not run album generation. */
-export async function readDraft(supabase: Supabase, albumId: string, options?: { refreshUrls?: boolean }): Promise<PersistedDraftView | null> {
-  const { data: version } = await traceAlbumLoad("draft.version", () => supabase.from("album_draft_versions").select("id, album_id, status, revision, generation_metadata").eq("album_id", albumId).eq("is_active", true).maybeSingle());
+export async function readDraft(supabase: Supabase, albumId: string, options?: { refreshUrls?: boolean }, context?: AlbumRequestContext): Promise<PersistedDraftView | null> {
+  const versionResult = context ? { data: await context.version(albumId) } : await traceAlbumLoad("draft.version", () => supabase.from("album_draft_versions").select("id, album_id, status, revision, generation_metadata").eq("album_id", albumId).eq("is_active", true).maybeSingle());
+  const version = versionResult.data;
   if (!version) return null;
   const { data: spreadRows } = await traceAlbumLoad("draft.spreads", () => supabase.from("album_draft_spreads").select("*").eq("draft_version_id", version.id).order("position", { ascending: true }));
   const spreads = (spreadRows ?? []).map((row) => mapSpread(row as Record<string, unknown>));
@@ -142,6 +145,7 @@ export async function readDraft(supabase: Supabase, albumId: string, options?: {
       supabase,
       frames.flatMap((frame) => [frame.aiPhotoId, frame.userPhotoId].filter((id): id is string => Boolean(id))),
       options?.refreshUrls === true,
+      context?.userId,
     ),
   );
   const metadata = (version.generation_metadata ?? {}) as { signature?: string; composition?: unknown };

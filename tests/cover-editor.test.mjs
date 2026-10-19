@@ -159,7 +159,7 @@ test("cover writes do not change page draft frames", () => {
 });
 
 test("cover editor uses cached preview photos without calling Vision", () => {
-  assert.match(page, /signedPreviewUrls/);
+  assert.match(page, /createPhotoPreviewUrls/);
   assert.match(service, /signedPreviewUrls/);
   assert.match(screen, /c\.thumb \|\| c\.src/);
   assert.match(screen, /imagePath=\{originalSignedObjectPath/);

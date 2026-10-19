@@ -100,7 +100,7 @@ test("1. load active draft reads the saved version and does not create one", () 
   const loadActive = service.slice(service.indexOf("export async function loadActiveDraft"), service.indexOf("export async function refreshDraftPhotoUrls"));
   assert.equal(loadActive.includes("save_album_draft_version"), false);
   assert.equal(loadActive.includes(".insert("), false);
-  assert.match(page, /readDraft\(supabase, albumId\)/);
+  assert.match(page, /readDraft\(supabase, albumId(?:, undefined, context)?\)/);
   assert.equal(page.includes("buildAlbumEditSpreads"), false);
 });
 
@@ -344,7 +344,7 @@ test("18. editor load does not call Vision or regenerate the album", () => {
   assert.match(service, /refreshDraftPhotoUrls/);
 });
 
-test("19. frame preview uses the original object and the picker uses the thumbnail", () => {
+test("19. frame preview uses the original object and the picker uses the thumbnail", async () => {
   const url = "https://example.supabase.co/storage/v1/object/sign/pet-photos/pets/a.jpg?token=abc";
   assert.equal(originalSignedObjectPath(url), "pets/a.jpg");
   assert.equal(originalSignedObjectPath("https://example.supabase.co/storage/v1/object/sign/pet-photo-thumbnails/pets/a.jpg?token=abc"), "");
@@ -352,7 +352,7 @@ test("19. frame preview uses the original object and the picker uses the thumbna
   assert.match(screen, /src=\{candidate\.thumb\}/);
   assert.match(viewSource, /data-image-kind=\{originalPath \? "original" : "preview"\}/);
   assert.match(viewSource, /originalSignedObjectPath\(src\)/);
-  assert.match(service, /pet-photo-thumbnails|createListImageUrls/);
+  assert.match(await readFile("./lib/album-persistence/editor-candidates.ts", "utf8"), /createListImageUrls/);
 });
 
 test("20. Digital Editor uses page surfaces and the existing crop history", () => {

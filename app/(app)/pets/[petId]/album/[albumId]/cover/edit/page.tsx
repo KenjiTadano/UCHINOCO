@@ -1,9 +1,11 @@
+import { createAlbumRequestContext } from "@/lib/album-persistence/request-context";
+import { loadRequestEditorCandidates } from "@/lib/album-persistence/editor-candidates";
 import { notFound, redirect } from "next/navigation";
-import { loadActiveDraft, loadCoverEditor, loadEditorCandidates } from "@/app/(app)/album-draft-service";
+import { loadActiveDraft, loadCoverEditor } from "@/app/(app)/album-draft-service";
 import { buildCoverTitleLines, formatAlbumPeriodLabels } from "@/lib/album-cover-title";
 import { EDITOR_MISSING_DRAFT_MESSAGE, editorIsReadonly } from "@/lib/album-persistence/editor";
 import { createListImageUrls } from "@/lib/photo-list-images";
-import { signedPreviewUrls } from "@/lib/album-persistence/read-draft";
+import { createPhotoPreviewUrls } from "@/lib/photo-image-delivery";
 import { createClient } from "@/lib/supabase/server";
 import { CoverEditScreen } from "./cover-edit-screen";
 
@@ -42,10 +44,13 @@ export default async function CoverEditPage({ params }: Props) {
   };
 
   // Saved draft only. Opening the cover editor does not regenerate the album or call Vision.
-  const loaded = await loadCoverEditor(albumId, seed);
+  const [loaded, ownedCandidates] = await Promise.all([
+    loadCoverEditor(albumId, seed),
+    loadRequestEditorCandidates(supabase, createAlbumRequestContext(supabase, user.id), petId, undefined, { routePetVerified: true, ...(albumPhotoIds.length ? { restrictPhotoIds: albumPhotoIds } : {}) }),
+  ]);
   const missing = !loaded.cover && loaded.message === EDITOR_MISSING_DRAFT_MESSAGE;
   const loadError = loaded.cover || missing ? null : loaded.message;
-  const owned = loaded.cover ? await loadEditorCandidates(petId) : [];
+  const owned = loaded.cover ? ownedCandidates : [];
   const ownedById = new Map(owned.map((photo) => [photo.id, photo]));
   const albumCandidates = albumPhotoIds.length
     ? albumPhotoIds.flatMap((id) => {
@@ -55,11 +60,8 @@ export default async function CoverEditPage({ params }: Props) {
     : owned;
   if (albumCandidates.length === 0 && albumPhotoIds.length > 0) {
     const { data: photos } = await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", albumPhotoIds).eq("pet_id", petId);
-    const previews = await signedPreviewUrls(
-      supabase,
-      (photos ?? []).map((photo) => photo.id),
-    );
-    const listed = await createListImageUrls(supabase, photos ?? []);
+    const previews = await createPhotoPreviewUrls(supabase, photos ?? [], true, false, user.id);
+    const listed = await createListImageUrls(supabase, photos ?? [], user.id);
     for (const photo of photos ?? []) {
       const src = previews.get(photo.id);
       if (!src) continue;

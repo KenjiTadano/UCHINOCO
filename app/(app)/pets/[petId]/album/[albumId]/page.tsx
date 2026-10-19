@@ -1,8 +1,8 @@
-import { mapDraftCoverRow, toCoverEditor } from "@/lib/album-persistence/cover";
+import { createAlbumRequestContext } from "@/lib/album-persistence/request-context";
+import { readDraftCover } from "@/lib/album-persistence/read-cover";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createListImageUrls, listImagePath } from "@/lib/photo-list-images";
 import { AlbumCoverCollage } from "../_components/album-cover-collage";
@@ -12,7 +12,7 @@ import { AlbumDeleteControl } from "./album-delete-control";
 import { AlbumCompleteScreen } from "./album-complete-screen";
 import { AlbumPreviewScreen } from "./album-preview-screen";
 import { buildAlbumPreviewSpreads } from "@/lib/album-preview-spreads";
-import { readDraft, signedPreviewUrls } from "@/lib/album-persistence/read-draft";
+import { readDraft } from "@/lib/album-persistence/read-draft";
 import { traceAlbumLoad } from "@/lib/album-load-trace";
 import { formatAlbumPeriodLabels } from "@/lib/album-cover-title";
 import { recordAlbumAnalyticsEvent } from "@/lib/album-analytics-server";
@@ -40,23 +40,35 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
   if (userError || !user) redirect("/login");
 
   // RLS exposes the album to its owner and accepted members of an album pet.
-  const { data: album, error: albumError } = await supabase.from("albums").select("id, owner_user_id, pet_id, title, status, period_from, period_to, cover_photo_id").eq("id", albumId).eq("pet_id", petId).maybeSingle();
+  const context = createAlbumRequestContext(supabase, user.id);
+  const album = await context.album(albumId);
 
-  if (albumError || !album) notFound();
+  if (!album || album.pet_id !== petId) notFound();
 
   const isOwner = album.owner_user_id === user.id;
-  const ownerEntitlements = await loadUserEntitlements(supabase, album.owner_user_id);
   // Pet RLS independently confirms that the route pet is shared with the caller.
   const { data: pet } = await supabase.from("pets").select("id, name, owner_user_id").eq("id", petId).maybeSingle();
 
   if (!pet) notFound();
 
-  const albumPetsClient = supabase as unknown as SupabaseClient;
-  const { data: albumPetRows } = await albumPetsClient.from("album_pets").select("pet_id").eq("album_id", albumId);
-  const albumPetIds = [...new Set([petId, ...(albumPetRows ?? []).map((row) => row.pet_id)])];
+  // Draft Preview does not use the legacy list, order, entitlements or suggestion data.
+  if (showPreview) {
+    const savedDraft = await readDraft(supabase, albumId, undefined, context);
+    if (savedDraft) {
+      const [cover] = await Promise.all([
+        readDraftCover(supabase, savedDraft.versionId, savedDraft.previewUrls, user.id),
+        recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: savedDraft.versionId, eventType: "album_viewed", eventKey: `preview:${savedDraft.versionId}` }),
+      ]);
+      const base = `/pets/${petId}/album/${albumId}`;
+      return <AlbumPreviewScreen cover={cover} draft={savedDraft} spreads={[]} backHref={`${base}?view=complete`} editHref={`${base}/pages/edit`} orderHref={`${base}/product`} printHref={`${base}/print`} />;
+    }
+  }
+
+  const ownerEntitlements = await loadUserEntitlements(supabase, album.owner_user_id);
+  const albumPetIds = [...new Set([petId, ...(await context.petIds(albumId) ?? [])])];
   const { data: albumPets } = await supabase.from("pets").select("id, name").in("id", albumPetIds);
   const albumPetLabel = (albumPets ?? []).map((item) => item.name).join("・") || pet.name;
-  const newPhotoSuggestion = isOwner ? await findNewPhotoSuggestion(supabase, { albumId, routePetId: petId, userId: user.id }) : null;
+  const newPhotoSuggestion = isOwner ? await findNewPhotoSuggestion(supabase, { albumId, routePetId: petId, userId: user.id }, context) : null;
   const visibleSuggestion = newPhotoSuggestion && !newPhotoSuggestion.dismissed ? newPhotoSuggestion : null;
   if (visibleSuggestion) {
     await recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: visibleSuggestion.draftVersionId, eventType: "new_photos_suggested", eventKey: visibleSuggestion.fingerprint, eventData: { photo_count: visibleSuggestion.candidates.length } });
@@ -137,17 +149,6 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
   const periodLabels = formatAlbumPeriodLabels(album.period_from, album.period_to);
 
   if (showPreview) {
-    const savedDraft = await readDraft(supabase, albumId);
-    if (savedDraft) {
-      await recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: savedDraft.versionId, eventType: "album_viewed", eventKey: `preview:${savedDraft.versionId}` });
-      const base = `/pets/${petId}/album/${albumId}`;
-      const {data: coverRow} = await supabase.from("album_draft_covers").select("*").eq("draft_version_id",savedDraft.versionId).maybeSingle();
-      const coverSource = coverRow ? mapDraftCoverRow(coverRow as unknown as Record<string,unknown>) : null;
-      const coverUrls = coverSource ? await signedPreviewUrls(supabase,[coverSource.aiPhotoId,coverSource.userPhotoId].filter((id): id is string => Boolean(id))) : new Map<string,string>();
-      const cover = coverSource ? toCoverEditor(coverSource,Object.fromEntries(coverUrls)) : null;
-      return <AlbumPreviewScreen cover={cover} draft={savedDraft} spreads={[]} backHref={`${base}?view=complete`} editHref={`${base}/pages/edit`} orderHref={`${base}/product`} printHref={`${base}/print`} />;
-    }
-
     const analysesResult = await supabase
       .from("photo_ai_analyses")
       .select("photo_id, activity, scene, tags, description")
@@ -182,7 +183,7 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
   }
 
   if (showComplete) {
-    const savedDraft = await readDraft(supabase, albumId);
+    const savedDraft = await readDraft(supabase, albumId, undefined, context);
     if (savedDraft) await recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: savedDraft.versionId, eventType: "album_viewed", eventKey: `complete:${savedDraft.versionId}` });
     const base = `/pets/${petId}/album/${albumId}`;
     const coverSrc = (album.cover_photo_id ? orderedPhotos.find((p) => p.photo_id === album.cover_photo_id)?.src : null) ?? orderedPhotos.find((p) => p.src)?.src ?? null;
@@ -295,7 +296,7 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
             <h2 id="album-title-heading" className="text-sm font-medium text-muted">
               タイトルを編集
             </h2>
-          {isOwner ? <AlbumTitleForm petId={petId} albumId={albumId} title={album.title} /> : <h1 className="app-title">{album.title || "アルバム"}</h1>}
+          {isOwner ? <AlbumTitleForm petId={petId} albumId={albumId} title={album.title ?? ""} /> : <h1 className="app-title">{album.title || "アルバム"}</h1>}
           </section>
 
           {/* Photo add link */}

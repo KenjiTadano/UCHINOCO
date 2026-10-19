@@ -10,7 +10,7 @@ test("album GET pages read the draft with the request-scoped Supabase client", a
   ]);
 
   for (const source of [detail, editor, print]) {
-    assert.match(source, /readDraft\(supabase, albumId\)/);
+    assert.match(source, /readDraft\(supabase, albumId(?:, undefined, context)?\)/);
     assert.doesNotMatch(source, /loadActiveDraft\(albumId\)/);
   }
 });

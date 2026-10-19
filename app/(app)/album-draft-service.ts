@@ -9,12 +9,13 @@ import { EDITOR_MISSING_DRAFT_MESSAGE } from "@/lib/album-persistence/editor";
 import { fail, messageFromError, readDraft, signedPreviewUrls } from "@/lib/album-persistence/read-draft";
 import type { CropTriple, WriteStatus } from "@/lib/album-persistence/types";
 import type { DraftEditorLoad, PersistenceResult } from "@/lib/album-persistence/view";
-import { createListImageUrls } from "@/lib/photo-list-images";
 import { createClient } from "@/lib/supabase/server";
 import { isElementBackgroundId, normalizePageElement, type PageElement, type PageSide } from "@/lib/album-elements/model";
 import type { Json } from "@/lib/supabase/database.types";
 import { recordAlbumAnalyticsEvent, type AlbumAnalyticsEventType } from "@/lib/album-analytics-server";
 
+import { createAlbumRequestContext } from "@/lib/album-persistence/request-context";
+import { loadRequestEditorCandidates } from "@/lib/album-persistence/editor-candidates";
 import { canUsePhotoInAlbum, type AlbumPhotoEligibility } from "@/lib/album-persistence/photo-eligibility";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -80,61 +81,17 @@ export async function refreshDraftPhotoUrls(albumId: string): Promise<{
 
 // Fail closed on missing membership or ownership reads; never trust client pet IDs.
 async function photoEligibility(supabase: Awaited<ReturnType<typeof createClient>>, albumId: string, userId: string): Promise<AlbumPhotoEligibility | null> {
-  const { data: album, error } = await supabase.from("albums").select("id, pet_id, owner_user_id").eq("id", albumId).eq("owner_user_id", userId).maybeSingle();
-  if (error || !album) return null;
-  const { data: links, error: linksError } = await supabase.from("album_pets").select("pet_id").eq("album_id", albumId);
-  if (linksError || !links?.length) return null;
-  const petIds = [...new Set(links.map((link) => link.pet_id))];
-  const { data: owned, error: ownedError } = await supabase.from("pets").select("id").in("id", petIds).eq("owner_user_id", userId);
-  if (ownedError || owned?.length !== petIds.length || !petIds.includes(album.pet_id)) return null;
-  return { ownerUserId: album.owner_user_id, allowedPetIds: petIds };
+  return createAlbumRequestContext(supabase, userId).eligibility(albumId);
 }
 
 export async function loadEditorCandidates(petId: string, albumId?: string): Promise<{ id: string; src: string; thumb: string }[]> {
-  if (!UUID_PATTERN.test(petId)) return [];
+  if (!UUID_PATTERN.test(petId) || (albumId !== undefined && !UUID_PATTERN.test(albumId))) return [];
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return [];
-  const { data: pet } = await supabase.from("pets").select("id").eq("id", petId).eq("owner_user_id", user.id).maybeSingle();
-  if (!pet) return [];
-  let petIds = [petId];
-  if (albumId) {
-    if (!UUID_PATTERN.test(albumId)) return [];
-    const { data: album, error: albumError } = await supabase.from("albums").select("id").eq("id", albumId).eq("pet_id", petId).eq("owner_user_id", user.id).maybeSingle();
-    if (albumError || !album) return [];
-    const eligibility = await photoEligibility(supabase, albumId, user.id);
-    if (!eligibility) return [];
-    petIds = [...eligibility.allowedPetIds];
-  }
-  const { data: photos } = await supabase.from("photos").select("id, pet_id, uploader_user_id, storage_path, thumbnail_path").in("pet_id", petIds).eq("uploader_user_id", user.id).order("taken_at", { ascending: false }).limit(80);
-  let rows = photos ?? [];
-  // The recent-photo cap must not hide photographs explicitly added to this album.
-  if (albumId) {
-    const { data: selected, error: selectedError } = await supabase.from("album_photos").select("photo_id").eq("album_id", albumId);
-    if (selectedError) return [];
-    const visibleIds = new Set(rows.map((photo) => photo.id));
-    const missingIds = (selected ?? []).map((row) => row.photo_id).filter((id) => !visibleIds.has(id));
-    if (missingIds.length > 0) {
-      const { data: added, error: addedError } = await supabase.from("photos").select("id, pet_id, uploader_user_id, storage_path, thumbnail_path").in("id", missingIds).in("pet_id", petIds).eq("uploader_user_id", user.id);
-      if (addedError) return [];
-      rows = [...rows, ...(added ?? [])];
-    }
-  }
-  const eligibility = albumId ? await photoEligibility(supabase, albumId, user.id) : { ownerUserId: user.id, allowedPetIds: petIds };
-  rows = rows.filter((photo) => canUsePhotoInAlbum(eligibility, photo, user.id));
-  const previews = await signedPreviewUrls(
-    supabase,
-    rows.map((photo) => photo.id),
-  );
-  const listed = await createListImageUrls(supabase, rows);
-  return rows.flatMap((photo) => {
-    const src = previews.get(photo.id);
-    if (!src) return [];
-    const thumb = photo.thumbnail_path ? (listed.signedUrlByPath.get(photo.thumbnail_path) ?? src) : src;
-    return [{ id: photo.id, src, thumb }];
-  });
+  return loadRequestEditorCandidates(supabase, createAlbumRequestContext(supabase, user.id), petId, albumId);
 }
 
 export async function overrideSpreadLayout(spreadId: string, expectedRevision: number, clientSeq: number, userLayoutId: string | null): Promise<PersistenceResult> {

@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
-import { loadEditorCandidates } from "@/app/(app)/album-draft-service";
+import { createAlbumRequestContext } from "@/lib/album-persistence/request-context";
+import { loadRequestEditorCandidates } from "@/lib/album-persistence/editor-candidates";
 import { EDITOR_MISSING_DRAFT_MESSAGE, editorIsReadonly } from "@/lib/album-persistence/editor";
 import { readDraft } from "@/lib/album-persistence/read-draft";
 import { createClient } from "@/lib/supabase/server";
@@ -23,15 +24,9 @@ export default async function PageEditPage({ params, searchParams }: Props) {
   } = await supabase.auth.getUser();
   if (userError || !user) redirect("/login");
 
-  const { data: album, error: albumError } = await supabase
-    .from("albums")
-    .select("id, owner_user_id, pet_id, status")
-    .eq("id", albumId)
-    .eq("owner_user_id", user.id)
-    .eq("pet_id", petId)
-    .maybeSingle();
-
-  if (albumError || !album) notFound();
+  const context = createAlbumRequestContext(supabase, user.id);
+  const album = await context.album(albumId);
+  if (!album || album.owner_user_id !== user.id || album.pet_id !== petId) notFound();
 
   const { data: pet } = await supabase
     .from("pets")
@@ -42,14 +37,16 @@ export default async function PageEditPage({ params, searchParams }: Props) {
   if (!pet) notFound();
 
   // Saved draft only. Opening the editor does not regenerate the album or call Vision.
-  const view = await readDraft(supabase, albumId);
+  const [view, candidates, suggestion] = await Promise.all([
+    readDraft(supabase, albumId, undefined, context),
+    loadRequestEditorCandidates(supabase, context, petId, albumId, { routePetVerified: true }),
+    findNewPhotoSuggestion(supabase, { albumId, routePetId: petId, userId: user.id }, context),
+  ]);
   if (view) await recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: view.versionId, eventType: "album_edit_started", eventKey: view.versionId });
   const parsed = Number.parseInt(spreadParam ?? "0", 10);
   const initialIndex = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
   const base = `/pets/${petId}/album/${albumId}`;
-  const candidates = view ? await loadEditorCandidates(petId, albumId) : [];
   const loadError = view ? null : EDITOR_MISSING_DRAFT_MESSAGE;
-  const suggestion = view ? await findNewPhotoSuggestion(supabase, { albumId, routePetId: petId, userId: user.id }) : null;
 
   return (
     <>
@@ -60,7 +57,7 @@ export default async function PageEditPage({ params, searchParams }: Props) {
         albumId={albumId}
         readonly={editorIsReadonly(album.status)}
         loadError={loadError}
-        candidatePhotos={candidates.map((photo) => ({
+        candidatePhotos={(view ? candidates : []).map((photo) => ({
           id: photo.id,
           src: photo.src,
           thumb: photo.thumb,

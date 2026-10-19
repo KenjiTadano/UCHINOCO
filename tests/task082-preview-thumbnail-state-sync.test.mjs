@@ -119,6 +119,7 @@ let harness;
 let serverHarness;
 const load = Module._load;
 Module._load = function(specifier, parent, ...rest) {
+  if (specifier === "server-only") return {};
   if (parent?.filename.endsWith('/[albumId]/edit/page.tsx') && serverHarness) {
     if (specifier.includes('supabase/server')) return { createClient: async () => serverHarness.client };
     if (specifier.includes('album-persistence/read-draft')) return { readDraft: async () => { serverHarness.loads++; return serverHarness.draft; }, signedPreviewUrls: async () => new Map() };
@@ -213,7 +214,7 @@ test('/edit loads the active draft and never rebuilds body pages from album_phot
     auth: { getUser: async () => ({ data: { user: { id: 'owner' } }, error: null }) },
     from(table) {
       queried.push(table);
-      const data = table === 'albums' ? { id: 'album-1', pet_id: 'pet-1', status: 'draft', title: 'Album', period_from: '2026-01-01', period_to: '2026-02-01', cover_photo_id: null } : table === 'pets' ? { id: 'pet-1', name: 'Pet' } : null;
+      const data = table === 'albums' ? { id: 'album-1', owner_user_id: 'owner', pet_id: 'pet-1', status: 'draft', title: 'Album', period_from: '2026-01-01', period_to: '2026-02-01', cover_photo_id: null } : table === 'pets' ? { id: 'pet-1', name: 'Pet' } : null;
       const query = { select() { return this; }, eq() { return this; }, maybeSingle: async () => ({ data, error: null }) };
       return query;
     },

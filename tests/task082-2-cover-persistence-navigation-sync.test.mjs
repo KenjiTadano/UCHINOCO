@@ -21,6 +21,7 @@ const mockedReact = {
   useEffect: (effect, deps) => { const index = harness.cursor++; const prev = harness.states[index]; if (!prev || deps.some((d, i) => d !== prev[i])) { harness.states[index] = deps; harness.effects.push(effect); } },
 };
 Module._load = function(specifier, parent, ...rest) {
+  if (specifier === "server-only") return {};
   const name = parent?.filename ?? '';
   if (name.endsWith('/use-cover-edit-draft.ts') || name.endsWith('/cover-edit-screen.tsx')) {
     if (specifier === 'react') return mockedReact;

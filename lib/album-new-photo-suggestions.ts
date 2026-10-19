@@ -3,6 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { detectNewPhotoIds, newPhotoSuggestionFingerprint, suggestionIsProtected } from "./album-new-photo-suggestion-policy";
 
+import type { AlbumRequestContext } from "./album-persistence/request-context";
+
 type Metadata = Record<string, unknown>;
 
 export type NewPhotoCandidate = {
@@ -43,26 +45,28 @@ function scoreFromResult(value: unknown): number | null {
 export async function findNewPhotoSuggestion(
   supabase: SupabaseClient,
   input: { albumId: string; routePetId: string; userId: string },
+  context?: AlbumRequestContext,
 ): Promise<NewPhotoSuggestion | null> {
-  const { data: album, error: albumError } = await supabase
+  const { data: album, error: albumError } = context ? { data: await context.album(input.albumId), error: null } : await supabase
     .from("albums")
     .select("id, pet_id, owner_user_id, status, period_from, period_to")
     .eq("id", input.albumId)
     .eq("pet_id", input.routePetId)
     .eq("owner_user_id", input.userId)
     .maybeSingle();
-  if (albumError || !album) return null;
+  if (albumError || !album || album.pet_id !== input.routePetId || album.owner_user_id !== input.userId || (context && context.userId !== input.userId)) return null;
 
   const [{ data: links, error: linksError }, { data: version, error: versionError }, { data: accepted, error: acceptedError }, { data: order, error: orderError }] = await Promise.all([
-    supabase.from("album_pets").select("pet_id").eq("album_id", album.id),
-    supabase.from("album_draft_versions").select("id, status, created_at, generation_metadata").eq("album_id", album.id).eq("is_active", true).maybeSingle(),
+    context ? context.petIds(album.id).then(ids => ({ data: ids?.map(pet_id => ({ pet_id })), error: ids ? null : new Error("membership unavailable") })) : supabase.from("album_pets").select("pet_id").eq("album_id", album.id),
+    context ? context.version(album.id).then(data => ({ data, error: null })) : supabase.from("album_draft_versions").select("id, status, created_at, generation_metadata").eq("album_id", album.id).eq("is_active", true).maybeSingle(),
     supabase.from("album_analytics_events").select("id").eq("album_id", album.id).eq("event_type", "album_accepted").limit(1).maybeSingle(),
     supabase.from("orders").select("id").eq("album_id", album.id).in("status", ["pending", "paid"]).limit(1).maybeSingle(),
   ]);
   if (linksError || versionError || acceptedError || orderError || !version || suggestionIsProtected({ albumStatus: album.status, draftStatus: version.status, accepted: Boolean(accepted), ordered: Boolean(order) })) return null;
 
   const petIds = [...new Set([album.pet_id, ...(links ?? []).map((row) => row.pet_id)])];
-  const { data: ownedPets, error: ownedPetsError } = await supabase.from("pets").select("id").in("id", petIds).eq("owner_user_id", input.userId);
+  const ownedIds = context ? await context.ownedPetIds(petIds) : null;
+  const { data: ownedPets, error: ownedPetsError } = context ? { data: ownedIds?.map(id => ({ id })) ?? [], error: ownedIds ? null : new Error("ownership unavailable") } : await supabase.from("pets").select("id").in("id", petIds).eq("owner_user_id", input.userId);
   if (ownedPetsError) return null;
   if ((ownedPets ?? []).length !== petIds.length) return null;
 
