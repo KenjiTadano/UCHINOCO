@@ -69,12 +69,12 @@ async function loadAlbumEditPage({ params }: Props) {
       cover={cover}
       loadError={draft ? null : EDITOR_MISSING_DRAFT_MESSAGE}
       selectedPageId="cover"
-      backHref={`${base}?view=complete`}
+      backHref={`${base}?view=preview`}
       previewHref={`${base}?view=preview`}
       coverChangeHref={`${base}/cover/edit`}
       addPhotosHref={`${base}/add`}
       titleEditHref={base}
-      doneHref={`${base}?view=complete`}
+      doneHref={`${base}?view=preview`}
       pageEditHref={`${base}/pages/edit`}
     />
   );

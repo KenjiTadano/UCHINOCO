@@ -68,3 +68,5 @@ Five focused regression tests cover actual Server Action execution with I/O doub
 1181/1181 full tests PASS; TypeScript PASS; lint 0 errors / 12 existing warnings. Final build and diff check / browser UX acceptance are recorded below when complete. These checks do not claim that general app latency is solved. Preview latency remains a separate Task085.4 concern after review.
 
 Final local verification: 1181/1181 tests PASS; npx tsc --noEmit PASS; lint 0 errors / 12 existing warnings; build PASS; git diff --check PASS. Authenticated new-CTA browser acceptance remains pending deployment/login.
+
+The `/edit` list Back and Done hrefs are also aligned to Preview, so the requested completion → Preview → edit → list → Back → Preview loop works through the in-app control. Body/Cover Editor still flush pending saves before returning to the list; no save queue or revision behavior is changed. A final navigation contract check covers both list targets.
