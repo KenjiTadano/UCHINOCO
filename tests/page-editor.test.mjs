@@ -351,7 +351,7 @@ test("19. frame preview uses the original object and the picker uses the thumbna
   assert.match(screen, /knownOriginal \|\| candidate\.src/);
   assert.match(screen, /src=\{candidate\.thumb\}/);
   assert.match(viewSource, /data-image-kind=\{originalPath \? "original" : "preview"\}/);
-  assert.match(viewSource, /originalSignedObjectPath\(src\)/);
+  assert.match(viewSource, /originalSignedObjectPath\(effectiveSrc\)/);
   assert.match(await readFile("./lib/album-persistence/editor-candidates.ts", "utf8"), /createListImageUrls/);
 });
 

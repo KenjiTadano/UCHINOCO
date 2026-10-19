@@ -159,7 +159,7 @@ export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHr
                 if (item.kind !== "draft-spread") return null;
                 return (
                   <button key={item.item.id} type="button" role="tab" aria-selected={itemIndex === index} className={`album-preview-thumb${itemIndex === index ? " is-selected" : ""}`} onClick={() => setIndex(itemIndex)}>
-                    <DraftSpreadThumbnail spread={item.item} previewUrls={savedDraft.previewUrls} />
+                    <DraftSpreadThumbnail spread={item.item} previewUrls={savedDraft.previewUrls} thumbnailUrls={savedDraft.thumbnailUrls} />
                   </button>
                 );
               })}

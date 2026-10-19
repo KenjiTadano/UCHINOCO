@@ -47,6 +47,7 @@ export type PersistedDraftView = {
   revision: number;
   signature: string;
   previewUrls: Record<string, string>;
+  thumbnailUrls?: Record<string, string>;
   compositionPlan?: AlbumCompositionPlan | null;
   spreads: PersistedSpreadView[];
 };

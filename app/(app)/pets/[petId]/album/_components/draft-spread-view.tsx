@@ -35,6 +35,7 @@ type Props = {
   interactive?: boolean;
   digital?: boolean;
   thumbnail?: boolean;
+  thumbnailUrls?: Record<string, string>;
   selectedFrameId?: string | null;
   selectedElementId?: string | null;
   elements?: PageElement[];
@@ -54,9 +55,11 @@ type Props = {
   layoutId?: string;
 };
 
-function FrameImage({ src, crop, photoId, imageFit = "cover", onImageError }: { src: string; crop: CropTriple; photoId: string; imageFit?: LayoutImageFit; onImageError?: (photoId: string) => void }) {
+function FrameImage({ src, fallbackSrc, thumbnail, crop, photoId, imageFit = "cover", onImageError }: { src: string; fallbackSrc?: string; thumbnail?: boolean; crop: CropTriple; photoId: string; imageFit?: LayoutImageFit; onImageError?: (photoId: string) => void }) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const effectiveSrc = failedSrc === src && fallbackSrc ? fallbackSrc : src;
   const safe = sanitizeCropTransform(crop);
-  const originalPath = originalSignedObjectPath(src);
+  const originalPath = originalSignedObjectPath(effectiveSrc);
   const [loadState, setLoadState] = useState<LoadState>(src ? "loading" : "error");
   const retried = useRef(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -89,13 +92,16 @@ function FrameImage({ src, crop, photoId, imageFit = "cover", onImageError }: { 
         // eslint-disable-next-line @next/next/no-img-element
         <img
           ref={imgRef}
-          src={src}
+          src={effectiveSrc}
+          loading={thumbnail ? "lazy" : undefined}
+          decoding={thumbnail ? "async" : undefined}
           alt=""
           draggable={false}
           data-image-kind={originalPath ? "original" : "preview"}
           data-src-path={originalPath || undefined}
           onLoad={() => setLoadState("loaded")}
           onError={() => {
+            if (thumbnail && fallbackSrc && effectiveSrc !== fallbackSrc) { setFailedSrc(src); setLoadState("loading"); return; }
             setLoadState("error");
             if (!retried.current) {
               retried.current = true;
@@ -123,6 +129,7 @@ export function DraftSpreadView({
   interactive = false,
   digital = false,
   thumbnail = false,
+  thumbnailUrls,
   selectedFrameId = null,
   selectedElementId = null,
   elements = [],
@@ -427,7 +434,7 @@ export function DraftSpreadView({
               height: `${norm.h * 100}%`,
             }}
           >
-            <FrameImage src={src} crop={crop} imageFit={imageFit} photoId={photoId} onImageError={onImageError} />
+            <FrameImage src={thumbnail ? thumbnailUrls?.[photoId] ?? src : src} fallbackSrc={thumbnail ? src : undefined} thumbnail={thumbnail} crop={crop} imageFit={imageFit} photoId={photoId} onImageError={onImageError} />
           </div>
         );
       })}

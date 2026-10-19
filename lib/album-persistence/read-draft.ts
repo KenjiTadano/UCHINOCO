@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
-import { createPhotoPreviewUrls } from "../photo-image-delivery.ts";
+import { createAlbumThumbnailDelivery, createPhotoPreviewUrls } from "../photo-image-delivery.ts";
 import { traceAlbumLoad } from "../album-load-trace.ts";
 import { parseLayoutRankings } from "./payload.ts";
 import { mapPageBackgroundRow, mapPageElementRow, type PageBackgroundState, type PageElement, type PageSide } from "../album-elements/model.ts";
@@ -90,11 +90,18 @@ export function mapFrame(row: Record<string, unknown>): DraftFrameRow {
   };
 }
 
-export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], refresh = false, userId?: string) {
+export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], refresh = false, userId?: string, thumbnailUrls?: Map<string, string>) {
   const ids = [...new Set(photoIds)];
   if (ids.length === 0) return new Map<string, string>();
   const { data: photos } = await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", ids);
-  return createPhotoPreviewUrls(supabase, photos ?? [], true, refresh, userId);
+  const deliveryUserId = userId ?? (thumbnailUrls ? (await supabase.auth.getUser()).data.user?.id : undefined);
+  const urls = await createPhotoPreviewUrls(supabase, photos ?? [], true, refresh, deliveryUserId);
+  if (thumbnailUrls && deliveryUserId) {
+    const delivery = await createAlbumThumbnailDelivery(supabase, photos ?? [], urls, deliveryUserId, refresh);
+    for (const [id, url] of delivery.urls) thumbnailUrls.set(id, url);
+    if (process.env.NODE_ENV !== "test") console.info("Album image delivery", JSON.stringify(delivery.counts));
+  }
+  return urls;
 }
 
 /** Active draft only. Does not create a version and does not run album generation. */
@@ -140,12 +147,14 @@ export async function readDraft(supabase: Supabase, albumId: string, options?: {
     backgrounds[mapped.side] = mapped.state;
     backgroundsBySpread.set(mapped.spreadId, backgrounds);
   }
+  const thumbnailUrls = new Map<string, string>();
   const urls = await traceAlbumLoad("draft.preview-urls", () =>
     signedPreviewUrls(
       supabase,
       frames.flatMap((frame) => [frame.aiPhotoId, frame.userPhotoId].filter((id): id is string => Boolean(id))),
       options?.refreshUrls === true,
       context?.userId,
+      thumbnailUrls,
     ),
   );
   const metadata = (version.generation_metadata ?? {}) as { signature?: string; composition?: unknown };
@@ -157,6 +166,7 @@ export async function readDraft(supabase: Supabase, albumId: string, options?: {
     revision: num(version.revision),
     signature: metadata.signature ?? "",
     previewUrls: Object.fromEntries(urls),
+    thumbnailUrls: Object.fromEntries(thumbnailUrls),
     compositionPlan: parseAlbumCompositionPlan(metadata.composition),
     spreads: spreads.map((spread) => ({
       ...assembleEditorSpread(

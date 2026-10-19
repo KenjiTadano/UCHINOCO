@@ -21,6 +21,7 @@ type SignedImageCache = { url: string; expiresAt: number };
 
 const signedUrlCache = new Map<string, SignedImageCache>();
 const previewPresenceCache = new Map<string, { exists: boolean; expiresAt: number }>();
+const albumPreviewAvailability = new Map<string, { exists: boolean; expiresAt: number }>();
 const PRESENCE_CACHE_MS = 10 * 60 * 1000;
 
 function cacheKey(userId: string, bucket: string, path: string) {
@@ -187,6 +188,7 @@ export async function createPhotoPreviewUrls(supabase: SupabaseClient, photos: P
 export function clearPhotoImageUrlCacheForTests() {
   signedUrlCache.clear();
   previewPresenceCache.clear();
+  albumPreviewAvailability.clear();
 }
 
 export function rememberPhotoPreviewPresent(userId: string, path: string) {
@@ -194,4 +196,65 @@ export function rememberPhotoPreviewPresent(userId: string, path: string) {
     exists: true,
     expiresAt: Date.now() + PRESENCE_CACHE_MS,
   });
+}
+
+
+/** Resize only an original actually chosen by the existing main delivery path.
+ * Existing square thumbnails are never substituted for a differently shaped main.
+ * No object is uploaded; Storage embeds the bounded transform in its signed URL.
+ */
+export async function createAlbumThumbnailDelivery(supabase: SupabaseClient, photos: PhotoImagePath[], mainUrls: Map<string, string>, userId: string, refresh = false) {
+  const urls = new Map(mainUrls);
+  const pending = photos.filter(photo => {
+    const src = mainUrls.get(photo.id);
+    if (!src) return false;
+    try { return new URL(src).pathname.includes(`/object/sign/${ORIGINAL_PHOTO_BUCKET}/`); } catch { return false; }
+  });
+  let transformed = 0;
+  let originalFallback = 0;
+  // One batch verifies preview availability without warming/changing main delivery.
+  const previewPaths = [...new Set(photos.map(photo => photoPreviewPath(photo.storage_path)).filter((path): path is string => Boolean(path)))];
+  const unknownPaths = previewPaths.filter(path => (albumPreviewAvailability.get(cacheKey(userId, PHOTO_IMAGE_BUCKET, path))?.expiresAt ?? 0) <= Date.now());
+  if (unknownPaths.length) {
+    try {
+      const result = await supabase.storage.from(PHOTO_IMAGE_BUCKET).createSignedUrls(unknownPaths, PHOTO_IMAGE_DELIVERY.signedUrlSeconds);
+      if (!result.error) for (const item of result.data ?? []) {
+        if (!item.path) continue;
+        prune(albumPreviewAvailability, Date.now());
+        albumPreviewAvailability.set(cacheKey(userId, PHOTO_IMAGE_BUCKET, item.path), { exists: Boolean(item.signedUrl && !item.error), expiresAt: Date.now() + PRESENCE_CACHE_MS });
+      }
+    } catch { /* Availability remains unknown, never falsely counted as absent. */ }
+  }
+  const previewStates = photos.map(photo => {
+    const path = photoPreviewPath(photo.storage_path);
+    const cached = path ? albumPreviewAvailability.get(cacheKey(userId, PHOTO_IMAGE_BUCKET, path)) : undefined;
+    return cached && cached.expiresAt > Date.now() ? cached.exists : undefined;
+  });
+  // Fixed concurrency: do not add an unbounded signing fan-out to a page GET.
+  for (let offset = 0; offset < pending.length; offset += 4) {
+    await Promise.all(pending.slice(offset, offset + 4).map(async photo => {
+      const key = cacheKey(userId, "album-thumbnail-transform", photo.storage_path);
+      const now = Date.now();
+      const cached = refresh ? null : signedUrlCache.get(key);
+      if (cached && cached.expiresAt > now + 30_000) {
+        urls.set(photo.id, cached.url);
+        transformed += 1;
+        return;
+      }
+      try {
+        const result = await supabase.storage.from(ORIGINAL_PHOTO_BUCKET).createSignedUrl(photo.storage_path, PHOTO_IMAGE_DELIVERY.signedUrlSeconds, {
+          transform: { width: PHOTO_IMAGE_DELIVERY.thumbnail.width, height: PHOTO_IMAGE_DELIVERY.thumbnail.height, resize: "contain", quality: PHOTO_IMAGE_DELIVERY.thumbnail.quality },
+        });
+        if (!result.error && result.data?.signedUrl) {
+          urls.set(photo.id, result.data.signedUrl);
+          prune(signedUrlCache, now);
+          signedUrlCache.set(key, { url: result.data.signedUrl, expiresAt: now + PHOTO_IMAGE_DELIVERY.signedUrlCacheMs });
+          transformed += 1;
+          return;
+        }
+      } catch { /* Retain the existing authorized main URL if signing fails. */ }
+      originalFallback += 1;
+    }));
+  }
+  return { urls, counts: { totalPhotoCount: photos.length, thumbnailPathAvailable: photos.filter(photo => Boolean(photo.thumbnail_path)).length, previewAvailableCount: previewStates.filter(state => state === true).length, previewUnknownCount: previewStates.filter(state => state === undefined).length, previewResolvedCount: [...mainUrls.values()].filter(url => { try { return new URL(url).pathname.endsWith(".preview.webp"); } catch { return false; } }).length, mainDerivativeAvailable: mainUrls.size - pending.length, transformedThumbnailCount: transformed, originalFallbackCount: originalFallback } };
 }

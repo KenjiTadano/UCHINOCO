@@ -15,7 +15,7 @@ function fixture() {
   const load=requestModules({
     'node:crypto':crypto,
     '../album-load-trace.ts':{traceAlbumLoad:async(_s,work)=>work()},
-    '../photo-image-delivery.ts':{createPhotoPreviewUrls:async(_db,photos,_fallback,_refresh,userId)=>{signed.push({photos,userId});return new Map(photos.map(p=>[p.id,'preview/'+p.id]))}},
+    '../photo-image-delivery.ts':{createAlbumThumbnailDelivery:async(_db,_photos,urls)=>({urls,counts:{}}),createPhotoPreviewUrls:async(_db,photos,_fallback,_refresh,userId)=>{signed.push({photos,userId});return new Map(photos.map(p=>[p.id,'preview/'+p.id]))}},
     '../photo-list-images.ts':{createListImageUrls:async(_db,photos,userId)=>{signed.push({listed:photos,userId});return {signedUrlByPath:new Map()}}},
   });
   const {createAlbumRequestContext}=load('lib/album-persistence/request-context.ts');

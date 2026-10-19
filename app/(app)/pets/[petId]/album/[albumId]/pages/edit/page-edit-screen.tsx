@@ -691,7 +691,7 @@ export function PageEditScreen({ view: initialView, albumId, readonly, loadError
                 return (
                   <button key={item.id} type="button" className={`book-spread-thumb page-edit-thumb${index === activeSpreadIndex ? " is-selected" : ""}`} aria-pressed={index === activeSpreadIndex} data-testid="book-spread-thumb" data-selected={index === activeSpreadIndex ? "true" : "false"} onClick={() => selectSpread(index)}>
                     <span className="book-spread-thumb-frame">
-                      <DraftSpreadThumbnail spread={item.id === spread.id ? { ...item, elements: previewElements, backgrounds: previewBackgrounds ?? item.backgrounds } : item} previewUrls={view.previewUrls} />
+                      <DraftSpreadThumbnail spread={item.id === spread.id ? { ...item, elements: previewElements, backgrounds: previewBackgrounds ?? item.backgrounds } : item} previewUrls={view.previewUrls} thumbnailUrls={view.thumbnailUrls} />
                     </span>
                     <span className="book-spread-thumb-label">{spreadPageLabel(index)}</span>
                   </button>
