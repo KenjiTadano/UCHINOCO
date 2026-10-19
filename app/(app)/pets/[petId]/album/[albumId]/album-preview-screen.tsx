@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { AlbumOrderIntentCta } from "./album-order-intent-cta";
+import type { AlbumOrderIntentState } from "./analytics-actions";
 import { useState } from "react";
 import { ArrowRight, BookOpen, ChevronLeft, ChevronRight, SquarePen } from "lucide-react";
 import type { PreviewPhoto, PreviewSpread } from "@/lib/album-preview-spreads";
@@ -40,6 +42,8 @@ export type AlbumPreviewScreenProps = {
   editHref: string;
   orderHref: string;
   printHref: string;
+  coverEditHref?: string;
+  orderAction?: (state: AlbumOrderIntentState) => Promise<AlbumOrderIntentState>;
 };
 
 function thumbPhotos(spread: PreviewSpread): PreviewPhoto[] {
@@ -72,7 +76,7 @@ function ThumbPreview({ spread }: { spread: PreviewSpread }) {
   );
 }
 
-export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHref, editHref, orderHref, printHref }: AlbumPreviewScreenProps) {
+export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHref, editHref, orderHref, printHref, coverEditHref, orderAction }: AlbumPreviewScreenProps) {
   const [index, setIndex] = useState(0);
   const savedDraft = draft;
   const body = previewSequence(savedDraft, spreads);
@@ -198,7 +202,7 @@ export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHr
           <p className="album-preview-empty">プレビューできる写真がありません。</p>
         )}
 
-        {cover && currentItem?.kind === "front-cover" ? <Link href={editHref.replace(/\/pages\/edit$/, "/cover/edit")} className="album-preview-secondary ds-focus">表紙を編集する</Link> : null}
+        {cover && currentItem?.kind === "front-cover" ? <Link href={coverEditHref ?? editHref.replace(/\/(?:pages\/)?edit$/, "/cover/edit")} className="album-preview-secondary ds-focus">表紙を編集する</Link> : null}
         <div className="album-preview-section-nav" aria-label="アルバムの表示箇所">
           {cover ? <button type="button" className="app-button-secondary" onClick={()=>setIndex(0)}>表紙</button> : null}
           <button type="button" className="app-button-secondary" onClick={()=>setIndex(cover?1:0)}>本文</button>
@@ -206,14 +210,14 @@ export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHr
         </div>
         {draft ? <Link href={printHref} className="album-preview-secondary ds-focus">印刷を確認する</Link> : null}
         <div className="album-preview-actions">
-          <Link href={draft ? backHref : orderHref} className="album-preview-primary ds-focus">
+          {draft && orderAction ? <AlbumOrderIntentCta action={orderAction} /> : !draft ? <Link href={orderHref} className="album-preview-primary ds-focus">
             <BookOpen size={18} strokeWidth={1.9} aria-hidden="true" />
-            {draft ? "このアルバムで進む" : "このアルバムで注文する"}
+            この内容で注文へ進む
             <ArrowRight size={18} strokeWidth={2} aria-hidden="true" />
-          </Link>
+          </Link> : <p role="alert" className="text-sm text-danger">注文の確認を読み込めませんでした。再読み込みしてください。</p>}
           <Link href={editHref} className="album-preview-secondary ds-focus">
             <SquarePen size={16} strokeWidth={1.9} aria-hidden="true" />
-            少し編集する
+            編集を続ける
           </Link>
         </div>
       </div>

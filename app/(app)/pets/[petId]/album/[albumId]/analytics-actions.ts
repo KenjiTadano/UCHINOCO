@@ -1,6 +1,6 @@
 "use server";
 
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { analyticsAcceptData, calculateAlbumEditMetrics } from "@/lib/album-analytics";
 import { recordAlbumAnalyticsEvent } from "@/lib/album-analytics-server";
 import { readDraft } from "@/lib/album-persistence/read-draft";
@@ -9,13 +9,16 @@ import { createClient } from "@/lib/supabase/server";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export async function acceptAlbumDraft(petId: string, albumId: string) {
+export async function acceptAlbumDraft(petId: string, albumId: string, destination: "preview" | "print" = "preview") {
   if (!UUID.test(petId) || !UUID.test(albumId)) return;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   const { data: album } = await supabase.from("albums").select("id").eq("id", albumId).eq("pet_id", petId).eq("owner_user_id", user.id).maybeSingle();
-  if (!album) return;
+  if (!album) {
+    if (destination === "print") throw new Error("Album unavailable");
+    return;
+  }
   const view = await readDraft(supabase, albumId);
   if (view) {
     const { data: generated } = await (supabase as never as import("@supabase/supabase-js").SupabaseClient)
@@ -29,7 +32,7 @@ export async function acceptAlbumDraft(petId: string, albumId: string) {
       .maybeSingle();
     const generatedAt = generated?.created_at ? new Date(generated.created_at).getTime() : NaN;
     const seconds = Number.isFinite(generatedAt) ? Math.max(0, Math.round((Date.now() - generatedAt) / 1000)) : null;
-    await recordAlbumAnalyticsEvent({
+    const recorded = await recordAlbumAnalyticsEvent({
       supabase,
       userId: user.id,
       albumId,
@@ -38,8 +41,23 @@ export async function acceptAlbumDraft(petId: string, albumId: string) {
       eventKey: view.versionId,
       eventData: analyticsAcceptData(calculateAlbumEditMetrics(view), seconds),
     });
+    if (destination === "print" && !recorded) throw new Error("Acceptance unavailable");
+  } else if (destination === "print") {
+    throw new Error("Draft unavailable");
   }
-  redirect(`/pets/${petId}/album/${albumId}?view=preview`);
+  redirect(destination === "print" ? `/pets/${petId}/album/${albumId}/print` : `/pets/${petId}/album/${albumId}?view=preview`);
+}
+
+export type AlbumOrderIntentState = { message: string | null };
+
+/** Explicit Preview confirmation, followed by the existing print/snapshot guard. */
+export async function acceptAlbumForOrder(petId: string, albumId: string): Promise<AlbumOrderIntentState> {
+  try {
+    await acceptAlbumDraft(petId, albumId, "print");
+  } catch (error) {
+    unstable_rethrow(error);
+  }
+  return { message: "内容を確認できませんでした。時間をおいて、もう一度お試しください。" };
 }
 
 const DECORATION_EVENTS = ["decoration_recommendation_shown", "decoration_previewed", "decoration_applied", "decoration_rejected", "decoration_reset"] as const;

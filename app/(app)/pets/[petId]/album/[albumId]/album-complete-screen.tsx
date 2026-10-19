@@ -27,7 +27,6 @@ export type AlbumCompleteScreenProps = {
   backHref: string;
   editHref: string;
   printHref: string | null;
-  acceptAction: () => Promise<void>;
   regenerateAction: () => Promise<void>;
   canRegenerate: boolean;
   showRegenerateUpsell: boolean;
@@ -49,7 +48,6 @@ export function AlbumCompleteScreen({
   backHref,
   editHref,
   printHref,
-  acceptAction,
   regenerateAction,
   canRegenerate,
   showRegenerateUpsell,
@@ -139,21 +137,15 @@ export function AlbumCompleteScreen({
         </ul>
 
         <div className="ai-complete-actions">
-          <Link href={`/pets/${petId}/album/${albumId}?view=preview`} className="ai-complete-primary ds-focus">アルバムを見る<ArrowRight size={18} aria-hidden="true" /></Link>
-          <form action={acceptAction}>
-            <button type="submit" className="ai-complete-primary ds-focus w-full">
-              このままでOK
-              <ArrowRight size={18} strokeWidth={2} aria-hidden="true" />
-            </button>
-          </form>
+          <Link href={`/pets/${petId}/album/${albumId}?view=preview`} className="ai-complete-primary ds-focus">アルバムを確認する<ArrowRight size={18} aria-hidden="true" /></Link>
           <Link href={editHref} className="ai-complete-secondary ds-focus">
             <SquarePen size={16} strokeWidth={1.9} aria-hidden="true" />
-            少し編集する
+            写真・レイアウトを編集する
           </Link>
           {printHref ? (
             <Link href={printHref} className="ai-complete-secondary ds-focus">
               <Printer size={16} strokeWidth={1.9} aria-hidden="true" />
-              印刷を見る
+              印刷イメージを確認する
             </Link>
           ) : null}
           {canRegenerate ? (

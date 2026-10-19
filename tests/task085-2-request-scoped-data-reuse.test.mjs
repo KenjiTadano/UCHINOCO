@@ -72,7 +72,7 @@ async function previewPageFixture(draft) {
     '@/lib/album-analytics-server':{recordAlbumAnalyticsEvent:async x=>events.push(x.eventType)},
     '@/lib/album-new-photo-suggestions':{findNewPhotoSuggestion:async()=>null},
     '@/lib/album-load-trace':{traceAlbumLoad:async(_stage,work)=>work()},
-    './analytics-actions':{acceptAlbumDraft:async()=>{},regenerateAlbumDraft:async()=>{}},
+    './analytics-actions':{acceptAlbumForOrder:async()=>{},acceptAlbumDraft:async()=>{},regenerateAlbumDraft:async()=>{}},
     '@/lib/entitlements-server':{loadUserEntitlements:async()=>({canRegenerateAlbum:true})},
     '@/lib/photo-list-images':{createListImageUrls:async()=>({signedUrlByPath:new Map()}),listImagePath:p=>p.thumbnail_path??p.storage_path},
     '@/lib/album-cover-title':{formatAlbumPeriodLabels:()=>({monthLabel:'month',coverDateLabel:'date'})},

@@ -16,7 +16,7 @@ import { readDraft } from "@/lib/album-persistence/read-draft";
 import { traceAlbumLoad } from "@/lib/album-load-trace";
 import { formatAlbumPeriodLabels } from "@/lib/album-cover-title";
 import { recordAlbumAnalyticsEvent } from "@/lib/album-analytics-server";
-import { acceptAlbumDraft, regenerateAlbumDraft } from "./analytics-actions";
+import { acceptAlbumForOrder, regenerateAlbumDraft } from "./analytics-actions";
 import { findNewPhotoSuggestion } from "@/lib/album-new-photo-suggestions";
 import { NewPhotoSuggestionNotice } from "./new-photo-suggestion";
 import { loadUserEntitlements } from "@/lib/entitlements-server";
@@ -60,7 +60,7 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
         recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: savedDraft.versionId, eventType: "album_viewed", eventKey: `preview:${savedDraft.versionId}` }),
       ]);
       const base = `/pets/${petId}/album/${albumId}`;
-      return <AlbumPreviewScreen cover={cover} draft={savedDraft} spreads={[]} backHref={`${base}?view=complete`} editHref={`${base}/pages/edit`} orderHref={`${base}/product`} printHref={`${base}/print`} />;
+      return <AlbumPreviewScreen cover={cover} draft={savedDraft} spreads={[]} backHref={`${base}?view=complete`} editHref={`${base}/edit`} orderHref={`${base}/product`} printHref={`${base}/print`} coverEditHref={`${base}/cover/edit`} orderAction={acceptAlbumForOrder.bind(null, petId, albumId)} />;
     }
   }
 
@@ -201,9 +201,8 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
         periodMonthLabel={periodLabels.monthLabel}
         coverDateLabel={periodLabels.coverDateLabel}
         backHref={`/pets/${petId}/album`}
-        editHref={savedDraft ? `${base}/pages/edit` : `${base}/edit`}
+        editHref={`${base}/edit`}
         printHref={savedDraft ? `${base}/print` : null}
-        acceptAction={acceptAlbumDraft.bind(null, petId, albumId)}
         regenerateAction={regenerateAlbumDraft.bind(null, petId, albumId)}
         canRegenerate={isOwner && ownerEntitlements.canRegenerateAlbum}
         showRegenerateUpsell={isOwner && !ownerEntitlements.canRegenerateAlbum}

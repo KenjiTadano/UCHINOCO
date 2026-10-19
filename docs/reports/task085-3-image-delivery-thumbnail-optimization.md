@@ -1,6 +1,6 @@
 # Task085.3 — Image Delivery & Thumbnail Optimization
 
-Status: implementation / local verification in progress. Browser After acceptance pending. Task085.2 and Task085.2.1 are PASS per user decision; Task085.4 is not started.
+Status: PASS for image delivery / geometry / persisted-state acceptance on 2026-10-20 JST, with measurement limitations and No-Crop UNVERIFIED below. Task085.2 and Task085.2.1 are PASS per user decision; Task085.4 is not started.
 
 ## Existing derivatives and source contract
 
@@ -70,3 +70,34 @@ Reference: Supabase's official image transformation documentation supports signe
 ## Read-only real helper check
 
 The actual helper was executed with existing real photo records using a local read-only administrative discovery client (not a browser/RLS acceptance substitute). Counts: totalPhotoCount 20; thumbnailPathAvailable 13; previewAvailableCount 4; previewUnknownCount 0; previewResolvedCount 0 on cold main cache; mainDerivativeAvailable 13; transformedThumbnailCount 7; originalFallbackCount 0. This verifies the app fallback logic against existing objects, but does not establish authenticated Preview/browser success or actual initial browser transfer bytes.
+
+## Preview handoff
+
+Git Integration Preview is READY for exact commit e5feffac461c79ae51958b468fe02ae96b1a6616. Opening the real album edit route on this new deployment redirects to `/login`; authenticated After browser measurement is blocked pending user login on the new host. The prior host's login does not authorize this host automatically. No app change or extra deploy was made after this observation.
+
+Task085.3 is not yet PASS: After browser UI-ready samples, actual DOM source counts, main/thumbnail geometry and identity comparison, reload checks, and client transform fallback evidence remain pending. The measured 99.45% payload reduction is specifically the seven read-only transformed responses, not claimed browser-wide transfer reduction. Raw evidence remains ignored and local-only. Prior uncommitted reports are preserved separately from this implementation commit. Final report-only diff/privacy checks pass.
+
+## Combined acceptance / CTA follow-up request
+
+On 2026-10-20 JST the user requested Browser After Acceptance before Task085.3.1 implementation. Browser inventory still shows the acceptance deployment at `/login`; a login handoff was requested. No application code was changed during this follow-up. CTA and print/order source investigation was performed independently and recorded in the Task085.3.1 report, but its implementation remains gated on Part A completion. Task085.4 is not started.
+
+
+## Browser After Acceptance (2026-10-20 JST)
+
+Authenticated acceptance used the same real 24P album and verified actual 380 × 715 DOM viewport on the exact implementation Preview commit.
+
+- /edit: img count 25 → 25; unique img URLs 21 → 21; original img elements 7 → 0; transformed thumbnail elements 0 → 7.
+- Preview body: img count 20 → 20; unique URLs 19 → 20; original img elements 8 → 1; transformed thumbnail elements 0 → 7.
+- Page Editor: img count 21 → 21; unique URLs 19 → 20; original img elements 9 → 2; transformed thumbnail elements 0 → 7. The two remaining original elements are main/editor controls, not rail thumbnails.
+
+Separate URLs can increase unique-source count by one because main retains the original while its thumbnail is transformed. These DOM counts are not browser wire request counts. All seven transformed rail sources loaded at 400 × 300 or 300 × 400, lazy + async. The main original retained natural 4032 × 3024 and normal loading attributes. Original/derivative choice for main was not downgraded.
+
+All 19 frame IDs across each route had exactly matching normalized source-object identity, crop triples, digital frame geometry, and imageFit when compared with the stored Before evidence. The selected layout remained unchanged. The existing secondary-pet photo was selected again through the real picker, saved successfully, followed by completion navigation, list reload, and Preview re-entry; identity/crop and saved content remained consistent. No artificial DB/layout fixture or derivative backfill was made.
+
+Actual FrameImage callback code was additionally executed from trusted repository source in an isolated component-handler check: transform error → authorized main fallback; fallback load → loaded state; repeated failure → error callback; cover crop unchanged; contain objectFit / transform=none unchanged; main loading attributes unchanged. This is execution of the real handler, not an injected browser network failure. No browser network fault or persisted contain fixture was fabricated.
+
+UI-ready After samples (three document reloads each): /edit 6689 / 3438 / 3357 ms (mean 4494.7; Before 4605.0); Preview 4752 / 8052 / 4725 ms (mean 5843.0; Before 5228.7); Page Editor 4749 / 4458 / 4668 ms (mean 4625.0; Before 5640.3). Small, non-interleaved samples and varying cold/cache conditions do not establish a latency regression or sufficient overall speed. In particular Preview still waits 4–8 seconds: this is not described as fast or resolved. Task085.4 remains required after CTA review, not implemented here.
+
+Observed browser console errors: 0. Read-only runtime acceptance window: error-level records 0, region hnd1. Actual authenticated aggregate: total 20, thumbnail path available 13, preview available 4, preview unknown 0, transformed 7, original fallback 0. Real response payload comparison remains the seven-source 99.45% reduction, not a claim of measured browser-wide transferred bytes. Native pixel workload proxy decreased 99.24% for those seven sources.
+
+PASS applies to the image delivery/quality/geometry/secondary-pet/saved-state goals and existing local verification. Genuine persisted No-Crop remains **UNVERIFIED due to fixture absence**. Wire transfer counts/total bytes and decode CPU are unavailable; browser network-failure injection was not performed (handler execution and signing-failure tests cover the branch). No application code was changed during this acceptance. Task085.3.1 may now proceed; Task085.4 must wait.
