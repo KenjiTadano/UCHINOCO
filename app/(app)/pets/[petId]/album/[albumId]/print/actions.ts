@@ -107,7 +107,7 @@ export async function inspectAlbumPrint(petId: string, albumId: string): Promise
     return { ok: false, message: built.message, issues: [], fingerprint: null, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
   }
   const snapshot = buildAlbumPrintSnapshot(built.input);
-  const images = await imageFacts(built.input);
+  const images = await imageFacts(built.input, owned.supabase);
   const hasCompositionText = snapshot.compositionPlan?.items.some((item) => item.kind === "title" || item.kind === "event") ?? false;
   const styles = [...new Set([...snapshot.spreads.flatMap((spread) => spread.texts.map((text) => text.styleId)), ...snapshot.spreads.flatMap((spread) => spread.elements.filter((element) => element.type === "text").map((element) => element.fontId)), ...(hasCompositionText ? ["editorial" as const] : []), "handwritten" as const])];
   const issues = assessPrintQuality(snapshot, images.facts, { fontsReady: await fontReadyMap(styles) });
@@ -155,7 +155,7 @@ export async function generateAlbumPrint(petId: string, albumId: string): Promis
         };
       }
     }
-    const images = await imageFacts(built.input!);
+    const images = await imageFacts(built.input!, owned.supabase);
     const hasCompositionText = snapshot.compositionPlan?.items.some((item) => item.kind === "title" || item.kind === "event") ?? false;
     const styles = [...new Set([...snapshot.spreads.flatMap((spread) => spread.texts.map((text) => text.styleId)), ...snapshot.spreads.flatMap((spread) => spread.elements.filter((element) => element.type === "text").map((element) => element.fontId)), ...(hasCompositionText ? ["editorial" as const] : []), "handwritten" as const])];
     const issues = assessPrintQuality(snapshot, images.facts, { fontsReady: await fontReadyMap(styles) });
@@ -298,8 +298,8 @@ async function loadPrintInput(supabase: Awaited<ReturnType<typeof createClient>>
   };
 }
 
-async function imageFacts(input: PrintSnapshotInput) {
-  const admin = createAdminClient();
+async function imageFacts(input: PrintSnapshotInput, supabase: Awaited<ReturnType<typeof createClient>>) {
+  // Original reads use the verified owner session and Storage RLS, including secondary pets.
   const ids = new Set<string>();
   for (const spread of input.spreads) {
     for (const frame of spread.frames) {
@@ -317,7 +317,7 @@ async function imageFacts(input: PrintSnapshotInput) {
         facts[photoId] = null;
         return;
       }
-      const downloaded = await admin.storage.from("pet-photos").download(storagePath);
+      const downloaded = await supabase.storage.from("pet-photos").download(storagePath);
       if (downloaded.error || !downloaded.data) {
         facts[photoId] = null;
         return;
@@ -345,7 +345,7 @@ export async function startAlbumCheckout(petId: string, albumId: string): Promis
   const built = await loadPrintInput(owned.supabase, owned.album, owned.hasPaidOrder);
   if (!built.ok || !built.input) return { ok: false, message: built.message, href: null };
   const snapshot = buildAlbumPrintSnapshot(built.input);
-  const images = await imageFacts(built.input);
+  const images = await imageFacts(built.input, owned.supabase);
   const styles = [...new Set(snapshot.spreads.flatMap((spread) => spread.texts.map((text) => text.styleId))), "handwritten" as const];
   const issues = assessPrintQuality(snapshot, images.facts, { fontsReady: await fontReadyMap(styles) });
   const { data: row } = await owned.supabase.from("album_print_snapshots").select("id, album_id, draft_version_id, fingerprint, finalized_at, pdf_path").eq("album_id", albumId).eq("fingerprint", snapshot.fingerprint).maybeSingle();
