@@ -1,5 +1,7 @@
 "use server";
 
+import { traceAuthStage } from "@/lib/auth-performance";
+
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadActiveDraft } from "@/app/(app)/album-draft-service";
@@ -97,17 +99,17 @@ async function fontReadyMap(styleIds: TextStyleId[]) {
 }
 
 export async function inspectAlbumPrint(petId: string, albumId: string): Promise<AlbumPrintResult> {
-  const owned = await ownedAlbum(albumId, petId);
+  const owned = await traceAuthStage("print.owned-album", async () => (await ownedAlbum(albumId, petId)));
   if (!owned) return { ok: false, message: "アルバムが見つかりません。", issues: [], fingerprint: null, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
   if (selectPrintSource({ albumStatus: owned.album.status, hasPaidOrder: owned.hasPaidOrder }) === "order-snapshot") {
     return { ok: false, message: ORDERED_PRINT_MESSAGE, issues: [], fingerprint: null, href: null, contentHash: null, ordered: true, stale: false, snapshotId: null };
   }
-  const built = await loadPrintInput(owned.supabase, owned.album, owned.hasPaidOrder);
+  const built = await traceAuthStage("print.active-draft-input", async () => (await loadPrintInput(owned.supabase, owned.album, owned.hasPaidOrder)));
   if (!built.ok || !built.input) {
     return { ok: false, message: built.message, issues: [], fingerprint: null, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
   }
   const snapshot = buildAlbumPrintSnapshot(built.input);
-  const images = await imageFacts(built.input, owned.supabase);
+  const images = await traceAuthStage("print.image-facts", async () => (await imageFacts(built.input!, owned.supabase)));
   const hasCompositionText = snapshot.compositionPlan?.items.some((item) => item.kind === "title" || item.kind === "event") ?? false;
   const styles = [...new Set([...snapshot.spreads.flatMap((spread) => spread.texts.map((text) => text.styleId)), ...snapshot.spreads.flatMap((spread) => spread.elements.filter((element) => element.type === "text").map((element) => element.fontId)), ...(hasCompositionText ? ["editorial" as const] : []), "handwritten" as const])];
   const issues = assessPrintQuality(snapshot, images.facts, { fontsReady: await fontReadyMap(styles) });
@@ -127,12 +129,12 @@ export async function inspectAlbumPrint(petId: string, albumId: string): Promise
 }
 
 export async function generateAlbumPrint(petId: string, albumId: string): Promise<AlbumPrintResult> {
-  const owned = await ownedAlbum(albumId, petId);
+  const owned = await traceAuthStage("print.owned-album", async () => (await ownedAlbum(albumId, petId)));
   if (!owned) return { ok: false, message: "アルバムが見つかりません。", issues: [], fingerprint: null, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
   if (selectPrintSource({ albumStatus: owned.album.status, hasPaidOrder: owned.hasPaidOrder }) === "order-snapshot") {
     return { ok: false, message: ORDERED_PRINT_MESSAGE, issues: [], fingerprint: null, href: null, contentHash: null, ordered: true, stale: false, snapshotId: null };
   }
-  const built = await loadPrintInput(owned.supabase, owned.album, owned.hasPaidOrder);
+  const built = await traceAuthStage("print.active-draft-input", async () => (await loadPrintInput(owned.supabase, owned.album, owned.hasPaidOrder)));
   if (!built.ok || !built.input) {
     return { ok: false, message: built.message, issues: [], fingerprint: null, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
   }
@@ -155,7 +157,7 @@ export async function generateAlbumPrint(petId: string, albumId: string): Promis
         };
       }
     }
-    const images = await imageFacts(built.input!, owned.supabase);
+    const images = await traceAuthStage("print.image-facts", async () => (await imageFacts(built.input!, owned.supabase)));
     const hasCompositionText = snapshot.compositionPlan?.items.some((item) => item.kind === "title" || item.kind === "event") ?? false;
     const styles = [...new Set([...snapshot.spreads.flatMap((spread) => spread.texts.map((text) => text.styleId)), ...snapshot.spreads.flatMap((spread) => spread.elements.filter((element) => element.type === "text").map((element) => element.fontId)), ...(hasCompositionText ? ["editorial" as const] : []), "handwritten" as const])];
     const issues = assessPrintQuality(snapshot, images.facts, { fontsReady: await fontReadyMap(styles) });
@@ -317,7 +319,7 @@ async function imageFacts(input: PrintSnapshotInput, supabase: Awaited<ReturnTyp
         facts[photoId] = null;
         return;
       }
-      const downloaded = await supabase.storage.from("pet-photos").download(storagePath);
+      const downloaded = await traceAuthStage("print.image-download", async () => (await supabase.storage.from("pet-photos").download(storagePath)));
       if (downloaded.error || !downloaded.data) {
         facts[photoId] = null;
         return;
@@ -337,15 +339,15 @@ async function imageFacts(input: PrintSnapshotInput, supabase: Awaited<ReturnTyp
 }
 
 export async function startAlbumCheckout(petId: string, albumId: string): Promise<{ ok: boolean; message: string | null; href: string | null }> {
-  const owned = await ownedAlbum(albumId, petId);
+  const owned = await traceAuthStage("print.owned-album", async () => (await ownedAlbum(albumId, petId)));
   if (!owned) return { ok: false, message: "アルバムが見つかりません。", href: null };
   if (selectPrintSource({ albumStatus: owned.album.status, hasPaidOrder: owned.hasPaidOrder }) === "order-snapshot") {
     return { ok: false, message: ORDERED_PRINT_MESSAGE, href: null };
   }
-  const built = await loadPrintInput(owned.supabase, owned.album, owned.hasPaidOrder);
+  const built = await traceAuthStage("print.active-draft-input", async () => (await loadPrintInput(owned.supabase, owned.album, owned.hasPaidOrder)));
   if (!built.ok || !built.input) return { ok: false, message: built.message, href: null };
   const snapshot = buildAlbumPrintSnapshot(built.input);
-  const images = await imageFacts(built.input, owned.supabase);
+  const images = await traceAuthStage("print.image-facts", async () => (await imageFacts(built.input!, owned.supabase)));
   const styles = [...new Set(snapshot.spreads.flatMap((spread) => spread.texts.map((text) => text.styleId))), "handwritten" as const];
   const issues = assessPrintQuality(snapshot, images.facts, { fontsReady: await fontReadyMap(styles) });
   const { data: row } = await owned.supabase.from("album_print_snapshots").select("id, album_id, draft_version_id, fingerprint, finalized_at, pdf_path").eq("album_id", albumId).eq("fingerprint", snapshot.fingerprint).maybeSingle();

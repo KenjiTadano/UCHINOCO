@@ -15,6 +15,7 @@ function fixture({noUser=false,noAlbum=false,denied=false}={}) {
  const snapshot={spreads:[{frames,texts:[],elements:[]}],cover:null,fingerprint:'synthetic-fingerprint',compositionPlan:null};
  const overrides=Object.fromEntries([...source.matchAll(/from "([^"]+)"/g)].map(m=>[m[1],{}]));
  Object.assign(overrides,{
+  "@/lib/auth-performance":{traceAuthStage:async(_phase,work)=>work()},
   '@/lib/supabase/server':{createClient:async()=>db},
   '@/lib/supabase/admin':{createAdminClient(){adminCalls++;throw Error('admin must not be used by GET inspection')}},
   '@/app/(app)/album-draft-service':{loadActiveDraft:async()=>({view})},

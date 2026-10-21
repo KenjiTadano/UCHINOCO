@@ -50,16 +50,22 @@ channel("undici:request:create").subscribe((event) => {
   if (!active || !authTraceEnabled()) return;
   const request = (event as { request?: { origin?: string; path?: string } }).request;
   const configured = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!configured || !request?.origin || !request.path?.startsWith("/auth/v1/")) return;
+  if (!configured || !request?.origin || !request.path) return;
   try { if (new URL(request.origin).origin !== new URL(configured).origin) return; } catch { return; }
-  authTraceEvent(active.trace, request.path.startsWith("/auth/v1/.well-known/") ? "http.auth.jwks" : "http.auth.request");
+  if (request.path.startsWith("/auth/v1/")) {
+    authTraceEvent(active.trace, request.path.startsWith("/auth/v1/.well-known/") ? "http.auth.jwks" : "http.auth.request");
+  } else if (request.path.startsWith("/rest/v1/")) {
+    authTraceEvent(active.trace, request.path.startsWith("/rest/v1/rpc/") ? "http.db.rpc" : "http.db.request");
+  } else if (request.path.startsWith("/storage/v1/")) {
+    authTraceEvent(active.trace, "http.storage.request");
+  }
 });
 export function authMeasuredFetch(trace: AuthTrace, downstream: typeof fetch = fetch): typeof fetch {
   return async (input, init) => {
     if (!authTraceEnabled()) return downstream(input, init);
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
     const table = url.pathname.match(/^\/rest\/v1\/(pets|albums|album_pets)$/)?.[1];
-    const kind = url.pathname.startsWith("/auth/v1/") ? "fetch.auth" : table ? `fetch.validation.${table}` : null;
+    const kind = url.pathname.startsWith("/auth/v1/") ? "fetch.auth" : table ? `fetch.validation.${table}` : url.pathname.startsWith("/rest/v1/rpc/") ? "fetch.db.rpc" : url.pathname.startsWith("/rest/v1/") ? "fetch.db" : url.pathname.startsWith("/storage/v1/") ? "fetch.storage" : null;
     if (!kind) return downstream(input, init);
     const phase = `${currentAuthPhase() ?? "helper"}.${kind}`;
     return authTraceWork(trace, phase, async () => {
