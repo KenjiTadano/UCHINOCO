@@ -45,3 +45,36 @@ test('login browser timing keeps form action and records only phase/time, with n
  const form=client.AuthTimingForm({action,children:'synthetic-children',enabled:true});assert.equal(form.type,'form');assert.equal(form.props.action,action);assert.equal(form.props.children,'synthetic-children');form.props.onSubmit();client.AuthHomeTiming({enabled:true});assert.deepEqual(logs.map(l=>l.phase),['login.submit','home.committed']);assert.ok(logs.every(l=>Object.keys(l).sort().join(',')==='atMs,name,phase'));
  const n=logs.length;client.AuthTimingForm({action,enabled:false}).props.onSubmit();client.AuthHomeTiming({enabled:false});assert.equal(logs.length,n);
 });
+
+test('instrumented App/Pet layouts retain anonymous redirect, inaccessible pet deny and RLS-visible family access',async()=>{
+ const {requestModules}=await import('./helpers/album-request-modules.mjs');
+ const petId='10000000-0000-4000-8000-000000000001';let user=null,pet=null;
+ const db={auth:{getUser:async()=>({data:{user},error:null})},from(){const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:pet,error:null})};return q;}};
+ const nav={redirect(){throw Error('login redirect')},notFound(){throw Error('deny')}};
+ const load=requestModules({'@/lib/auth-performance':{traceAuthStage:async(_phase,work)=>work()},'@/lib/supabase/server':{createClient:async()=>db},'next/navigation':nav,'react/jsx-runtime':{jsx:(type,props)=>({type,props})},'./_components/ai-analysis-runner':{AIAnalysisRunner:'runner'},'./_components/app-shell':{AppShell:'shell'}});
+ const App=load('app/(app)/layout.tsx').default;const Pet=load('app/(app)/pets/[petId]/layout.tsx').default;
+ await assert.rejects(App({children:'private'}),/login redirect/);await assert.rejects(Pet({children:'private',params:Promise.resolve({petId})}),/login redirect/);
+ user={id:'synthetic-owner'};await assert.rejects(Pet({children:'private',params:Promise.resolve({petId})}),/deny/);
+ pet={id:petId,owner_user_id:'synthetic-family-owner'};assert.equal(await Pet({children:'allowed by RLS',params:Promise.resolve({petId})}),'allowed by RLS');assert.equal((await App({children:'private'})).type,'shell');
+ await assert.rejects(Pet({children:'private',params:Promise.resolve({petId:'invalid'})}),/deny/);
+});
+test('instrumented editor retains page-level wrong-owner and wrong-route-pet rejection',async()=>{
+ const {requestModules}=await import('./helpers/album-request-modules.mjs');let album={owner_user_id:'other',pet_id:'primary'};let candidateReads=0;
+ const mocks={'@/lib/auth-performance':{traceAuthStage:async(_phase,work)=>work()},'@/lib/supabase/server':{createClient:async()=>({auth:{getUser:async()=>({data:{user:{id:'owner'}},error:null})}})},'@/lib/album-persistence/request-context':{createAlbumRequestContext:()=>({album:async()=>album})},'@/lib/album-persistence/editor-candidates':{loadRequestEditorCandidates:async()=>{candidateReads++;return []}},'next/navigation':{notFound(){throw Error('deny')},redirect(){throw Error('login')}}};
+ const load=requestModules(new Proxy(mocks,{has:()=>true,get:(target,key)=>target[key]??{}}));const Page=load('app/(app)/pets/[petId]/album/[albumId]/pages/edit/page.tsx').default;
+ const props={params:Promise.resolve({petId:'primary',albumId:'album'}),searchParams:Promise.resolve({})};await assert.rejects(Page(props),/deny/);album={owner_user_id:'owner',pet_id:'wrong-route'};await assert.rejects(Page(props),/deny/);assert.equal(candidateReads,0);
+});
+
+test('Supabase physical totals distinguish SELECT, write, RPC and Storage without logging paths or sharing requests',async()=>{
+ const server=createServer((_req,res)=>{res.writeHead(200,{'content-type':'application/json'});res.end('{}');});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try {
+  const origin=`http://127.0.0.1:${server.address().port}`,logs=[];
+  const core=load('lib/auth-performance-core.ts',{}, {NEXT_PUBLIC_SUPABASE_URL:origin},logs),first=core.newAuthTrace('home'),second=core.newAuthTrace('edit');
+  const measured=core.authMeasuredFetch(first);
+  await core.authTraceWork(first,'home.reads',async()=>{
+   for(const [p,method] of [['/rest/v1/photos?private-filter=synthetic','GET'],['/rest/v1/pets','HEAD'],['/rest/v1/album_analytics_events','POST'],['/rest/v1/rpc/synthetic','POST'],['/storage/v1/object/private-photo','GET']])await measured(origin+p,{method});
+  });
+  assert.deepEqual({...first.supabaseCounts},{selectHttp:2,writeHttp:1,rpcHttp:1,storageHttp:1});assert.equal(second.supabaseCounts,undefined);
+  assert.ok(!JSON.stringify(logs).includes('private-filter'));assert.ok(!JSON.stringify(logs).includes('private-photo'));
+ } finally { await new Promise(resolve=>server.close(resolve)); }
+});

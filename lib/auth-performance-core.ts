@@ -7,7 +7,7 @@ export const AUTH_TRACE_HEADER = "x-uchinoco-auth-trace";
 export const AUTH_START_HEADER = "x-uchinoco-auth-start";
 export const AUTH_ROUTE_HEADER = "x-uchinoco-auth-route";
 export const authTraceEnabled = () => process.env.VERCEL_ENV === "preview" || process.env.UCHINOCO_AUTH_PERF === "1";
-export type AuthTrace = { requestId: string; route: string; started: number };
+export type AuthTrace = { requestId: string; route: string; started: number; supabaseCounts?: { selectHttp: number; writeHttp: number; rpcHttp: number; storageHttp: number } };
 const scope = new AsyncLocalStorage<{ trace: AuthTrace; phase: string }>();
 const routes = new Set(["login", "home", "pet", "complete", "preview", "detail", "edit", "page-editor", "cover", "print", "create", "other"]);
 export function authRoute(pathname: string, view?: string | null) {
@@ -38,7 +38,7 @@ export function authTraceEvent(trace: AuthTrace, phase: string, durationMs?: num
 export async function authTraceWork<T>(trace: AuthTrace, phase: string, work: () => PromiseLike<T>): Promise<T> {
   if (!authTraceEnabled()) return await work();
   const start = performance.now();
-  authTraceEvent(trace, `${phase}.start`);
+  if (!phase.includes("fetch.storage") && phase !== "print.image-download" && phase !== "print.raster-orientation") authTraceEvent(trace, `${phase}.start`);
   return scope.run({ trace, phase }, async () => {
     try { return await work(); }
     finally { authTraceEvent(trace, `${phase}.end`, performance.now() - start); }
@@ -48,16 +48,20 @@ export async function authTraceWork<T>(trace: AuthTrace, phase: string, work: ()
 channel("undici:request:create").subscribe((event) => {
   const active = scope.getStore();
   if (!active || !authTraceEnabled()) return;
-  const request = (event as { request?: { origin?: string; path?: string } }).request;
+  const request = (event as { request?: { origin?: string; path?: string; method?: string } }).request;
   const configured = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!configured || !request?.origin || !request.path) return;
   try { if (new URL(request.origin).origin !== new URL(configured).origin) return; } catch { return; }
   if (request.path.startsWith("/auth/v1/")) {
     authTraceEvent(active.trace, request.path.startsWith("/auth/v1/.well-known/") ? "http.auth.jwks" : "http.auth.request");
   } else if (request.path.startsWith("/rest/v1/")) {
-    authTraceEvent(active.trace, request.path.startsWith("/rest/v1/rpc/") ? "http.db.rpc" : "http.db.request");
+    const counts = active.trace.supabaseCounts ??= { selectHttp: 0, writeHttp: 0, rpcHttp: 0, storageHttp: 0 };
+    if (request.path.startsWith("/rest/v1/rpc/")) counts.rpcHttp++;
+    else if (request.method === "GET" || request.method === "HEAD") counts.selectHttp++;
+    else counts.writeHttp++;
   } else if (request.path.startsWith("/storage/v1/")) {
-    authTraceEvent(active.trace, "http.storage.request");
+    const counts = active.trace.supabaseCounts ??= { selectHttp: 0, writeHttp: 0, rpcHttp: 0, storageHttp: 0 };
+    counts.storageHttp++;
   }
 });
 export function authMeasuredFetch(trace: AuthTrace, downstream: typeof fetch = fetch): typeof fetch {
@@ -70,7 +74,7 @@ export function authMeasuredFetch(trace: AuthTrace, downstream: typeof fetch = f
     const phase = `${currentAuthPhase() ?? "helper"}.${kind}`;
     return authTraceWork(trace, phase, async () => {
       const response = await downstream(input, init);
-      authTraceEvent(trace, `${phase}.response`, undefined, response.status);
+      if (kind === "fetch.auth") authTraceEvent(trace, `${phase}.response`, undefined, response.status);
       return response;
     });
   };
