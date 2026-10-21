@@ -24,9 +24,11 @@ export function streamDraft(supabase: SupabaseClient, context: AlbumRequestConte
       const urls = await traceAlbumLoad(`progressive.${stage}.urls`, () => signedPreviewUrls(supabase, ids, false, context.userId, thumbs, context));
       if (ids.some(id => !urls.get(id) || !thumbs.get(id))) return fail();
       // A request cache pins identity; a fresh read detects concurrent edits/version swaps.
+      // Explicit signals opt these consistency checks out of Next request fetch deduplication.
+      const checkSignal = new AbortController().signal;
       const [current, currentCover] = await traceAlbumLoad(`progressive.${stage}.revision`, () => Promise.all([
-        supabase.from("album_draft_versions").select("id, revision").eq("album_id", albumId).eq("is_active", true).maybeSingle(),
-        supabase.from("album_draft_covers").select("revision, client_seq").eq("draft_version_id", version.id).maybeSingle(),
+        supabase.from("album_draft_versions").select("id, revision").eq("album_id", albumId).eq("is_active", true).abortSignal(checkSignal).maybeSingle(),
+        supabase.from("album_draft_covers").select("revision, client_seq").eq("draft_version_id", version.id).abortSignal(checkSignal).maybeSingle(),
       ]));
       if (current.error || currentCover.error || current.data?.id !== version.id || current.data.revision !== version.revision || currentCover.data?.revision !== cover.revision || currentCover.data.client_seq !== cover.clientSeq) return fail();
       const updated = applyPreviewUrls(view, Object.fromEntries(urls));

@@ -5,12 +5,13 @@ import type { Database } from "./database.types";
 
 export async function updateSession(request: NextRequest) {
   const trace = authTraceEnabled() ? newAuthTrace(authRoute(request.nextUrl.pathname, request.nextUrl.searchParams.get("view"))) : null;
+  if (trace) trace.requestKind = request.headers.get("next-router-prefetch") === "1" || request.headers.get("purpose") === "prefetch" ? "prefetch" : request.headers.get("rsc") === "1" || request.nextUrl.searchParams.has("_rsc") ? "rsc" : "document";
   const run = async () => {
   const next = () => {
     const forwarded = new Headers(request.headers);
     // Always overwrite incoming correlation metadata; it is never an auth assertion.
     forwarded.delete(AUTH_REQUEST_KIND_HEADER);
-    if (trace) forwarded.set(AUTH_REQUEST_KIND_HEADER, request.headers.get("next-router-prefetch") === "1" || request.headers.get("purpose") === "prefetch" ? "prefetch" : request.headers.get("rsc") === "1" ? "rsc" : "document");
+    if (trace) forwarded.set(AUTH_REQUEST_KIND_HEADER, trace.requestKind!);
     forwarded.delete(AUTH_IO_VARIANT_HEADER);
     if (process.env.VERCEL_ENV === "preview") forwarded.set(AUTH_IO_VARIANT_HEADER, request.nextUrl.searchParams.get("ioMode") === "baseline" ? "baseline" : "candidate");
     if (trace) {

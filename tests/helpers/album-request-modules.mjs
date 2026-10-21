@@ -11,7 +11,7 @@ export function requestModules(overrides = {}) {
     const exports = {};
     cache.set(full, exports);
     const source = ts.transpileModule(fs.readFileSync(full, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-    vm.runInNewContext(source, { exports, process, console, performance, require(name) {
+    vm.runInNewContext(source, { exports, process, console, performance, AbortController, require(name) {
       if (name in overrides) return overrides[name];
       if (name === 'server-only') return {};
       const target = name.startsWith('@/') ? name.slice(2) : path.resolve(path.dirname(full), name);

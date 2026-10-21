@@ -5,7 +5,7 @@ import { requestModules } from './helpers/album-request-modules.mjs';
 const makeView=()=>({albumId:'album',versionId:'v',revision:6,status:'editing',signature:'s',previewUrls:{},thumbnailUrls:{},spreads:Array.from({length:5},(_,i)=>({id:'spread-'+i,sourceFrames:[{aiPhotoId:'p'+i,userPhotoId:i===0?'replacement':null}],frames:[{effectivePhotoId:i===0?'replacement':'p'+i}],layoutRanking:{test:i}}))});
 function setup({changed=false,coverChanged=false,missing=false}={}) {
  const view=makeView(),batches=[];let versions=0,coverReads=0;
- const db={from(table){const q={select(){return q},eq(){return q},async maybeSingle(){if(table==='album_draft_versions')return {data:{id:'v',revision:changed&&++versions>1?7:6},error:null};coverReads++;return {data:{revision:coverChanged?2:1,client_seq:0},error:null};}};return q;}};
+ const db={from(table){const q={select(){return q},eq(){return q},abortSignal(signal){assert.ok(signal);return q},async maybeSingle(){if(table==='album_draft_versions')return {data:{id:'v',revision:changed&&++versions>1?7:6},error:null};coverReads++;return {data:{revision:coverChanged?2:1,client_seq:0},error:null};}};return q;}};
  const load=requestModules({
   './read-draft.ts':{readDraft:async(_db,_album,options)=>{assert.equal(options.resolveUrls,false);return view;},signedPreviewUrls:async(_db,ids,_refresh,_user,thumbs)=>{batches.push(Array.from(ids));for(const id of ids)if(!missing)thumbs.set(id,'thumb/'+id);return new Map(missing?[]:ids.map(id=>[id,'main/'+id]));}},
   './editor.ts':{applyPreviewUrls:(v,urls)=>({...v,previewUrls:{...v.previewUrls,...urls}})},
