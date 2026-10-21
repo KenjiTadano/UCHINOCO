@@ -1,4 +1,5 @@
 import "server-only";
+import { ioVariant, ioWork, observeIo } from "../server-io-observer.ts";
 import { traceAuthStage } from "@/lib/auth-performance";
 import { loadActiveDraft } from "@/app/(app)/album-draft-service";
 import { mapDraftCoverRow, toCoverEditor } from "@/lib/album-persistence/cover";
@@ -34,11 +35,11 @@ export async function ownedAlbum(albumId: string, petId: string) {
   return { supabase, album, userId: user.id, hasPaidOrder: (paid ?? []).length > 0 };
 }
 
-export async function fontReadyMap(styleIds: TextStyleId[]) {
+export async function fontReadyMap(styleIds: TextStyleId[], observer?: object) {
   const ready: Partial<Record<TextStyleId, boolean>> = {};
   await Promise.all(
     styleIds.map(async (styleId) => {
-      const font = await loadPrintFont(styleId);
+      const font = await loadPrintFont(styleId, observer);
       ready[styleId] = font.bytes != null;
     }),
   );
@@ -58,13 +59,13 @@ export async function inspectAlbumPrint(petId: string, albumId: string): Promise
   return inspectPrintInput(owned.supabase, built.input);
 }
 
-async function inspectPrintInput(supabase: Awaited<ReturnType<typeof createClient>>, input: PrintSnapshotInput): Promise<AlbumPrintResult> {
+async function inspectPrintInput(supabase: Awaited<ReturnType<typeof createClient>>, input: PrintSnapshotInput, fontWarmup?: Promise<unknown>): Promise<AlbumPrintResult> {
   const snapshot = await traceAuthStage("print.snapshot", async () => buildAlbumPrintSnapshot(input));
   const imagesPromise = traceAuthStage("print.image-facts", () => imageFacts(input, supabase));
   const previousPromise = traceAuthStage("print.previous-snapshot", async () => await supabase.from("album_print_snapshots").select("id, fingerprint").eq("album_id", input.albumId).order("created_at", { ascending: false }).limit(1).maybeSingle());
   const hasCompositionText = snapshot.compositionPlan?.items.some((item) => item.kind === "title" || item.kind === "event") ?? false;
   const styles = [...new Set([...snapshot.spreads.flatMap((spread) => spread.texts.map((text) => text.styleId)), ...snapshot.spreads.flatMap((spread) => spread.elements.filter((element) => element.type === "text").map((element) => element.fontId)), ...(hasCompositionText ? ["editorial" as const] : []), "handwritten" as const])];
-  const [images, fontsReady, { data: previous }] = await Promise.all([imagesPromise, traceAuthStage("print.fonts", () => fontReadyMap(styles)), previousPromise]);
+  const [images, fontsReady, { data: previous }] = await Promise.all([imagesPromise, traceAuthStage("print.fonts", async () => { await fontWarmup; return fontReadyMap(styles, supabase); }), previousPromise]);
   const issues = await traceAuthStage("print.quality", async () => assessPrintQuality(snapshot, images.facts, { fontsReady }));
   const stale = previous ? draftPrintIsStale({ fingerprint: previous.fingerprint }, snapshot) : false;
   return {
@@ -131,6 +132,8 @@ export async function imageFacts(input: PrintSnapshotInput, supabase: Awaited<Re
   if (input.cover?.userPhotoId || input.cover?.aiPhotoId) ids.add((input.cover.userPhotoId || input.cover.aiPhotoId) as string);
   const facts: Record<string, { width: number; height: number; broken: boolean } | null> = {};
   const bytes: Record<string, Uint8Array> = {};
+  const downloads = new Map<string, Promise<{ data: Blob | null; error: unknown }>>();
+  let activeDownloads = 0;
   await Promise.all(
     [...ids].map(async (photoId) => {
       const storagePath = acceptOriginalPath(input.originals[photoId]?.storagePath);
@@ -138,13 +141,23 @@ export async function imageFacts(input: PrintSnapshotInput, supabase: Awaited<Re
         facts[photoId] = null;
         return;
       }
-      const downloaded = await traceAuthStage("print.image-download", async () => (await supabase.storage.from("pet-photos").download(storagePath)));
+      let download = downloads.get(storagePath);
+      if (download) observeIo(supabase, "print.original.local.hit");
+      else {
+        download = ioWork(supabase, "print.original.download", 1, async () => {
+          activeDownloads++; observeIo(supabase, "print.original.active", activeDownloads);
+          try { return await traceAuthStage("print.image-download", async () => (await supabase.storage.from("pet-photos").download(storagePath))); }
+          finally { activeDownloads--; }
+        });
+        downloads.set(storagePath, download);
+      }
+      const downloaded = await download;
       if (downloaded.error || !downloaded.data) {
         facts[photoId] = null;
         return;
       }
       const file = new Uint8Array(await downloaded.data.arrayBuffer());
-      const probe = await traceAuthStage("print.raster-orientation", async () => probeRaster(file));
+      const probe = await ioWork(supabase, "print.original.probe", 1, () => traceAuthStage("print.raster-orientation", async () => probeRaster(file)));
       if (!probe) {
         facts[photoId] = { width: 0, height: 0, broken: true };
         return;
@@ -161,6 +174,8 @@ export async function loadPrintPreviewData(petId: string, albumId: string) {
   const owned = await traceAuthStage("print.owned-album", () => ownedAlbum(albumId, petId));
   if (!owned) return null;
   const { supabase, album, userId } = owned;
+  // Static build assets only; overlap cold font I/O with the verified draft reads.
+  const fontWarmup = ioVariant(supabase) === "candidate" ? traceAuthStage("print.font-warmup", () => fontReadyMap(["editorial", "warm", "minimal", "handwritten"], supabase)) : undefined;
   const context = createAlbumRequestContext(supabase, userId);
   const [petResult, { view, coverRow }] = await Promise.all([
     traceAuthStage("print.pet", async () => await supabase.from("pets").select("id, name").eq("id", petId).eq("owner_user_id", userId).maybeSingle()),
@@ -181,6 +196,8 @@ export async function loadPrintPreviewData(petId: string, albumId: string) {
     const row = mapDraftCoverRow(coverRow);
     const ids = [row.aiPhotoId, row.userPhotoId].filter((id): id is string => Boolean(id));
     const missing = ids.filter(id => !view.previewUrls[id]);
+    observeIo(supabase, "draft.cover", new Set(ids).size);
+    observeIo(supabase, "draft.cover.missing", new Set(missing).size);
     const extra = missing.length ? await signedPreviewUrls(supabase, missing, false, userId) : new Map<string, string>();
     return toCoverEditor(row, { ...view.previewUrls, ...Object.fromEntries(extra) });
   });
@@ -191,7 +208,7 @@ export async function loadPrintPreviewData(petId: string, albumId: string) {
     if (!view) return { ok: false, message: "保存された初稿がありません。", issues: [], fingerprint: null, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
     const built = await traceAuthStage("print.input", () => loadPrintInput(supabase, album, owned.hasPaidOrder, { view, coverRow, context }));
     if (!built.input) return { ok: false, message: built.message, issues: [], fingerprint: null, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
-    return inspectPrintInput(supabase, built.input);
+    return inspectPrintInput(supabase, built.input, fontWarmup);
   })();
   const [cover, inspection] = await Promise.all([coverPromise, inspectionPromise]);
   return { supabase, userId, album, pet: petResult.data, view, cover, inspection };

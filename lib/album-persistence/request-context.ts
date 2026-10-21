@@ -1,4 +1,5 @@
 import "server-only";
+import { observeIo } from "../server-io-observer.ts";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AlbumPhotoEligibility } from "./photo-eligibility.ts";
@@ -50,6 +51,8 @@ export function createAlbumRequestContext(supabase: SupabaseClient, userId: stri
     photoRecords(photoIds: string[]) {
       const ids = [...new Set(photoIds)];
       const missing = ids.filter(id => !photoRows.has(id));
+      observeIo(supabase, "metadata.hit", ids.length - missing.length);
+      observeIo(supabase, "metadata.miss", missing.length);
       if (missing.length) {
         const batch = (async () => {
           const { data } = await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", missing);

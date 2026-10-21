@@ -1,3 +1,4 @@
+import { observeIo } from "../server-io-observer.ts";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ALBUM_PRINT_CONFIG } from "./config.ts";
@@ -26,10 +27,12 @@ export function fontPlan(styleId: TextStyleId) {
 /** Build-shipped font bytes only; never holds request, auth or album data. */
 export function createFontAssetReader(read: (file: string) => Promise<Uint8Array>) {
   const files = new Map<string, Promise<Uint8Array>>();
-  return async (file: string): Promise<Uint8Array | null> => {
+  return async (file: string, observer?: object): Promise<Uint8Array | null> => {
     let pending = files.get(file);
+    observeIo(observer, pending ? "font.cache.hit" : "font.cache.miss");
     if (!pending) {
-      pending = read(file);
+      const start = performance.now();
+      pending = Promise.resolve().then(() => read(file)).then(bytes => { observeIo(observer, "font.file.read", 1, performance.now() - start); return bytes; }, error => { observeIo(observer, "font.file.error", 1, performance.now() - start); throw error; });
       files.set(file, pending);
     }
     try { return new Uint8Array(await pending); }
@@ -38,9 +41,9 @@ export function createFontAssetReader(read: (file: string) => Promise<Uint8Array
 }
 const readFontAsset = createFontAssetReader(file => readFile(path.join(FONT_DIR, file)));
 
-export async function loadPrintFont(styleId: TextStyleId): Promise<ResolvedPrintFont> {
+export async function loadPrintFont(styleId: TextStyleId, observer?: object): Promise<ResolvedPrintFont> {
   const plan = fontPlan(styleId);
-  return { ...plan, bytes: await readFontAsset(plan.file) };
+  return { ...plan, bytes: await readFontAsset(plan.file, observer) };
 }
 
 export async function loadPrintFonts(styleIds: TextStyleId[]) {

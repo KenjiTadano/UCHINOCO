@@ -1,4 +1,5 @@
 import "server-only";
+import { ioWork, observeIo } from "../server-io-observer.ts";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAlbumThumbnailDelivery, createPhotoPreviewUrls } from "../photo-image-delivery.ts";
@@ -93,7 +94,7 @@ export function mapFrame(row: Record<string, unknown>): DraftFrameRow {
 export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], refresh = false, userId?: string, thumbnailUrls?: Map<string, string>, context?: AlbumRequestContext) {
   const ids = [...new Set(photoIds)];
   if (ids.length === 0) return new Map<string, string>();
-  const { data: photos } = context ? { data: await context.photoRecords(ids) } : await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", ids);
+  const { data: photos } = await ioWork(supabase, "draft.photo.metadata", ids.length, async () => context ? { data: await context.photoRecords(ids) } : await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", ids));
   const deliveryUserId = userId ?? (thumbnailUrls ? (await supabase.auth.getUser()).data.user?.id : undefined);
   const urls = await createPhotoPreviewUrls(supabase, photos ?? [], true, refresh, deliveryUserId);
   if (thumbnailUrls && deliveryUserId) {
@@ -147,6 +148,11 @@ export async function readDraft(supabase: Supabase, albumId: string, options?: {
     backgrounds[mapped.side] = mapped.state;
     backgroundsBySpread.set(mapped.spreadId, backgrounds);
   }
+  const effective = new Set(frames.map(frame => frame.userPhotoId || frame.aiPhotoId));
+  observeIo(supabase, "draft.effective", effective.size);
+  observeIo(supabase, "draft.reset.only", new Set(frames.map(frame => frame.aiPhotoId).filter(id => !effective.has(id))).size);
+  observeIo(supabase, "draft.initial.body", new Set(frames.filter(frame => frame.draftSpreadId === spreads[0]?.id).map(frame => frame.userPhotoId || frame.aiPhotoId)).size);
+  observeIo(supabase, "draft.offscreen.body", new Set(frames.filter(frame => frame.draftSpreadId !== spreads[0]?.id).map(frame => frame.userPhotoId || frame.aiPhotoId)).size);
   const thumbnailUrls = new Map<string, string>();
   const urls = await traceAlbumLoad("draft.preview-urls", () =>
     signedPreviewUrls(
@@ -160,7 +166,7 @@ export async function readDraft(supabase: Supabase, albumId: string, options?: {
   );
   const metadata = (version.generation_metadata ?? {}) as { signature?: string; composition?: unknown };
   const layoutRankings = parseLayoutRankings(((version.generation_metadata ?? {}) as Record<string, unknown>).layoutRankings);
-  return {
+  return ioWork(supabase, "draft.assembly", spreads.length, async () => ({
     albumId,
     versionId: version.id,
     status: version.status,
@@ -181,5 +187,5 @@ export async function readDraft(supabase: Supabase, albumId: string, options?: {
       ),
       layoutRanking: layoutRankings[spread.storySpreadId] ?? null,
     })),
-  };
+  }));
 }

@@ -1,3 +1,4 @@
+import { observeIo, ioWork, ioVariant } from "./server-io-observer.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const PHOTO_IMAGE_DELIVERY = {
@@ -49,11 +50,11 @@ export async function createCachedSignedImageUrls(supabase: SupabaseClient, user
   const missing: string[] = [];
   for (const path of unique) {
     const cached = refresh ? null : signedUrlCache.get(cacheKey(userId, bucket, path));
-    if (cached && cached.expiresAt > now + 30_000) urls.set(path, cached.url);
-    else missing.push(path);
+    if (cached && cached.expiresAt > now + 30_000) { urls.set(path, cached.url); observeIo(supabase, "url.cache.hit"); }
+    else { missing.push(path); observeIo(supabase, "url.cache.miss"); }
   }
   if (missing.length === 0) return { urls, error: null };
-  const result = await supabase.storage.from(bucket).createSignedUrls(missing, ttl);
+  const result = await ioWork(supabase, bucket === ORIGINAL_PHOTO_BUCKET ? "sign.original" : "sign.derivative", missing.length, () => supabase.storage.from(bucket).createSignedUrls(missing, ttl));
   const expiresAt = now + Math.min(ttl * 1000, PHOTO_IMAGE_DELIVERY.signedUrlCacheMs);
   prune(signedUrlCache, now);
   for (const item of result.data ?? []) {
@@ -86,11 +87,13 @@ export async function createPhotoPreviewDelivery(supabase: SupabaseClient, photo
     const key = cacheKey(userId, PHOTO_IMAGE_BUCKET, path);
     const signed = refresh ? null : signedUrlCache.get(key);
     if (signed && signed.expiresAt > now + 30_000) {
+      observeIo(supabase, "url.cache.hit");
       result.set(photoId, signed.url);
       sourceByPhotoId.set(photoId, "preview");
       continue;
     }
     const presence = refresh ? null : previewPresenceCache.get(key);
+    observeIo(supabase, presence && presence.expiresAt > now ? "presence.hit" : "presence.miss");
     if (presence && presence.expiresAt > now) {
       if (presence.exists) presenceChecks.push({ photoId, path });
       else if (fallbackToOriginal) {
@@ -114,7 +117,7 @@ export async function createPhotoPreviewDelivery(supabase: SupabaseClient, photo
   const checked = await Promise.all(
     presenceChecks.map(async ({ photoId, path }) => {
       const key = cacheKey(userId, PHOTO_IMAGE_BUCKET, path);
-      const info = await supabase.storage.from(PHOTO_IMAGE_BUCKET).info(path);
+      const info = await ioWork(supabase, "presence.probe", 1, () => supabase.storage.from(PHOTO_IMAGE_BUCKET).info(path));
       const exists = !info.error && Boolean(info.data) && Number(info.data.size) > 0 && Number(info.data.size) <= PHOTO_IMAGE_DELIVERY.preview.maxSizeBytes && info.data.contentType === "image/webp";
       previewPresenceCache.set(key, { exists, expiresAt: now + PRESENCE_CACHE_MS });
       return { photoId, path, exists };
@@ -149,6 +152,12 @@ export async function createPhotoPreviewDelivery(supabase: SupabaseClient, photo
     }
   }
 
+  // Known original fallbacks do not depend on stored-thumbnail signing.
+  const earlyPaths = photos.filter(photo => missingOriginals.includes(photo.id)).map(photo => photo.storage_path);
+  const early = ioVariant(supabase) === "candidate" && earlyPaths.length ? (async () => {
+    try { return { value: await createCachedSignedImageUrls(supabase, userId, ORIGINAL_PHOTO_BUCKET, earlyPaths, PHOTO_IMAGE_DELIVERY.signedUrlSeconds, refresh) }; }
+    catch (error) { return { error }; }
+  })() : null;
   if (missingThumbnails.length > 0) {
     const thumbnails = await createCachedSignedImageUrls(
       supabase,
@@ -169,7 +178,11 @@ export async function createPhotoPreviewDelivery(supabase: SupabaseClient, photo
 
   const originalPaths = photos.filter((photo) => missingOriginals.includes(photo.id)).map((photo) => photo.storage_path);
   if (originalPaths.length > 0) {
-    const originals = await createCachedSignedImageUrls(supabase, userId, ORIGINAL_PHOTO_BUCKET, originalPaths, PHOTO_IMAGE_DELIVERY.signedUrlSeconds, refresh);
+    const initial = early ? await early : null;
+    if (initial && "error" in initial) throw initial.error;
+    const remaining = initial ? originalPaths.filter(path => !earlyPaths.includes(path)) : originalPaths;
+    const additional = await createCachedSignedImageUrls(supabase, userId, ORIGINAL_PHOTO_BUCKET, remaining, PHOTO_IMAGE_DELIVERY.signedUrlSeconds, refresh);
+    const originals = { urls: new Map([...(initial?.value?.urls ?? []), ...additional.urls]) };
     for (const photo of photos) {
       const url = originals.urls.get(photo.storage_path);
       if (url) {
@@ -215,10 +228,12 @@ export async function createAlbumThumbnailDelivery(supabase: SupabaseClient, pho
   // One batch verifies preview availability without warming/changing main delivery.
   const previewPaths = [...new Set(photos.map(photo => photoPreviewPath(photo.storage_path)).filter((path): path is string => Boolean(path)))];
   const unknownPaths = previewPaths.filter(path => (albumPreviewAvailability.get(cacheKey(userId, PHOTO_IMAGE_BUCKET, path))?.expiresAt ?? 0) <= Date.now());
+  observeIo(supabase, "availability.cache.hit", previewPaths.length - unknownPaths.length);
+  observeIo(supabase, "availability.cache.miss", unknownPaths.length);
   const availability = (async () => {
     if (unknownPaths.length) {
       try {
-        const result = await supabase.storage.from(PHOTO_IMAGE_BUCKET).createSignedUrls(unknownPaths, PHOTO_IMAGE_DELIVERY.signedUrlSeconds);
+        const result = await ioWork(supabase, "sign.availability", unknownPaths.length, () => supabase.storage.from(PHOTO_IMAGE_BUCKET).createSignedUrls(unknownPaths, PHOTO_IMAGE_DELIVERY.signedUrlSeconds));
         if (!result.error) for (const item of result.data ?? []) {
           if (!item.path) continue;
           prune(albumPreviewAvailability, Date.now());
@@ -230,19 +245,22 @@ export async function createAlbumThumbnailDelivery(supabase: SupabaseClient, pho
   // Availability diagnostics are independent of authorized transform signing.
   const pendingByPath = new Map<string, Promise<string | null>>();
   let next = 0;
+  const queuedAt = performance.now();
   const resolvePhoto = async (photo: PhotoImagePath) => {
     const key = cacheKey(userId, "album-thumbnail-transform", photo.storage_path);
     const now = Date.now();
     const cached = refresh ? null : signedUrlCache.get(key);
     if (cached && cached.expiresAt > now + 30_000) {
+      observeIo(supabase, "thumbnail.cache.hit");
       urls.set(photo.id, cached.url);
       transformed += 1;
       return;
     }
+    observeIo(supabase, "thumbnail.cache.miss");
     try {
-      const result = await supabase.storage.from(ORIGINAL_PHOTO_BUCKET).createSignedUrl(photo.storage_path, PHOTO_IMAGE_DELIVERY.signedUrlSeconds, {
+      const result = await ioWork(supabase, "sign.transform", 1, () => supabase.storage.from(ORIGINAL_PHOTO_BUCKET).createSignedUrl(photo.storage_path, PHOTO_IMAGE_DELIVERY.signedUrlSeconds, {
         transform: { width: PHOTO_IMAGE_DELIVERY.thumbnail.width, height: PHOTO_IMAGE_DELIVERY.thumbnail.height, resize: "contain", quality: PHOTO_IMAGE_DELIVERY.thumbnail.quality },
-      });
+      }));
       if (!result.error && result.data?.signedUrl) {
         urls.set(photo.id, result.data.signedUrl);
         prune(signedUrlCache, now);
@@ -257,8 +275,10 @@ export async function createAlbumThumbnailDelivery(supabase: SupabaseClient, pho
   await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
     while (next < pending.length) {
       const photo = pending[next++];
+      observeIo(supabase, "thumbnail.queue", 1, performance.now() - queuedAt);
       const existing = pendingByPath.get(photo.storage_path);
       if (existing) {
+        observeIo(supabase, "thumbnail.local.hit");
         const url = await existing;
         if (url) { urls.set(photo.id, url); transformed += 1; }
         else originalFallback += 1;

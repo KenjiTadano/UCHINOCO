@@ -1,5 +1,6 @@
+import { registerIoObserver } from "../server-io-observer.ts";
 import { requestAuthTrace, traceAuthStage } from "../auth-performance";
-import { authMeasuredFetch, authTraceEnabled, currentAuthPhase, authTraceEvent } from "../auth-performance-core";
+import { recordIoMetric, authMeasuredFetch, authTraceEnabled, currentAuthPhase, authTraceEvent } from "../auth-performance-core";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { Database } from "./database.types";
@@ -38,6 +39,9 @@ export async function createClient(requestFetch?: typeof fetch) {
     },
   );
   if (trace) {
+    registerIoObserver(client, { variant: trace.ioVariant ?? "candidate", record(event) {
+      recordIoMetric(trace, event.metric, event.count, event.durationMs);
+    } });
     const getUser = client.auth.getUser.bind(client.auth);
     client.auth.getUser = (...args) => traceAuthStage(`${currentAuthPhase() ?? "helper"}.getUser`, () => getUser(...args));
     const signIn = client.auth.signInWithPassword.bind(client.auth);

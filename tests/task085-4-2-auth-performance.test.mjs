@@ -74,7 +74,12 @@ test('Supabase physical totals distinguish SELECT, write, RPC and Storage withou
   await core.authTraceWork(first,'home.reads',async()=>{
    for(const [p,method] of [['/rest/v1/photos?private-filter=synthetic','GET'],['/rest/v1/pets','HEAD'],['/rest/v1/album_analytics_events','POST'],['/rest/v1/rpc/synthetic','POST'],['/storage/v1/object/private-photo','GET']])await measured(origin+p,{method});
   });
-  assert.deepEqual({...first.supabaseCounts},{selectHttp:2,writeHttp:1,rpcHttp:1,storageHttp:1});assert.equal(second.supabaseCounts,undefined);
+  assert.deepEqual({...first.supabaseCounts},{selectHttp:2,writeHttp:1,rpcHttp:1,storageHttp:1});assert.equal(second.supabaseCounts,undefined);assert.equal(first.dbHttpByTable.photos,1);assert.equal(first.ioMetrics["db.http.photos.headers"].count,1);assert.equal(second.ioMetrics,undefined);
   assert.ok(!JSON.stringify(logs).includes('private-filter'));assert.ok(!JSON.stringify(logs).includes('private-photo'));
  } finally { await new Promise(resolve=>server.close(resolve)); }
+});
+
+test('Preview comparison variant is not accepted as a Production scheduling override',()=>{
+ const preview=load('lib/auth-performance-core.ts');const prod=load('lib/auth-performance-core.ts',{}, {VERCEL_ENV:'production'});
+ const h=new Headers({'x-uchinoco-io-variant':'baseline'});assert.equal(preview.forwardedAuthTrace(h).ioVariant,'baseline');assert.equal(prod.forwardedAuthTrace(h).ioVariant,'candidate');
 });
