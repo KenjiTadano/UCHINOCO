@@ -1,3 +1,4 @@
+import { traceAuthStage } from "@/lib/auth-performance";
 import { notFound, redirect } from "next/navigation";
 import { mapDraftCoverRow, toCoverEditor } from "@/lib/album-persistence/cover";
 import { readDraft, signedPreviewUrls } from "@/lib/album-persistence/read-draft";
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export default async function AlbumPrintPreviewPage({ params }: Props) {
+  return traceAuthStage("page.print", async () => {
   const { petId, albumId } = await params;
   const supabase = await createClient();
   const {
@@ -43,4 +45,5 @@ export default async function AlbumPrintPreviewPage({ params }: Props) {
   }
 
   return <PrintPreviewScreen petId={petId} albumId={albumId} petName={pet.name} dateLabel={formatAlbumPeriodLabels(album.period_from, album.period_to).coverDateLabel} cover={cover} view={inspection.ordered ? null : view} initial={inspection} editorHref={`/pets/${petId}/album/${albumId}/pages/edit`} />;
+  });
 }

@@ -1,3 +1,4 @@
+import { traceAuthStage } from "@/lib/auth-performance";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
@@ -11,6 +12,7 @@ export default async function PetAuthorizationLayout({
   children: React.ReactNode;
   params: Promise<{ petId: string }>;
 }) {
+  return traceAuthStage("layout.pet", async () => {
   const { petId } = await params;
   if (!UUID_PATTERN.test(petId)) {
     notFound();
@@ -37,4 +39,5 @@ export default async function PetAuthorizationLayout({
   }
 
   return children;
+  });
 }

@@ -1,5 +1,7 @@
 "use server";
 
+import { traceAuthStage } from "@/lib/auth-performance";
+
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -147,6 +149,7 @@ export async function resetPassword(formData: FormData) {
 }
 
 export async function login(formData: FormData) {
+  return traceAuthStage("login.action", async () => {
   const next = safeAppReturnPath(field(formData, "next")) ?? "/home";
   const email = field(formData, "email");
   const password = field(formData, "password", false);
@@ -169,7 +172,9 @@ export async function login(formData: FormData) {
   }
 
   revalidatePath("/", "layout");
+  await traceAuthStage("login.redirect", async () => {});
   redirect(next);
+  });
 }
 
 export async function signup(formData: FormData) {

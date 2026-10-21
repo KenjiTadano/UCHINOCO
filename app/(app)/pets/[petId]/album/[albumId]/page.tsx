@@ -1,3 +1,4 @@
+import { traceAuthStage } from "@/lib/auth-performance";
 import { createAlbumRequestContext } from "@/lib/album-persistence/request-context";
 import { readDraftCover } from "@/lib/album-persistence/read-cover";
 import Image from "next/image";
@@ -27,6 +28,7 @@ type Props = {
 };
 
 export default async function AlbumDetailPage({ params, searchParams }: Props) {
+  return traceAuthStage("page.album", async () => {
   const { petId, albumId } = await params;
   const { view, preview } = await searchParams;
   const showComplete = view === "complete" || preview === "complete";
@@ -41,7 +43,7 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
 
   // RLS exposes the album to its owner and accepted members of an album pet.
   const context = createAlbumRequestContext(supabase, user.id);
-  const album = await context.album(albumId);
+  const album = await traceAuthStage("page.album.owner", () => context.album(albumId));
 
   if (!album || album.pet_id !== petId) notFound();
 
@@ -314,6 +316,7 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
       )}
     </main>
   );
+  });
 }
 
 function formatPeriodLabel(from: string | null, to: string | null): string {

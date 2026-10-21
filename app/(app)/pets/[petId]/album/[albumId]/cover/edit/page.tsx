@@ -1,3 +1,4 @@
+import { traceAuthStage } from "@/lib/auth-performance";
 import { createAlbumRequestContext } from "@/lib/album-persistence/request-context";
 import { loadRequestEditorCandidates } from "@/lib/album-persistence/editor-candidates";
 import { notFound, redirect } from "next/navigation";
@@ -14,6 +15,7 @@ type Props = {
 };
 
 export default async function CoverEditPage({ params }: Props) {
+  return traceAuthStage("page.cover", async () => {
   const { petId, albumId } = await params;
   const supabase = await createClient();
   const {
@@ -94,4 +96,5 @@ export default async function CoverEditPage({ params }: Props) {
       generateHref={`/pets/${petId}/album/new`}
     />
   );
+  });
 }

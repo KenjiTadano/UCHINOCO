@@ -1,3 +1,4 @@
+import { traceAuthStage } from "@/lib/auth-performance";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { CalendarDays, ChevronDown, MapPin, MoreHorizontal, Search, Users } from "lucide-react";
@@ -35,6 +36,7 @@ function weekdayLabel(dateKey: string) {
 }
 
 export default async function PetDetailPage({ params, searchParams }: PetDetailPageProps) {
+  return traceAuthStage("page.pet", async () => {
   const [{ petId }, { message, before, beforeId }] = await Promise.all([params, searchParams]);
   const supabase = await createClient();
   const {
@@ -267,4 +269,5 @@ export default async function PetDetailPage({ params, searchParams }: PetDetailP
       {!hashBackfillCountResult.error ? <ContentHashBackfill petId={pet.id} initialPendingCount={hashBackfillCountResult.count ?? 0} /> : null}
     </main>
   );
+  });
 }

@@ -1,3 +1,4 @@
+import { traceAuthStage } from "@/lib/auth-performance";
 import Image from "next/image";
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -81,6 +82,7 @@ function genderLabel(gender: string | null) {
 }
 
 export default async function HomePage({ searchParams }: HomePageProps) {
+  return traceAuthStage("page.home", async () => {
   const params = await searchParams;
   const supabase = await createClient();
   const {
@@ -495,4 +497,5 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       ) : null}
     </main>
   );
+  });
 }

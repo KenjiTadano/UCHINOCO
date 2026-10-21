@@ -1,3 +1,4 @@
+import { traceAuthStage } from "@/lib/auth-performance";
 import { notFound, redirect } from "next/navigation";
 import { createAlbumRequestContext } from "@/lib/album-persistence/request-context";
 import { loadRequestEditorCandidates } from "@/lib/album-persistence/editor-candidates";
@@ -15,6 +16,7 @@ type Props = {
 };
 
 export default async function PageEditPage({ params, searchParams }: Props) {
+  return traceAuthStage("page.editor", async () => {
   const { petId, albumId } = await params;
   const { spread: spreadParam } = await searchParams;
   const supabase = await createClient();
@@ -25,7 +27,7 @@ export default async function PageEditPage({ params, searchParams }: Props) {
   if (userError || !user) redirect("/login");
 
   const context = createAlbumRequestContext(supabase, user.id);
-  const album = await context.album(albumId);
+  const album = await traceAuthStage("page.editor.owner", () => context.album(albumId));
   if (!album || album.owner_user_id !== user.id || album.pet_id !== petId) notFound();
 
   const { data: pet } = await supabase
@@ -71,4 +73,5 @@ export default async function PageEditPage({ params, searchParams }: Props) {
       />
     </>
   );
+  });
 }

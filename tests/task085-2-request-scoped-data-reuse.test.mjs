@@ -63,6 +63,7 @@ async function previewPageFixture(draft) {
   const f=fixture();f.db.auth={getUser:async()=>({data:{user:{id:'owner'}},error:null})};
   const events=[];let legacyBuilds=0,readCount=0;
   const overrides={
+    '@/lib/auth-performance':{traceAuthStage:async(_phase,work)=>work()},
     'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})},
     'next/navigation':{notFound(){throw new Error('not found')},redirect(){throw new Error('redirect')}},
     '@/lib/supabase/server':{createClient:async()=>f.db},

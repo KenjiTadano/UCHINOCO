@@ -1,3 +1,4 @@
+import { traceAuthStage } from "@/lib/auth-performance";
 import { measureEditRequest, measuredEditFetch, traceAlbumLoad } from "@/lib/album-load-trace";
 import { readDraftCover } from "@/lib/album-persistence/read-cover";
 import { createAlbumRequestContext } from "@/lib/album-persistence/request-context";
@@ -17,7 +18,9 @@ type Props = {
 };
 
 export default async function AlbumEditPage({ params }: Props) {
+  return traceAuthStage("page.edit", async () => {
   return measureEditRequest(() => loadAlbumEditPage({ params }));
+  });
 }
 
 async function loadAlbumEditPage({ params }: Props) {
@@ -30,7 +33,7 @@ async function loadAlbumEditPage({ params }: Props) {
   if (userError || !user) redirect("/login");
 
   const context = createAlbumRequestContext(supabase, user.id);
-  const album = await traceAlbumLoad("edit.album", () => context.album(albumId));
+  const album = await traceAlbumLoad("edit.album", () => traceAuthStage("page.edit.owner", () => context.album(albumId)));
   if (!album || album.owner_user_id !== user.id || album.pet_id !== petId) notFound();
   if (album.status === "ordered") {
     redirect(`/pets/${petId}/album/${albumId}`);
