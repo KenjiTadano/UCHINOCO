@@ -7,7 +7,7 @@ import {createRequire} from 'node:module';
 import {createServer} from 'node:http';
 const require=createRequire(import.meta.url);
 function load(file,overrides={},env={},logs=[]){
- const exports={};const source=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+ const exports={};const source=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
  vm.runInNewContext(source,{exports,URL,Headers,Request,fetch,performance,process:{env:{VERCEL_ENV:'preview',NEXT_PUBLIC_SUPABASE_URL:'https://auth.example.test',NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:'synthetic-publishable',...env}},console:{info:(name,payload)=>logs.push({name,...JSON.parse(payload)})},require(name){if(name in overrides)return overrides[name];if(name==='server-only')return {};if(name.startsWith('node:'))return require(name);throw Error('Unmocked '+name);}});
  return exports;
 }
@@ -38,4 +38,10 @@ test('Auth fetch attempts differ from physical undici requests when downstream d
 test('instrumentation disabled leaves downstream fetch behavior unchanged',async()=>{
  const logs=[];const core=load('lib/auth-performance-core.ts',{}, {VERCEL_ENV:'production'},logs);let calls=0;
  const value={status:200};assert.equal(await core.authMeasuredFetch(core.newAuthTrace('home'),async()=>{calls++;return value;})('https://auth.example.test/auth/v1/user'),value);assert.equal(calls,1);assert.equal(logs.length,0);
+});
+
+test('login browser timing keeps form action and records only phase/time, with no input reads',()=>{
+ const logs=[];const jsx=(type,props)=>({type,props});const client=load('app/_components/auth-browser-timing.tsx',{'react/jsx-runtime':{jsx,jsxs:jsx},react:{useEffect:fn=>fn()}},{},logs);const action=async()=>{};
+ const form=client.AuthTimingForm({action,children:'synthetic-children',enabled:true});assert.equal(form.type,'form');assert.equal(form.props.action,action);assert.equal(form.props.children,'synthetic-children');form.props.onSubmit();client.AuthHomeTiming({enabled:true});assert.deepEqual(logs.map(l=>l.phase),['login.submit','home.committed']);assert.ok(logs.every(l=>Object.keys(l).sort().join(',')==='atMs,name,phase'));
+ const n=logs.length;client.AuthTimingForm({action,enabled:false}).props.onSubmit();client.AuthHomeTiming({enabled:false});assert.equal(logs.length,n);
 });

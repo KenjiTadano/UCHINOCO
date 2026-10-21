@@ -1,3 +1,4 @@
+import { AuthTimingForm } from "@/app/_components/auth-browser-timing";
 import Link from "next/link";
 import { login } from "../actions";
 import { PendingSubmitButton } from "../../_components/pending-submit-button";
@@ -25,7 +26,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       ) : null}
       {message ? <p role="status" className="app-success">{message}</p> : null}
 
-      <form action={login} className="flex flex-col gap-4">
+      <AuthTimingForm action={login} enabled={process.env.VERCEL_ENV === "preview"}>
         <input type="hidden" name="next" value={next} />
         <label className="app-label">
           メールアドレス
@@ -49,7 +50,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           />
         </label>
         <PendingSubmitButton pendingText="ログイン中...">ログイン</PendingSubmitButton>
-      </form>
+      </AuthTimingForm>
 
       <Link className="app-back-link self-center" href="/forgot-password">
         パスワードを忘れた方

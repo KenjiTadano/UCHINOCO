@@ -25,3 +25,5 @@ Added tests for private-data-free diagnostic payloads, route classification, Pro
 Full tests / TypeScript / lint / build and the Git Integration instrumentation Preview will be recorded after completion. Browser Before matrix must cover Home, Pet, Complete, Preview, /edit, Page Editor, Cover and Print on the same real fixture/session/viewport. No repeated logout is permitted. Security acceptance and optimization decision remain pending evidence.
 
 Instrumentation baseline verification: 1189/1189 tests PASS; TypeScript PASS; lint 0 errors / 12 existing warnings; build PASS; git diff --check PASS. Preview Before measurement pending.
+
+A Preview-only client timing marker now records login form submit and Home DOM commit timestamps in the browser console (phase/time only), preserving the original form action and PendingSubmitButton. It reads no form values or storage. This avoids substituting user handoff delay for Login E2E. Verification after this addition: 1190/1190 tests PASS, tsc PASS, lint 0 errors / 12 existing warnings, build PASS.

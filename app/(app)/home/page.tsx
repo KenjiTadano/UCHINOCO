@@ -1,3 +1,4 @@
+import { AuthHomeTiming } from "@/app/_components/auth-browser-timing";
 import { traceAuthStage } from "@/lib/auth-performance";
 import Image from "next/image";
 import Link from "next/link";
@@ -299,6 +300,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
   return (
     <main className="home-page">
+      <AuthHomeTiming enabled={process.env.VERCEL_ENV === "preview"} />
       <header className="flex items-center justify-between gap-3 px-0.5">
         <div>
           <p className="home-brand">UCHINOCO</p>
