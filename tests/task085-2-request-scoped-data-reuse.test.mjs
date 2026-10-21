@@ -64,7 +64,7 @@ async function previewPageFixture(draft) {
   const events=[];let legacyBuilds=0,readCount=0;
   const overrides={
     '@/lib/auth-performance':{traceAuthStage:async(_phase,work)=>work()},
-    'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})},
+    react:{Suspense:'suspense'},'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})},
     'next/navigation':{notFound(){throw new Error('not found')},redirect(){throw new Error('redirect')}},
     '@/lib/supabase/server':{createClient:async()=>f.db},
     '@/lib/album-persistence/request-context':{createAlbumRequestContext:f.createAlbumRequestContext},
@@ -88,11 +88,11 @@ async function previewPageFixture(draft) {
 test('actual draft Preview page executes no legacy, entitlement, order, candidate or photo SELECT',async()=>{
   const f=await previewPageFixture({versionId:'version',previewUrls:{},spreads:[]});
   const result=await f.run('preview');assert.equal(result.type,'preview');assert.equal(result.props.draft.versionId,'version');
-  assert.deepEqual(f.calls.map(x=>x.table),['albums','pets']);assert.equal(f.readCount,1);assert.equal(f.legacyBuilds,0);assert.deepEqual(f.events,['album_viewed']);
+  assert.deepEqual(f.calls.map(x=>x.table),['albums','pets','album_draft_versions']);assert.equal(f.readCount,1);assert.equal(f.legacyBuilds,0);assert.deepEqual(f.events,['album_viewed']);
 });
 test('actual missing-draft Preview keeps legacy path; Complete still returns completion model',async()=>{
   const f=await previewPageFixture(null);const result=await f.run('preview');assert.equal(result.type,'preview');assert.deepEqual(result.props.spreads,['legacy']);assert.equal(f.readCount,1);assert.equal(f.legacyBuilds,1);assert.ok(f.calls.some(x=>x.table==='album_photos'));
-  const complete=await previewPageFixture({versionId:'version',previewUrls:{},spreads:[]});assert.equal((await complete.run('complete')).type,'complete');assert.equal(complete.readCount,0);assert.equal(complete.calls.filter(x=>x.table==='album_draft_versions').length,1);assert.equal(complete.calls.filter(x=>x.table==='orders').length,0);assert.deepEqual(complete.events,['album_viewed']);
+  const complete=await previewPageFixture({versionId:'version',previewUrls:{},spreads:[]});const pending=await complete.run('complete');assert.equal(pending.type,'suspense');const final=await pending.props.children.type(pending.props.children.props);assert.equal(final.type,'complete');assert.equal(complete.readCount,0);assert.equal(complete.calls.filter(x=>x.table==='album_draft_versions').length,1);assert.equal(complete.calls.filter(x=>x.table==='orders').length,0);assert.deepEqual(complete.events,['album_viewed']);
 });
 test('actual draft/candidate/suggestion loaders share a 17-SELECT editor read budget',async()=>{
   const f=fixture();

@@ -1,3 +1,4 @@
+import { streamDraft } from "@/lib/album-persistence/progressive-draft";
 import { traceAuthStage } from "@/lib/auth-performance";
 import { measureEditRequest, measuredEditFetch, traceAlbumLoad } from "@/lib/album-load-trace";
 import { readDraftCover } from "@/lib/album-persistence/read-cover";
@@ -41,10 +42,15 @@ async function loadAlbumEditPage({ params }: Props) {
   if (album.status === "ordered") redirect(`/pets/${petId}/album/${albumId}`);
   if (!pet) notFound();
 
-  const draft = await traceAlbumLoad("edit.read-draft", () => readDraft(supabase, albumId, undefined, context));
+  const version = await context.version(albumId);
+  const [metadata, cover] = await Promise.all([
+    traceAlbumLoad("edit.read-draft", () => readDraft(supabase, albumId, version ? { resolveUrls: false } : undefined, context)),
+    version ? traceAlbumLoad("edit.cover", () => readDraftCover(supabase, version.id, {}, user.id, context)) : Promise.resolve(null),
+  ]);
+  const draft = cover?.previewUrl || !version ? metadata : await readDraft(supabase, albumId, undefined, context);
+  const stream = draft && version && cover?.previewUrl ? streamDraft(supabase, context, albumId, version, cover, draft) : undefined;
   const { monthLabel, coverDateLabel } = formatAlbumPeriodLabels(album.period_from, album.period_to);
   const lines = buildCoverTitleLines(pet.name, album.title ?? "", monthLabel);
-  const cover = draft ? await traceAlbumLoad("edit.cover", () => readDraftCover(supabase, draft.versionId, draft.previewUrls, user.id)) : null;
   const fallbackCoverUrls = !cover?.previewUrl && album.cover_photo_id && !draft?.previewUrls[album.cover_photo_id] ? await traceAlbumLoad("edit.cover-fallback-urls", () => signedPreviewUrls(supabase, [album.cover_photo_id!], false, user.id)) : new Map<string, string>();
   return traceAlbumLoad("edit.response-preparation", async () => {
   const coverSrc = cover?.previewUrl ?? (album.cover_photo_id ? draft?.previewUrls[album.cover_photo_id] ?? fallbackCoverUrls.get(album.cover_photo_id) : null) ?? null;
@@ -55,6 +61,8 @@ async function loadAlbumEditPage({ params }: Props) {
 
   return (
     <AlbumEditScreen
+      key={`${albumId}:${draft?.versionId}:${draft?.revision}:${cover?.revision}:${cover?.clientSeq}`}
+      stream={stream}
       petName={pet.name}
       coverSrc={coverSrc}
       dateLabel={cover?.subtitle ?? coverDateLabel}

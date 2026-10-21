@@ -1,3 +1,8 @@
+import { Suspense } from "react";
+import { AlbumCompletePending } from "./album-complete-pending";
+import { after } from "next/server";
+import { streamDraft } from "@/lib/album-persistence/progressive-draft";
+import type { PersistedDraftView } from "@/lib/album-persistence/view";
 import { traceAuthStage } from "@/lib/auth-performance";
 import { createAlbumRequestContext } from "@/lib/album-persistence/request-context";
 import { readDraftCover } from "@/lib/album-persistence/read-cover";
@@ -53,6 +58,17 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
 
   // Draft Preview does not use the legacy list, order, entitlements or suggestion data.
   if (showPreview) {
+    const version = await context.version(albumId);
+    if (version) {
+      const cover = await readDraftCover(supabase, version.id, {}, user.id, context);
+      if (cover?.previewUrl) {
+        after(() => recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: version.id, eventType: "album_viewed", eventKey: `preview:${version.id}` }));
+        const stream = streamDraft(supabase, context, albumId, version, cover);
+        const critical: PersistedDraftView = { albumId, versionId: version.id, status: version.status, revision: version.revision, signature: "", previewUrls: cover.previewUrls, thumbnailUrls: {}, compositionPlan: null, spreads: [] };
+        const base = `/pets/${petId}/album/${albumId}`;
+        return <AlbumPreviewScreen key={`${albumId}:${version.id}:${version.revision}:${cover.revision}:${cover.clientSeq}`} cover={cover} draft={critical} stream={stream} spreads={[]} backHref={`${base}?view=complete`} editHref={`${base}/edit`} orderHref={`${base}/product`} printHref={`${base}/print`} coverEditHref={`${base}/cover/edit`} orderAction={acceptAlbumForOrder.bind(null, petId, albumId)} />;
+      }
+    }
     const savedDraft = await readDraft(supabase, albumId, undefined, context);
     if (savedDraft) {
       const [cover] = await Promise.all([
@@ -64,15 +80,17 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
     }
   }
 
+  const petLabels = traceAuthStage("album.pet-labels", async () => {
+    const albumPetIds = [...new Set([petId, ...(await context.petIds(albumId) ?? [])])];
+    const { data: albumPets } = await supabase.from("pets").select("id, name").in("id", albumPetIds);
+    return (albumPets ?? []).map(item => item.name).join("・") || pet.name;
+  });
+  const loadRemaining = async () => {
   // Complete needs list metadata, entitlements and suggestions, but not a rendered draft
   // or an order banner. Keep legacy detail/Preview fallback inputs unchanged.
   const [ownerEntitlements, albumPetLabel, newPhotoSuggestion, orderResult, photoResult, completeVersion] = await Promise.all([
     traceAuthStage("album.entitlements", () => loadUserEntitlements(supabase, album.owner_user_id)),
-    traceAuthStage("album.pet-labels", async () => {
-      const albumPetIds = [...new Set([petId, ...(await context.petIds(albumId) ?? [])])];
-      const { data: albumPets } = await supabase.from("pets").select("id, name").in("id", albumPetIds);
-      return (albumPets ?? []).map(item => item.name).join("・") || pet.name;
-    }),
+    petLabels,
     traceAuthStage("album.suggestion", async () => isOwner ? findNewPhotoSuggestion(supabase, { albumId, routePetId: petId, userId: user.id }, context) : null),
     traceAuthStage("album.order", async () => showComplete ? { data: null } : await supabase.from("orders").select("id, status").eq("album_id", albumId).in("status", ["pending", "paid", "failed"]).order("created_at", { ascending: false }).limit(1).maybeSingle()),
     traceAuthStage("album.list", async () => await supabase.from("album_photos").select("album_id, photo_id, position, selected_by").eq("album_id", albumId).order("position", { ascending: true })),
@@ -318,8 +336,16 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
       )}
     </main>
   );
+  };
+  if (showComplete) {
+    const [label, version] = await Promise.all([petLabels, context.version(albumId)]);
+    if (version) return <Suspense fallback={<AlbumCompletePending petName={label} backHref={`/pets/${petId}/album`} editHref={`/pets/${petId}/album/${albumId}/edit`} />}><RemainingAlbum load={loadRemaining} /></Suspense>;
+  }
+  return loadRemaining();
   });
 }
+
+async function RemainingAlbum({ load }: { load: () => Promise<React.ReactNode> }) { return load(); }
 
 function formatPeriodLabel(from: string | null, to: string | null): string {
   if (!from || !to) return "";

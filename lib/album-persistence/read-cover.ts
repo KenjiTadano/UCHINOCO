@@ -1,4 +1,5 @@
 import "server-only";
+import type { AlbumRequestContext } from "./request-context.ts";
 import { observeIo } from "../server-io-observer.ts";
 import { traceAlbumLoad } from "../album-load-trace.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -6,7 +7,7 @@ import { mapDraftCoverRow, toCoverEditor } from "./cover.ts";
 import { signedPreviewUrls } from "./read-draft.ts";
 
 /** Reuse this request's draft URLs; sign only cover photographs not already read. */
-export async function readDraftCover(supabase: SupabaseClient, versionId: string, previewUrls: Record<string, string>, userId: string) {
+export async function readDraftCover(supabase: SupabaseClient, versionId: string, previewUrls: Record<string, string>, userId: string, context?: AlbumRequestContext) {
   const { data } = await traceAlbumLoad("cover.row", () => supabase.from("album_draft_covers").select("*").eq("draft_version_id", versionId).maybeSingle());
   if (!data) return null;
   const source = mapDraftCoverRow(data);
@@ -14,6 +15,6 @@ export async function readDraftCover(supabase: SupabaseClient, versionId: string
   const missing = ids.filter(id => !previewUrls[id]);
   observeIo(supabase, "draft.cover", new Set(ids).size);
   observeIo(supabase, "draft.cover.missing", new Set(missing).size);
-  const extra = missing.length ? await traceAlbumLoad("cover.missing-urls", () => signedPreviewUrls(supabase, missing, false, userId)) : new Map<string, string>();
+  const extra = missing.length ? await traceAlbumLoad("cover.missing-urls", () => signedPreviewUrls(supabase, missing, false, userId, undefined, context)) : new Map<string, string>();
   return toCoverEditor(source, Object.fromEntries(ids.map(id => [id, previewUrls[id] ?? extra.get(id)]).filter((entry): entry is [string, string] => Boolean(entry[1]))));
 }

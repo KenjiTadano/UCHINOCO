@@ -61,7 +61,7 @@ export function PrintPreviewScreen({ petId, albumId, petName, dateLabel, cover, 
   }
 
   return (
-    <main className="print-preview-page" data-testid="print-preview" data-ordered={result.ordered ? "true" : "false"} data-print-href={result.href ?? ""} data-print-message={result.message ?? ""}>
+    <main className="print-preview-page" data-load-stage="primary" data-fully-ready="true" data-testid="print-preview" data-ordered={result.ordered ? "true" : "false"} data-print-href={result.href ?? ""} data-print-message={result.message ?? ""}>
       <header className="print-preview-header">
         <Link href={editorHref} className="print-preview-back ds-focus">
           編集へ戻る

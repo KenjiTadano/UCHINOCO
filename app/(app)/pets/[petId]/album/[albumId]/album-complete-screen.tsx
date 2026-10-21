@@ -56,7 +56,7 @@ export function AlbumCompleteScreen({
   const coverLines = buildCoverTitleLines(petName, albumTitle, periodMonthLabel);
 
   return (
-    <main className="ai-complete-page">
+    <main data-load-stage="primary" data-fully-ready="true" className="ai-complete-page">
       <header className="ai-complete-header">
         <Link
           href={backHref}

@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useDraftStream } from "../../_components/progressive-draft-client";
+import { digitalSpreadGeometry } from "@/lib/album-draft/pages";
+import type { DraftStream } from "@/lib/album-persistence/progressive-types";
 import {
   ArrowRight,
   BookOpen,
@@ -39,6 +42,7 @@ export type AlbumEditScreenProps = {
   pageCount: number;
   pages: AlbumEditPageEntry[];
   draft: PersistedDraftView | null;
+  stream?: DraftStream;
   cover?: CoverEditorModel | null;
   loadError?: string | null;
   selectedPageId?: string;
@@ -66,8 +70,9 @@ export function AlbumEditScreen({
   titlePrefix,
   titleMain,
   pageCount,
-  pages,
-  draft,
+  pages: sourcePages,
+  draft: initialDraft,
+  stream,
   cover,
   loadError,
   selectedPageId = "cover",
@@ -79,6 +84,9 @@ export function AlbumEditScreen({
   doneHref,
   pageEditHref,
 }: AlbumEditScreenProps) {
+  const delivery = useDraftStream(initialDraft, stream);
+  const draft = delivery.view;
+  const pages = sourcePages.map(page => page.kind === "spread" ? { ...page, spread: draft?.spreads.find(spread => spread.id === page.id) ?? page.spread } : page);
   const toolHref = (key: string) => {
     if (key === "add") return addPhotosHref;
     if (key === "title") return titleEditHref;
@@ -87,7 +95,9 @@ export function AlbumEditScreen({
   };
 
   return (
-    <main className="album-edit-page">
+    <main data-load-stage="primary" data-fully-ready={delivery.ready ? "true" : "false"} className="album-edit-page">
+      {delivery.receivers}
+      {stream && !delivery.ready ? <p role={delivery.error ? "alert" : "status"}>{delivery.error ?? "ページの写真を読み込んでいます…"}</p> : null}
       <header className="album-edit-header">
         <Link
           href={backHref}
@@ -197,7 +207,7 @@ export function AlbumEditScreen({
                         />
                       ) : (
                         <Link className="album-edit-page-spread-link" href={`${pageEditHref}?spread=${draft?.spreads.findIndex((spread) => spread.id === page.id) ?? 0}`} aria-label={`${page.label}を編集`}>
-                          <DraftSpreadThumbnail spread={page.spread} previewUrls={draft?.previewUrls ?? {}} thumbnailUrls={draft?.thumbnailUrls} />
+                          {!stream || page.spread.frames.every(frame => Boolean(draft?.thumbnailUrls?.[frame.effectivePhotoId])) ? <DraftSpreadThumbnail spread={page.spread} previewUrls={draft?.previewUrls ?? {}} thumbnailUrls={draft?.thumbnailUrls} /> : <span aria-label="写真を読み込み中" style={{ display: "block", width: "100%", aspectRatio: digitalSpreadGeometry().aspectRatio }}>読み込み中</span>}
                         </Link>
                       )}
                     </div>

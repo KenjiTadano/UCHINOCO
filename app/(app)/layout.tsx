@@ -1,3 +1,4 @@
+import { RouteNetworkMetrics } from "./_components/route-network-metrics";
 import { traceAuthStage } from "@/lib/auth-performance";
 import { AIAnalysisRunner } from "./_components/ai-analysis-runner";
 import { redirect } from "next/navigation";
@@ -18,6 +19,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect("/login");
   }
 
-  return <AppShell analysis={<AIAnalysisRunner key={user.id} />}>{children}</AppShell>;
+  return <AppShell analysis={<AIAnalysisRunner key={user.id} />}>{process.env.VERCEL_ENV === "preview" ? <RouteNetworkMetrics /> : null}{children}</AppShell>;
   });
 }

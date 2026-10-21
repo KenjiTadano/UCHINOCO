@@ -170,15 +170,15 @@ export async function imageFacts(input: PrintSnapshotInput, supabase: Awaited<Re
   return { facts, bytes };
 }
 /** Server-internal GET loader. No trusted input is accepted from a Server Action. */
-export async function loadPrintPreviewData(petId: string, albumId: string) {
-  const owned = await traceAuthStage("print.owned-album", () => ownedAlbum(albumId, petId));
+export async function loadPrintPreviewData(petId: string, albumId: string, seed?: { owned: NonNullable<Awaited<ReturnType<typeof ownedAlbum>>>; pet: { id: string; name: string } }) {
+  const owned = seed?.owned ?? await traceAuthStage("print.owned-album", () => ownedAlbum(albumId, petId));
   if (!owned) return null;
   const { supabase, album, userId } = owned;
   // Static build assets only; overlap cold font I/O with the verified draft reads.
   const fontWarmup = ioVariant(supabase) === "candidate" ? traceAuthStage("print.font-warmup", () => fontReadyMap(["editorial", "warm", "minimal", "handwritten"], supabase)) : undefined;
   const context = createAlbumRequestContext(supabase, userId);
   const [petResult, { view, coverRow }] = await Promise.all([
-    traceAuthStage("print.pet", async () => await supabase.from("pets").select("id, name").eq("id", petId).eq("owner_user_id", userId).maybeSingle()),
+    seed ? Promise.resolve({ data: seed.pet }) : traceAuthStage("print.pet", async () => await supabase.from("pets").select("id, name").eq("id", petId).eq("owner_user_id", userId).maybeSingle()),
     (async () => {
       const version = await context.version(albumId);
       if (!version) return { view: null, coverRow: null };

@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { after } from "next/server";
 import { traceAuthStage } from "@/lib/auth-performance";
 import { notFound, redirect } from "next/navigation";
 import { createAlbumRequestContext } from "@/lib/album-persistence/request-context";
@@ -39,12 +41,13 @@ export default async function PageEditPage({ params, searchParams }: Props) {
   if (!pet) notFound();
 
   // Saved draft only. Opening the editor does not regenerate the album or call Vision.
-  const [view, candidates, suggestion] = await Promise.all([
-    readDraft(supabase, albumId, undefined, context),
-    loadRequestEditorCandidates(supabase, context, petId, albumId, { routePetVerified: true }),
-    findNewPhotoSuggestion(supabase, { albumId, routePetId: petId, userId: user.id }, context),
-  ]);
-  if (view) await recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: view.versionId, eventType: "album_edit_started", eventKey: view.versionId });
+  const candidatePhotosDelivery = loadRequestEditorCandidates(supabase, context, petId, albumId, { routePetVerified: true })
+    .then(photos => ({ ok: true, photos: photos.map(photo => ({ id: photo.id, src: photo.src, thumb: photo.thumb, alt: `${pet.name}の写真` })) }))
+    .catch(() => ({ ok: false, photos: [] }));
+  const suggestionDelivery = findNewPhotoSuggestion(supabase, { albumId, routePetId: petId, userId: user.id }, context).catch(() => null);
+  const candidateDelivery = Promise.all([candidatePhotosDelivery, suggestionDelivery]).then(([photos]) => photos);
+  const view = await readDraft(supabase, albumId, undefined, context);
+  if (view) after(() => recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: view.versionId, eventType: "album_edit_started", eventKey: view.versionId }));
   const parsed = Number.parseInt(spreadParam ?? "0", 10);
   const initialIndex = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
   const base = `/pets/${petId}/album/${albumId}`;
@@ -52,19 +55,15 @@ export default async function PageEditPage({ params, searchParams }: Props) {
 
   return (
     <>
-      {suggestion && !suggestion.dismissed ? <div className="mx-auto w-full max-w-2xl px-4 pt-3"><NewPhotoSuggestionNotice href={`${base}/new-photos`} count={suggestion.candidates.length} /></div> : null}
+      <Suspense fallback={null}><DeferredSuggestion delivery={suggestionDelivery} href={`${base}/new-photos`} /></Suspense>
       <PageEditScreen
         key={view?.versionId ?? albumId}
         view={view}
         albumId={albumId}
         readonly={editorIsReadonly(album.status)}
         loadError={loadError}
-        candidatePhotos={(view ? candidates : []).map((photo) => ({
-          id: photo.id,
-          src: photo.src,
-          thumb: photo.thumb,
-          alt: `${pet.name}の写真`,
-        }))}
+        candidatePhotos={[]}
+        candidateDelivery={view ? candidateDelivery : undefined}
         initialIndex={initialIndex}
         backHref={`${base}/edit`}
         doneHref={`${base}/edit`}
@@ -74,4 +73,9 @@ export default async function PageEditPage({ params, searchParams }: Props) {
     </>
   );
   });
+}
+
+async function DeferredSuggestion({ delivery, href }: { delivery: ReturnType<typeof findNewPhotoSuggestion>; href: string }) {
+  const suggestion = await delivery;
+  return suggestion && !suggestion.dismissed ? <div className="mx-auto w-full max-w-2xl px-4 pt-3"><NewPhotoSuggestionNotice href={href} count={suggestion.candidates.length} /></div> : null;
 }

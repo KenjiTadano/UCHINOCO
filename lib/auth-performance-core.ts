@@ -3,12 +3,13 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { channel } from "node:diagnostics_channel";
 import { randomUUID } from "node:crypto";
 
+export const AUTH_REQUEST_KIND_HEADER = "x-uchinoco-request-kind";
 export const AUTH_IO_VARIANT_HEADER = "x-uchinoco-io-variant";
 export const AUTH_TRACE_HEADER = "x-uchinoco-auth-trace";
 export const AUTH_START_HEADER = "x-uchinoco-auth-start";
 export const AUTH_ROUTE_HEADER = "x-uchinoco-auth-route";
 export const authTraceEnabled = () => process.env.VERCEL_ENV === "preview" || process.env.UCHINOCO_AUTH_PERF === "1";
-export type AuthTrace = { requestId: string; route: string; started: number; ioVariant?: "baseline" | "candidate"; ioMetrics?: Record<string, { count: number; durationMs: number; maxMs: number; maxCount?: number }>; dbHttpByTable?: Record<string, number>; supabaseCounts?: { selectHttp: number; writeHttp: number; rpcHttp: number; storageHttp: number } };
+export type AuthTrace = { requestId: string; route: string; started: number; requestKind?: "document" | "rsc" | "prefetch"; ioVariant?: "baseline" | "candidate"; ioMetrics?: Record<string, { count: number; durationMs: number; maxMs: number; maxCount?: number }>; dbHttpByTable?: Record<string, number>; supabaseCounts?: { selectHttp: number; writeHttp: number; rpcHttp: number; storageHttp: number } };
 const scope = new AsyncLocalStorage<{ trace: AuthTrace; phase: string }>();
 const routes = new Set(["login", "home", "pet", "complete", "preview", "detail", "edit", "page-editor", "cover", "print", "create", "other"]);
 export function authRoute(pathname: string, view?: string | null) {
@@ -27,7 +28,7 @@ export function forwardedAuthTrace(headers: Headers): AuthTrace {
   const id = headers.get(AUTH_TRACE_HEADER);
   const start = Number(headers.get(AUTH_START_HEADER));
   const route = headers.get(AUTH_ROUTE_HEADER) ?? "other";
-  return { ioVariant: process.env.VERCEL_ENV === "preview" && headers.get(AUTH_IO_VARIANT_HEADER) === "baseline" ? "baseline" : "candidate", requestId: id && /^[a-f0-9-]{36}$/.test(id) ? id : randomUUID(), route: routes.has(route) ? route : "other", started: Number.isFinite(start) && start > Date.now() - 300_000 && start <= Date.now() ? start : Date.now() };
+  return { requestKind: headers.get(AUTH_REQUEST_KIND_HEADER) === "prefetch" ? "prefetch" : headers.get(AUTH_REQUEST_KIND_HEADER) === "rsc" ? "rsc" : "document", ioVariant: process.env.VERCEL_ENV === "preview" && headers.get(AUTH_IO_VARIANT_HEADER) === "baseline" ? "baseline" : "candidate", requestId: id && /^[a-f0-9-]{36}$/.test(id) ? id : randomUUID(), route: routes.has(route) ? route : "other", started: Number.isFinite(start) && start > Date.now() - 300_000 && start <= Date.now() ? start : Date.now() };
 }
 // Diagnostic metadata only. Never attach user/session/query arguments to this scope.
 export const currentAuthTrace = () => scope.getStore()?.trace;

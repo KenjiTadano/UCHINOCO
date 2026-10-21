@@ -9,7 +9,7 @@ test("album GET pages read the draft with the request-scoped Supabase client", a
     readFile("./app/(app)/pets/[petId]/album/[albumId]/print/page.tsx", "utf8"),
   ]);
 
-  assert.match(print, /loadPrintPreviewData\(petId, albumId\)/);
+  assert.match(print, /loadPrintPreviewData\(petId, albumId, \{ owned, pet \}\)/);
   const inspection = await readFile("./lib/album-print/inspection.ts", "utf8");
   for (const source of [detail, editor, inspection]) {
     assert.match(source, /readDraft\(supabase, albumId(?:, undefined, context)?\)/);

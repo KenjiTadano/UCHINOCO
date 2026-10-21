@@ -106,7 +106,7 @@ export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], 
 }
 
 /** Active draft only. Does not create a version and does not run album generation. */
-export async function readDraft(supabase: Supabase, albumId: string, options?: { refreshUrls?: boolean }, context?: AlbumRequestContext): Promise<PersistedDraftView | null> {
+export async function readDraft(supabase: Supabase, albumId: string, options?: { refreshUrls?: boolean; resolveUrls?: boolean }, context?: AlbumRequestContext): Promise<PersistedDraftView | null> {
   const versionResult = context ? { data: await context.version(albumId) } : await traceAlbumLoad("draft.version", () => supabase.from("album_draft_versions").select("id, album_id, status, revision, generation_metadata").eq("album_id", albumId).eq("is_active", true).maybeSingle());
   const version = versionResult.data;
   if (!version) return null;
@@ -154,7 +154,7 @@ export async function readDraft(supabase: Supabase, albumId: string, options?: {
   observeIo(supabase, "draft.initial.body", new Set(frames.filter(frame => frame.draftSpreadId === spreads[0]?.id).map(frame => frame.userPhotoId || frame.aiPhotoId)).size);
   observeIo(supabase, "draft.offscreen.body", new Set(frames.filter(frame => frame.draftSpreadId !== spreads[0]?.id).map(frame => frame.userPhotoId || frame.aiPhotoId)).size);
   const thumbnailUrls = new Map<string, string>();
-  const urls = await traceAlbumLoad("draft.preview-urls", () =>
+  const urls = options?.resolveUrls === false ? new Map<string, string>() : await traceAlbumLoad("draft.preview-urls", () =>
     signedPreviewUrls(
       supabase,
       frames.flatMap((frame) => [frame.aiPhotoId, frame.userPhotoId].filter((id): id is string => Boolean(id))),

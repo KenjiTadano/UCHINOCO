@@ -3,7 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { CandidateReceiver, type CandidateDelivery } from "./candidate-delivery";
 import { AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowUp, Bold, ChevronLeft, ChevronRight, Copy, Image as ImageIcon, Maximize2, Minimize2, Minus, Palette, Plus, RotateCcw, Shapes, Sparkles, Star, Trash2, Type, X } from "lucide-react";
 import { DraftSpreadThumbnail } from "../../../_components/draft-spread-thumbnail";
 import { DraftSpreadView } from "../../../_components/draft-spread-view";
@@ -34,6 +35,7 @@ export type PageEditScreenProps = {
   readonly: boolean;
   loadError: string | null;
   candidatePhotos: PageEditCandidatePhoto[];
+  candidateDelivery?: Promise<CandidateDelivery>;
   initialIndex?: number;
   backHref: string;
   doneHref: string;
@@ -105,12 +107,15 @@ function LayoutSchema({ frames, textSlots }: { frames: Array<{ id: string; rect:
   );
 }
 
-export function PageEditScreen({ view: initialView, albumId, readonly, loadError, candidatePhotos, initialIndex = 0, backHref, doneHref, generateHref, printHref }: PageEditScreenProps) {
+export function PageEditScreen({ view: initialView, albumId, readonly, loadError, candidatePhotos: initialCandidates, candidateDelivery, initialIndex = 0, backHref, doneHref, generateHref, printHref }: PageEditScreenProps) {
   const router = useRouter();
   const draft = usePageEditDraft(initialView, albumId, readonly);
   const leaveEditor = async (href: string) => { if (await draft.flushPending()) router.push(href); };
   const view = draft.view;
   const safeInitial = Math.min(Math.max(initialIndex, 0), Math.max((view?.spreads.length ?? 1) - 1, 0));
+  const [candidateState, setCandidateState] = useState<{ photos: PageEditCandidatePhoto[]; ready: boolean; error: boolean }>({ photos: initialCandidates, ready: !candidateDelivery, error: false });
+  const receiveCandidates = useState(() => (value: CandidateDelivery) => setCandidateState({ photos: value.photos, ready: true, error: !value.ok }))[0];
+  const candidatePhotos = candidateDelivery ? candidateState.photos : initialCandidates;
   const [activeSpreadIndex, setActiveSpreadIndex] = useState(safeInitial);
   const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -300,7 +305,8 @@ export function PageEditScreen({ view: initialView, albumId, readonly, loadError
   }
 
   return (
-    <main className="page-edit-page" data-testid="page-edit-draft" data-readonly={readonly ? "true" : "false"} data-spread-count={totalSpreads} data-photo-count={view ? editorPhotoIds(view).length : 0}>
+    <main data-load-stage="primary" data-fully-ready={candidateState.ready && !candidateState.error ? "true" : "false"} className="page-edit-page" data-testid="page-edit-draft" data-readonly={readonly ? "true" : "false"} data-spread-count={totalSpreads} data-photo-count={view ? editorPhotoIds(view).length : 0}>
+      {candidateDelivery ? <Suspense fallback={null}><CandidateReceiver promise={candidateDelivery} receive={receiveCandidates} /></Suspense> : null}
       <header className="page-edit-header">
         <Link href={backHref} onClick={(event) => { event.preventDefault(); void leaveEditor(backHref); }} className="page-edit-header-side page-edit-back ds-focus" aria-label="戻る" data-testid="page-edit-back">
           <ChevronLeft size={22} strokeWidth={1.8} aria-hidden="true" />
@@ -853,6 +859,7 @@ export function PageEditScreen({ view: initialView, albumId, readonly, loadError
               </button>
             </div>
             <p className="page-edit-picker-hint">このペットの写真から選びます</p>
+            {!candidateState.ready ? <p role="status">差し替え候補を読み込んでいます…</p> : candidateState.error ? <p role="alert">写真の候補を取得できませんでした。編集内容を保存して、再度開いてください。</p> : null}
             <ul className="page-edit-picker-grid">
               {candidatePhotos.map((candidate) => {
                 const inUse = usedIds.has(candidate.id);

@@ -4,11 +4,14 @@ import Link from "next/link";
 import { AlbumOrderIntentCta } from "./album-order-intent-cta";
 import type { AlbumOrderIntentState } from "./analytics-actions";
 import { useState } from "react";
+import { useDraftStream } from "../_components/progressive-draft-client";
+import type { DraftStream } from "@/lib/album-persistence/progressive-types";
 import { ArrowRight, BookOpen, ChevronLeft, ChevronRight, SquarePen } from "lucide-react";
 import type { PreviewPhoto, PreviewSpread } from "@/lib/album-preview-spreads";
 import { draftSpreadRenderProps, toAlbumEditorSpread } from "@/lib/album-persistence/editor";
 import type { PersistedDraftView, PersistedSpreadView } from "@/lib/album-persistence/view";
 import type { AlbumCompositionItem } from "@/lib/album-draft/composition";
+import { digitalSpreadGeometry } from "@/lib/album-draft/pages";
 import { BookSpread } from "../_components/book-spread";
 import { DraftSpreadThumbnail } from "../_components/draft-spread-thumbnail";
 import { DraftSpreadView } from "../_components/draft-spread-view";
@@ -37,6 +40,7 @@ function previewSequence(draft: PersistedDraftView | null, spreads: PreviewSprea
 export type AlbumPreviewScreenProps = {
   spreads: PreviewSpread[];
   draft?: PersistedDraftView | null;
+  stream?: DraftStream;
   cover?: CoverEditorModel | null;
   backHref: string;
   editHref: string;
@@ -76,9 +80,12 @@ function ThumbPreview({ spread }: { spread: PreviewSpread }) {
   );
 }
 
-export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHref, editHref, orderHref, printHref, coverEditHref, orderAction }: AlbumPreviewScreenProps) {
+export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHref, editHref, orderHref, printHref, coverEditHref, orderAction, stream }: AlbumPreviewScreenProps) {
   const [index, setIndex] = useState(0);
-  const savedDraft = draft;
+  const delivery = useDraftStream(draft, stream);
+  const savedDraft = delivery.view;
+  const bodyPending = Boolean(stream && delivery.rank === 0);
+  const fullyReady = delivery.ready;
   const body = previewSequence(savedDraft, spreads);
   const hasBackCover = Boolean(cover && savedDraft?.spreads.some(spread => spread.effectiveLayoutId.startsWith("E_")));
   const sequence: PreviewSequenceItem[] = cover ? [{kind:"front-cover"},...body,...(hasBackCover ? [{kind:"back-cover" as const}] : [])] : body;
@@ -96,7 +103,8 @@ export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHr
   };
 
   return (
-    <main className="album-preview-page-root">
+    <main className="album-preview-page-root" data-load-stage="primary" data-fully-ready={fullyReady ? "true" : "false"}>
+      {delivery.receivers}
       <header className="album-preview-header">
         <Link href={backHref} className="album-preview-header-side album-preview-back ds-focus" aria-label="戻る">
           <ChevronLeft size={22} strokeWidth={1.8} aria-hidden="true" />
@@ -112,9 +120,9 @@ export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHr
           <>
             <p className="album-preview-page-num" aria-live="polite">{pageLabel}</p>
             <div className="album-preview-stage album-preview-stage--single" data-page-kind={currentItem.kind}>
-              <button type="button" className="album-preview-arrow album-preview-arrow-left ds-focus" aria-label="前のページ" onClick={()=>go(index-1)}><ChevronLeft size={20} /></button>
+              <button type="button" className="album-preview-arrow album-preview-arrow-left ds-focus" aria-label="前のページ" onClick={()=>go(index-1)} disabled={bodyPending}><ChevronLeft size={20} /></button>
               {currentItem.kind === "front-cover" && cover ? <AlbumCoverBook coverSrc={cover.previewUrl} dateLabel={cover.subtitle} titlePrefix="" titleMain={cover.title} label="表紙" templateId={cover.templateId} colorId={cover.colorId} /> : <div className="album-editorial-back-cover" aria-label="裏表紙"><p>UCHINOCO</p><p>うちの子との、大切な日々。</p></div>}
-              <button type="button" className="album-preview-arrow album-preview-arrow-right ds-focus" aria-label="次のページ" onClick={()=>go(index+1)}><ChevronRight size={20} /></button>
+              <button type="button" className="album-preview-arrow album-preview-arrow-right ds-focus" aria-label="次のページ" onClick={()=>go(index+1)} disabled={bodyPending}><ChevronRight size={20} /></button>
             </div>
           </>
         ) : currentItem?.kind === "title" || currentItem?.kind === "event" ? (
@@ -143,7 +151,7 @@ export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHr
                 <ChevronLeft size={20} strokeWidth={1.8} aria-hidden="true" />
               </button>
               <div className="album-preview-main-canvas" data-page-role={currentItem?.kind === "draft-spread" ? currentItem.role : undefined} data-page-density={currentItem?.kind === "draft-spread" ? currentItem.density : undefined}>
-                <DraftSpreadView {...draftSpreadRenderProps(draftSpread, savedDraft.previewUrls)} />
+                {draftSpread.frames.every(frame => Boolean(savedDraft.previewUrls[frame.effectivePhotoId])) ? <DraftSpreadView {...draftSpreadRenderProps(draftSpread, savedDraft.previewUrls)} /> : <div role="status" style={{ width: "100%", aspectRatio: digitalSpreadGeometry().aspectRatio, background: "var(--color-surface-warm, #f3eee8)" }}>この見開きの写真を読み込んでいます…</div>}
               </div>
               <button type="button" className="album-preview-arrow album-preview-arrow-right ds-focus" aria-label="次の見開き" onClick={() => go(index + 1)} disabled={sequence.length <= 1}>
                 <ChevronRight size={20} strokeWidth={1.8} aria-hidden="true" />
@@ -163,7 +171,7 @@ export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHr
                 if (item.kind !== "draft-spread") return null;
                 return (
                   <button key={item.item.id} type="button" role="tab" aria-selected={itemIndex === index} className={`album-preview-thumb${itemIndex === index ? " is-selected" : ""}`} onClick={() => setIndex(itemIndex)}>
-                    <DraftSpreadThumbnail spread={item.item} previewUrls={savedDraft.previewUrls} thumbnailUrls={savedDraft.thumbnailUrls} />
+                    {item.item.frames.every(frame => Boolean(savedDraft.thumbnailUrls?.[frame.effectivePhotoId])) || !stream ? <DraftSpreadThumbnail spread={item.item} previewUrls={savedDraft.previewUrls} thumbnailUrls={savedDraft.thumbnailUrls} /> : <span className="album-preview-thumb-inner" aria-label="写真を読み込み中" style={{ display: "block", aspectRatio: digitalSpreadGeometry().aspectRatio, background: "var(--color-surface-warm, #f3eee8)" }} />}
                   </button>
                 );
               })}
@@ -205,12 +213,13 @@ export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHr
         {cover && currentItem?.kind === "front-cover" ? <Link href={coverEditHref ?? editHref.replace(/\/(?:pages\/)?edit$/, "/cover/edit")} className="album-preview-secondary ds-focus">表紙を編集する</Link> : null}
         <div className="album-preview-section-nav" aria-label="アルバムの表示箇所">
           {cover ? <button type="button" className="app-button-secondary" onClick={()=>setIndex(0)}>表紙</button> : null}
-          <button type="button" className="app-button-secondary" onClick={()=>setIndex(cover?1:0)}>本文</button>
+          <button type="button" className="app-button-secondary" disabled={bodyPending} onClick={()=>setIndex(cover?1:0)}>本文</button>
           {hasBackCover ? <button type="button" className="app-button-secondary" onClick={()=>setIndex(sequence.length-1)}>裏表紙</button> : null}
         </div>
+        {stream && !fullyReady ? <p role={delivery.error ? "alert" : "status"}>{delivery.error ?? (bodyPending ? "本文を読み込んでいます…" : "残りの見開きとサムネイルを読み込んでいます…")}{delivery.error ? <a href={`${backHref.split("?")[0]}?view=preview`}>再読み込み</a> : null}</p> : null}
         {draft ? <Link href={printHref} className="album-preview-secondary ds-focus">印刷を確認する</Link> : null}
         <div className="album-preview-actions">
-          {draft && orderAction ? <AlbumOrderIntentCta action={orderAction} /> : !draft ? <Link href={orderHref} className="album-preview-primary ds-focus">
+          {!fullyReady ? <button type="button" className="album-preview-primary" disabled>読み込み完了後に進めます</button> : draft && orderAction ? <AlbumOrderIntentCta action={orderAction} /> : !draft ? <Link href={orderHref} className="album-preview-primary ds-focus">
             <BookOpen size={18} strokeWidth={1.9} aria-hidden="true" />
             この内容で注文へ進む
             <ArrowRight size={18} strokeWidth={2} aria-hidden="true" />

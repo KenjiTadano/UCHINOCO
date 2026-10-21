@@ -51,7 +51,7 @@ test('instrumented App/Pet layouts retain anonymous redirect, inaccessible pet d
  const petId='10000000-0000-4000-8000-000000000001';let user=null,pet=null;
  const db={auth:{getUser:async()=>({data:{user},error:null})},from(){const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:pet,error:null})};return q;}};
  const nav={redirect(){throw Error('login redirect')},notFound(){throw Error('deny')}};
- const load=requestModules({'@/lib/auth-performance':{traceAuthStage:async(_phase,work)=>work()},'@/lib/supabase/server':{createClient:async()=>db},'next/navigation':nav,'react/jsx-runtime':{jsx:(type,props)=>({type,props})},'./_components/ai-analysis-runner':{AIAnalysisRunner:'runner'},'./_components/app-shell':{AppShell:'shell'}});
+ const load=requestModules({'@/lib/auth-performance':{traceAuthStage:async(_phase,work)=>work()},'@/lib/supabase/server':{createClient:async()=>db},'next/navigation':nav,'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})},'./_components/route-network-metrics':{RouteNetworkMetrics:'metrics'},'./_components/ai-analysis-runner':{AIAnalysisRunner:'runner'},'./_components/app-shell':{AppShell:'shell'}});
  const App=load('app/(app)/layout.tsx').default;const Pet=load('app/(app)/pets/[petId]/layout.tsx').default;
  await assert.rejects(App({children:'private'}),/login redirect/);await assert.rejects(Pet({children:'private',params:Promise.resolve({petId})}),/login redirect/);
  user={id:'synthetic-owner'};await assert.rejects(Pet({children:'private',params:Promise.resolve({petId})}),/deny/);

@@ -124,6 +124,7 @@ Module._load = function(specifier, parent, ...rest) {
     if (specifier.includes('supabase/server')) return { createClient: async () => serverHarness.client };
     if (specifier.includes('album-persistence/read-draft')) return { readDraft: async () => { serverHarness.loads++; return serverHarness.draft; }, signedPreviewUrls: async () => new Map() };
   }
+  if (parent?.filename.endsWith('/album-preview-screen.tsx') && specifier.includes('progressive-draft-client')) return { useDraftStream: (initial) => ({ view: initial, rank: 3, error: null, ready: true, receivers: null }) };
   if (parent?.filename.endsWith('/use-page-edit-draft.ts') || parent?.filename.endsWith('/album-preview-screen.tsx')) {
     if (specifier === 'react') return {
       useRef: (initial) => harness.slot(() => ({ current: initial })),

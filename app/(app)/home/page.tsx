@@ -283,7 +283,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   );
 
   return (
-    <main className="home-page">
+    <main className="home-page" data-load-stage="primary" data-fully-ready="true">
       <AuthHomeTiming enabled={process.env.VERCEL_ENV === "preview"} />
       <header className="flex items-center justify-between gap-3 px-0.5">
         <div>

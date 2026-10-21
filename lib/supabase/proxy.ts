@@ -1,4 +1,4 @@
-import { AUTH_IO_VARIANT_HEADER, AUTH_TRACE_HEADER, AUTH_START_HEADER, AUTH_ROUTE_HEADER, authTraceEnabled, newAuthTrace, authRoute, authMeasuredFetch, authTraceWork, authTraceEvent } from "../auth-performance-core";
+import { AUTH_REQUEST_KIND_HEADER, AUTH_IO_VARIANT_HEADER, AUTH_TRACE_HEADER, AUTH_START_HEADER, AUTH_ROUTE_HEADER, authTraceEnabled, newAuthTrace, authRoute, authMeasuredFetch, authTraceWork, authTraceEvent } from "../auth-performance-core";
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "./database.types";
@@ -9,6 +9,8 @@ export async function updateSession(request: NextRequest) {
   const next = () => {
     const forwarded = new Headers(request.headers);
     // Always overwrite incoming correlation metadata; it is never an auth assertion.
+    forwarded.delete(AUTH_REQUEST_KIND_HEADER);
+    if (trace) forwarded.set(AUTH_REQUEST_KIND_HEADER, request.headers.get("next-router-prefetch") === "1" || request.headers.get("purpose") === "prefetch" ? "prefetch" : request.headers.get("rsc") === "1" ? "rsc" : "document");
     forwarded.delete(AUTH_IO_VARIANT_HEADER);
     if (process.env.VERCEL_ENV === "preview") forwarded.set(AUTH_IO_VARIANT_HEADER, request.nextUrl.searchParams.get("ioMode") === "baseline" ? "baseline" : "candidate");
     if (trace) {
