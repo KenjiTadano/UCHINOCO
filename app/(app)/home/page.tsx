@@ -111,88 +111,77 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const memoriesHref = selectedPet ? `/pets/${selectedPet.id}` : "/memories";
   const albumHref = selectedPet ? `/pets/${selectedPet.id}/album` : "/album";
 
-  const emptyPhotoResult = { data: [] as UchinocoNowPhoto[], error: null };
-  const recentResult = await traceAuthStage("home.recent", async () => (pets.length
-    ? selectedPet
-      ? await (supabase as unknown as SupabaseClient).rpc("get_pet_photos_page", {
-          p_pet_id: selectedPet.id,
-          p_limit: RECENT_LIMIT,
-          p_cursor_at: null,
-          p_cursor_id: null,
-          p_favorite_only: false,
-        })
-      : await (supabase as unknown as SupabaseClient).rpc("get_dashboard_photos", {
-          p_favorite_only: false,
-          p_limit: RECENT_LIMIT,
-        })
-    : emptyPhotoResult));
-  const recentPhotos = (recentResult.data ?? []) as UchinocoNowPhoto[];
-
   const now = new Date();
   const currentMonth = currentTokyoMonth(now);
   const previousMonth = previousTokyoMonth(now);
   const nowParts = tokyoDateParts(now);
   const todayRange = tokyoRange(nowParts.year, nowParts.month, nowParts.day);
   const monthRange = tokyoRange(nowParts.year, nowParts.month, 1, true);
-  const todayResult = await traceAuthStage("home.today", async () => (await loadPhotosInRange(supabase, selectedPetIds, todayRange, 12)));
-  const bestShotResult = await traceAuthStage("home.best-shot", async () => (await selectStoredTodayBestShot(supabase, todayResult.photos)));
-  const anniversaryMemory = await traceAuthStage("home.anniversary", async () => (await loadAnniversaryMemory({ supabase, pets, selectedPetIds, now })));
 
-  const [takenCount, createdCount] = selectedPetIds.length
-    ? await Promise.all([
-        supabase
-          .from("photos")
-          .select("id", { count: "exact", head: true })
-          .in("pet_id", selectedPetIds)
-          .gte("taken_at", monthRange.start)
-          .lt("taken_at", monthRange.end),
-        supabase
-          .from("photos")
-          .select("id", { count: "exact", head: true })
-          .in("pet_id", selectedPetIds)
-          .is("taken_at", null)
-          .gte("created_at", monthRange.start)
-          .lt("created_at", monthRange.end),
+  // All reads below use the authenticated client's RLS-visible pet selection.
+  // Share today's exact dataset; hero priority is still evaluated after every input resolves.
+  const todayPromise = traceAuthStage("home.today", () => loadPhotosInRange(supabase, selectedPetIds, todayRange, 12));
+  const recentPromise = traceAuthStage("home.recent", async () => pets.length
+    ? selectedPet
+      ? await (supabase as unknown as SupabaseClient).rpc("get_pet_photos_page", {
+          p_pet_id: selectedPet.id, p_limit: RECENT_LIMIT, p_cursor_at: null,
+          p_cursor_id: null, p_favorite_only: false,
+        })
+      : await (supabase as unknown as SupabaseClient).rpc("get_dashboard_photos", {
+          p_favorite_only: false, p_limit: RECENT_LIMIT,
+        })
+    : { data: [] as UchinocoNowPhoto[], error: null });
+  const anniversaryPromise = traceAuthStage("home.anniversary", () => loadAnniversaryMemory({
+    supabase, pets, selectedPetIds, now, todayPhotos: todayPromise.then(result => result.photos),
+  }));
+  const bestShotPromise = traceAuthStage("home.best-shot", async () => selectStoredTodayBestShot(supabase, (await todayPromise).photos));
+  const monthCountsPromise = traceAuthStage("home.month-counts", async () => selectedPetIds.length
+    ? Promise.all([
+        supabase.from("photos").select("id", { count: "exact", head: true })
+          .in("pet_id", selectedPetIds).gte("taken_at", monthRange.start).lt("taken_at", monthRange.end),
+        supabase.from("photos").select("id", { count: "exact", head: true })
+          .in("pet_id", selectedPetIds).is("taken_at", null).gte("created_at", monthRange.start).lt("created_at", monthRange.end),
       ])
-    : [{ count: 0, error: null }, { count: 0, error: null }];
-  const monthPhotoCount = (takenCount.count ?? 0) + (createdCount.count ?? 0);
-
-  const albumsResult = await traceAuthStage("home.albums", async () => (selectedPetIds.length
-    ? await supabase
-        .from("albums")
-        .select("id, pet_id, title, status, updated_at, period_from, period_to")
-        .in("pet_id", selectedPetIds)
-        .in("status", ["draft", "ready"])
-        .order("updated_at", { ascending: false })
-        .limit(12)
-    : { data: [] as AlbumRow[], error: null }));
-  const albums = (albumsResult.data ?? []) as AlbumRow[];
-  const albumIds = albums.map((album) => album.id);
-  const activeDraftsResult = await traceAuthStage("home.active-versions", async () => (albumIds.length
-    ? await supabase
-        .from("album_draft_versions")
-        .select("album_id, status")
-        .in("album_id", albumIds)
-        .eq("is_active", true)
-        .in("status", ["ready", "editing"])
-    : { data: [], error: null }));
-  const actionableAlbumIds = new Set(
-    (activeDraftsResult.data ?? []).map((draft) => draft.album_id),
-  );
-  const readyAlbum = albums.find(
-    (album) => periodMatchesMonth(album.period_from, album.period_to, currentMonth) && (album.status === "ready" || actionableAlbumIds.has(album.id)),
-  );
-  const readyAlbumHasDraft = readyAlbum ? actionableAlbumIds.has(readyAlbum.id) : false;
-  const passiveCandidate = await traceAuthStage("home.passive-current", async () => (!readyAlbum && selectedPet && selectedPetIsOwner
-    ? await preparePassiveCandidate({ supabase, userId: user.id, petId: selectedPet.id, petName: selectedPet.name, monthKey: currentMonth.key })
-    : null));
-  const previousPassiveCandidate = await traceAuthStage("home.passive-previous", async () => (selectedPet && selectedPetIsOwner
-    ? await preparePassiveCandidate({ supabase, userId: user.id, petId: selectedPet.id, petName: selectedPet.name, monthKey: previousMonth.key })
-    : null));
+    : [{ count: 0, error: null }, { count: 0, error: null }]);
+  const albumsPromise = traceAuthStage("home.albums", async () => {
+    const albumsResult = selectedPetIds.length
+      ? await supabase.from("albums").select("id, pet_id, title, status, updated_at, period_from, period_to")
+          .in("pet_id", selectedPetIds).in("status", ["draft", "ready"])
+          .order("updated_at", { ascending: false }).limit(12)
+      : { data: [] as AlbumRow[], error: null };
+    const albums = (albumsResult.data ?? []) as AlbumRow[];
+    const albumIds = albums.map(album => album.id);
+    const activeDraftsResult = await traceAuthStage("home.active-versions", async () => albumIds.length
+      ? await supabase.from("album_draft_versions").select("album_id, status")
+          .in("album_id", albumIds).eq("is_active", true).in("status", ["ready", "editing"])
+      : { data: [], error: null });
+    const actionableAlbumIds = new Set((activeDraftsResult.data ?? []).map(draft => draft.album_id));
+    const readyAlbum = albums.find(album => periodMatchesMonth(album.period_from, album.period_to, currentMonth)
+      && (album.status === "ready" || actionableAlbumIds.has(album.id)));
+    return { albumsResult, activeDraftsResult, readyAlbum, readyAlbumHasDraft: readyAlbum ? actionableAlbumIds.has(readyAlbum.id) : false };
+  });
+  const passivePromise = traceAuthStage("home.passive-current", async () => {
+    const { readyAlbum } = await albumsPromise;
+    return !readyAlbum && selectedPet && selectedPetIsOwner
+      ? preparePassiveCandidate({ supabase, userId: user.id, petId: selectedPet.id, petName: selectedPet.name, monthKey: currentMonth.key }) : null;
+  });
+  const previousPassivePromise = traceAuthStage("home.passive-previous", async () => selectedPet && selectedPetIsOwner
+    ? preparePassiveCandidate({ supabase, userId: user.id, petId: selectedPet.id, petName: selectedPet.name, monthKey: previousMonth.key }) : null);
   const annualYear = annualCandidateYear(now);
-  const annualCandidate = await traceAuthStage("home.passive-annual", async () => (selectedPet && selectedPetIsOwner && annualYear
-    ? await preparePassiveAnnualCandidate({ supabase, userId: user.id, petId: selectedPet.id, petName: selectedPet.name, year: annualYear })
-    : null));
+  const annualPromise = traceAuthStage("home.passive-annual", async () => selectedPet && selectedPetIsOwner && annualYear
+    ? preparePassiveAnnualCandidate({ supabase, userId: user.id, petId: selectedPet.id, petName: selectedPet.name, year: annualYear }) : null);
+  const familyPromise = traceAuthStage("home.family", async () => selectedPetIds.length
+    ? await (supabase as unknown as SupabaseClient).rpc("get_family_new_photo_activity", { p_pet_ids: selectedPetIds })
+    : { data: [], error: null });
+
+  const [recentResult, todayResult, bestShotResult, anniversaryMemory, [takenCount, createdCount],
+    { albumsResult, activeDraftsResult, readyAlbum, readyAlbumHasDraft }, passiveCandidate,
+    previousPassiveCandidate, annualCandidate, familyActivityResult] = await Promise.all([
+    recentPromise, todayPromise, bestShotPromise, anniversaryPromise, monthCountsPromise,
+    albumsPromise, passivePromise, previousPassivePromise, annualPromise, familyPromise,
+  ]);
+  const recentPhotos = (recentResult.data ?? []) as UchinocoNowPhoto[];
+  const monthPhotoCount = (takenCount.count ?? 0) + (createdCount.count ?? 0);
 
   const anniversaryEvent = anniversaryMemory.events[0];
   const anniversaryPetCount = new Set(anniversaryMemory.events.map((event) => event.petId)).size;
@@ -217,11 +206,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const onThisDay = exactPast?.photos[0]
     ? { photo: exactPast.photos[0], yearsAgo: exactPast.yearsAgo }
     : null;
-  const familyActivityResult = await traceAuthStage("home.family", async () => (selectedPetIds.length
-    ? await (supabase as unknown as SupabaseClient).rpc("get_family_new_photo_activity", {
-        p_pet_ids: selectedPetIds,
-      })
-    : { data: [], error: null }));
   const familyActivityRows = (familyActivityResult.data ?? []) as Array<{
     pet_id: string;
     photo_count: number;
@@ -273,12 +257,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     ...recentPhotos,
     ...(hero?.photo && !recentPhotos.some((photo) => photo.id === hero.photo?.id) ? [hero.photo] : []),
   ];
-  const [avatarUrlsResult, photoUrlsResult] = await Promise.all([
+  const [avatarUrlsResult, photoUrlsResult] = await traceAuthStage("home.urls", () => Promise.all([
     avatarPaths.length
       ? supabase.storage.from("pet-avatars").createSignedUrls(avatarPaths, 3600)
       : Promise.resolve({ data: [], error: null }),
     createListImageUrls(supabase, displayPhotos),
-  ]);
+  ]));
   const avatarUrlByPath = toSignedUrlMap(avatarUrlsResult.data ?? []);
   const photoUrlByPath = photoUrlsResult.signedUrlByPath;
   const petNameById = new Map(pets.map((pet) => [pet.id, pet.name]));

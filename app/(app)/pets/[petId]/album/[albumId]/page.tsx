@@ -43,15 +43,13 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
 
   // RLS exposes the album to its owner and accepted members of an album pet.
   const context = createAlbumRequestContext(supabase, user.id);
-  const album = await traceAuthStage("page.album.owner", () => context.album(albumId));
-
-  if (!album || album.pet_id !== petId) notFound();
-
+  const [album, { data: pet }] = await Promise.all([
+    traceAuthStage("page.album.owner", () => context.album(albumId)),
+    // Pet RLS independently confirms accepted membership, including shared route pets.
+    traceAuthStage("album.pet", async () => await supabase.from("pets").select("id, name, owner_user_id").eq("id", petId).maybeSingle()),
+  ]);
+  if (!album || album.pet_id !== petId || !pet) notFound();
   const isOwner = album.owner_user_id === user.id;
-  // Pet RLS independently confirms that the route pet is shared with the caller.
-  const { data: pet } = await supabase.from("pets").select("id, name, owner_user_id").eq("id", petId).maybeSingle();
-
-  if (!pet) notFound();
 
   // Draft Preview does not use the legacy list, order, entitlements or suggestion data.
   if (showPreview) {
@@ -66,21 +64,26 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
     }
   }
 
-  const ownerEntitlements = await loadUserEntitlements(supabase, album.owner_user_id);
-  const albumPetIds = [...new Set([petId, ...(await context.petIds(albumId) ?? [])])];
-  const { data: albumPets } = await supabase.from("pets").select("id, name").in("id", albumPetIds);
-  const albumPetLabel = (albumPets ?? []).map((item) => item.name).join("・") || pet.name;
-  const newPhotoSuggestion = isOwner ? await findNewPhotoSuggestion(supabase, { albumId, routePetId: petId, userId: user.id }, context) : null;
+  // Complete needs list metadata, entitlements and suggestions, but not a rendered draft
+  // or an order banner. Keep legacy detail/Preview fallback inputs unchanged.
+  const [ownerEntitlements, albumPetLabel, newPhotoSuggestion, orderResult, photoResult, completeVersion] = await Promise.all([
+    traceAuthStage("album.entitlements", () => loadUserEntitlements(supabase, album.owner_user_id)),
+    traceAuthStage("album.pet-labels", async () => {
+      const albumPetIds = [...new Set([petId, ...(await context.petIds(albumId) ?? [])])];
+      const { data: albumPets } = await supabase.from("pets").select("id, name").in("id", albumPetIds);
+      return (albumPets ?? []).map(item => item.name).join("・") || pet.name;
+    }),
+    traceAuthStage("album.suggestion", async () => isOwner ? findNewPhotoSuggestion(supabase, { albumId, routePetId: petId, userId: user.id }, context) : null),
+    traceAuthStage("album.order", async () => showComplete ? { data: null } : await supabase.from("orders").select("id, status").eq("album_id", albumId).in("status", ["pending", "paid", "failed"]).order("created_at", { ascending: false }).limit(1).maybeSingle()),
+    traceAuthStage("album.list", async () => await supabase.from("album_photos").select("album_id, photo_id, position, selected_by").eq("album_id", albumId).order("position", { ascending: true })),
+    showComplete ? traceAuthStage("album.complete-version", () => context.version(albumId)) : Promise.resolve(null),
+  ]);
+  const latestOrder = orderResult.data;
+  const { data: rawAlbumPhotos, error: apError } = photoResult;
   const visibleSuggestion = newPhotoSuggestion && !newPhotoSuggestion.dismissed ? newPhotoSuggestion : null;
   if (visibleSuggestion) {
     await recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: visibleSuggestion.draftVersionId, eventType: "new_photos_suggested", eventKey: visibleSuggestion.fingerprint, eventData: { photo_count: visibleSuggestion.candidates.length } });
   }
-
-  // Latest actionable order for this album (for status banner)
-  const { data: latestOrder } = await supabase.from("orders").select("id, status").eq("album_id", albumId).in("status", ["pending", "paid", "failed"]).order("created_at", { ascending: false }).limit(1).maybeSingle();
-
-  // Album photos ordered by position
-  const { data: rawAlbumPhotos, error: apError } = await supabase.from("album_photos").select("album_id, photo_id, position, selected_by").eq("album_id", albumId).order("position", { ascending: true });
 
   if (apError) {
     return (
@@ -185,8 +188,7 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
   }
 
   if (showComplete) {
-    const savedDraft = await readDraft(supabase, albumId, undefined, context);
-    if (savedDraft) await recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: savedDraft.versionId, eventType: "album_viewed", eventKey: `complete:${savedDraft.versionId}` });
+    if (completeVersion) await recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: completeVersion.id, eventType: "album_viewed", eventKey: `complete:${completeVersion.id}` });
     const base = `/pets/${petId}/album/${albumId}`;
     const coverSrc = (album.cover_photo_id ? orderedPhotos.find((p) => p.photo_id === album.cover_photo_id)?.src : null) ?? orderedPhotos.find((p) => p.src)?.src ?? null;
 
@@ -204,7 +206,7 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
         coverDateLabel={periodLabels.coverDateLabel}
         backHref={`/pets/${petId}/album`}
         editHref={`${base}/edit`}
-        printHref={savedDraft ? `${base}/print` : null}
+        printHref={completeVersion ? `${base}/print` : null}
         regenerateAction={regenerateAlbumDraft.bind(null, petId, albumId)}
         canRegenerate={isOwner && ownerEntitlements.canRegenerateAlbum}
         showRegenerateUpsell={isOwner && !ownerEntitlements.canRegenerateAlbum}

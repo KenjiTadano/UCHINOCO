@@ -33,18 +33,12 @@ async function loadAlbumEditPage({ params }: Props) {
   if (userError || !user) redirect("/login");
 
   const context = createAlbumRequestContext(supabase, user.id);
-  const album = await traceAlbumLoad("edit.album", () => traceAuthStage("page.edit.owner", () => context.album(albumId)));
+  const [album, { data: pet }] = await Promise.all([
+    traceAlbumLoad("edit.album", () => traceAuthStage("page.edit.owner", () => context.album(albumId))),
+    traceAlbumLoad("edit.pet", () => supabase.from("pets").select("id, name, owner_user_id").eq("id", petId).eq("owner_user_id", user.id).maybeSingle()),
+  ]);
   if (!album || album.owner_user_id !== user.id || album.pet_id !== petId) notFound();
-  if (album.status === "ordered") {
-    redirect(`/pets/${petId}/album/${albumId}`);
-  }
-
-  const { data: pet } = await traceAlbumLoad("edit.pet", () => supabase
-    .from("pets")
-    .select("id, name, owner_user_id")
-    .eq("id", petId)
-    .eq("owner_user_id", user.id)
-    .maybeSingle());
+  if (album.status === "ordered") redirect(`/pets/${petId}/album/${albumId}`);
   if (!pet) notFound();
 
   const draft = await traceAlbumLoad("edit.read-draft", () => readDraft(supabase, albumId, undefined, context));

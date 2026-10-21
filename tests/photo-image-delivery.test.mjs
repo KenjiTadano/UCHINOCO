@@ -100,7 +100,7 @@ test("new uploads and backfill create storage PREVIEW assets while AI/Print keep
     readFile("./app/(app)/pets/[petId]/thumbnail-backfill-actions.ts", "utf8"),
     readFile("./app/(app)/dev/smart-crop/actions.ts", "utf8"),
     readFile("./app/(app)/dev/photo-intelligence/actions.ts", "utf8"),
-    readFile("./app/(app)/pets/[petId]/album/[albumId]/print/actions.ts", "utf8"),
+    readFile("./lib/album-print/inspection.ts", "utf8"),
   ]);
   assert.match(uploadForm, /createPhotoPreview\(file\)/);
   assert.match(uploadForm, /upload\.previewPath/);

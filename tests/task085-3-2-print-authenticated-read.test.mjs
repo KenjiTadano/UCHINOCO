@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { requestModules } from './helpers/album-request-modules.mjs';
 const file='app/(app)/pets/[petId]/album/[albumId]/print/actions.ts';
-const source=fs.readFileSync(file,'utf8');
+const source=fs.readFileSync(file,'utf8')+'\n'+fs.readFileSync('lib/album-print/inspection.ts','utf8');
 const pet='10000000-0000-4000-8000-000000000001', album='20000000-0000-4000-8000-000000000001';
 function fixture({noUser=false,noAlbum=false,denied=false}={}) {
  const downloads=[],filters=[],qualityInputs=[];
@@ -14,6 +14,7 @@ function fixture({noUser=false,noAlbum=false,denied=false}={}) {
  const view={versionId:'version',revision:6,spreads:[{source:{},sourceFrames:frames,texts:[],decorations:[],elements:[],backgrounds:[]}],compositionPlan:null};
  const snapshot={spreads:[{frames,texts:[],elements:[]}],cover:null,fingerprint:'synthetic-fingerprint',compositionPlan:null};
  const overrides=Object.fromEntries([...source.matchAll(/from "([^"]+)"/g)].map(m=>[m[1],{}]));
+ delete overrides["@/lib/album-print/inspection"];
  Object.assign(overrides,{
   "@/lib/auth-performance":{traceAuthStage:async(_phase,work)=>work()},
   '@/lib/supabase/server':{createClient:async()=>db},
@@ -38,5 +39,5 @@ test('Storage RLS rejection stays unavailable in quality facts, without admin re
  const f=fixture({denied:true});await f.action(pet,album);assert.equal(f.qualityInputs[0]['primary-photo'],null);assert.equal(f.qualityInputs[0]['secondary-photo'],null);assert.equal(f.adminCalls,0);
 });
 test('all image inspection callers reuse owned client; privileged PDF writes are unchanged',()=>{
- assert.equal((source.match(/imageFacts\(built.input!?, owned.supabase\)/g)||[]).length,3);assert.match(source,/const admin = createAdminClient\(\);\s*const persisted = await persistPrintPdf/);assert.match(source,/await admin.storage.from\("print-files"\).upload/);
+ assert.equal((source.match(/imageFacts\(built.input!?, owned.supabase\)/g)||[]).length,2);assert.match(source,/imageFacts\(input, supabase\)/);assert.match(source,/const admin = createAdminClient\(\);\s*const persisted = await persistPrintPdf/);assert.match(source,/await admin.storage.from\("print-files"\).upload/);
 });

@@ -92,7 +92,7 @@ test('actual draft Preview page executes no legacy, entitlement, order, candidat
 });
 test('actual missing-draft Preview keeps legacy path; Complete still returns completion model',async()=>{
   const f=await previewPageFixture(null);const result=await f.run('preview');assert.equal(result.type,'preview');assert.deepEqual(result.props.spreads,['legacy']);assert.equal(f.readCount,1);assert.equal(f.legacyBuilds,1);assert.ok(f.calls.some(x=>x.table==='album_photos'));
-  const complete=await previewPageFixture({versionId:'version',previewUrls:{},spreads:[]});assert.equal((await complete.run('complete')).type,'complete');assert.equal(complete.readCount,1);assert.deepEqual(complete.events,['album_viewed']);
+  const complete=await previewPageFixture({versionId:'version',previewUrls:{},spreads:[]});assert.equal((await complete.run('complete')).type,'complete');assert.equal(complete.readCount,0);assert.equal(complete.calls.filter(x=>x.table==='album_draft_versions').length,1);assert.equal(complete.calls.filter(x=>x.table==='orders').length,0);assert.deepEqual(complete.events,['album_viewed']);
 });
 test('actual draft/candidate/suggestion loaders share a 17-SELECT editor read budget',async()=>{
   const f=fixture();
