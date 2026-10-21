@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { PHOTO_INTELLIGENCE_SEMANTIC, SUBJECT_GEOMETRY, SUBJECT_GEOMETRY_VERSION } from "./photo-analysis/constants.ts";
 import { PHOTO_INTELLIGENCE_VERSION } from "./photo-intelligence/config.ts";
 import { tokyoDateParts, tokyoRange, type UchinocoNowPhoto } from "./uchinoco-now.ts";
-import { loadPhotosInRange } from "./uchinoco-now-data.ts";
+import { loadPhotosInRange, loadPhotosInDayRanges } from "./uchinoco-now-data.ts";
 
 export type AnniversaryPet = { id: string; name: string; birthday: string | null; adoption_date: string | null };
 export type AnniversaryEvent = { petId: string; petName: string; kind: "birthday" | "adoption"; years: number | null; sourceDate: string };
@@ -58,21 +58,25 @@ async function storedSignals(supabase: SupabaseClient, photoIds: string[]) {
   return result;
 }
 
-export async function loadAnniversaryMemory(input: { supabase: SupabaseClient; pets: AnniversaryPet[]; selectedPetIds: string[]; now?: Date; includeHistory?: boolean; todayPhotos?: Promise<UchinocoNowPhoto[]> }) {
+export async function loadAnniversaryMemory(input: { supabase: SupabaseClient; pets: AnniversaryPet[]; selectedPetIds: string[]; now?: Date; includeHistory?: boolean; todayPhotos?: Promise<UchinocoNowPhoto[]>; measure?: <T>(phase: string, work: () => PromiseLike<T>) => Promise<T> }) {
   const now = input.now ?? new Date();
   const today = tokyoDateParts(now);
   const events = anniversaryEventsToday(input.pets.filter((pet) => input.selectedPetIds.includes(pet.id)), now);
   const todayPhotosPromise = input.todayPhotos ?? loadPhotosInRange(input.supabase, input.selectedPetIds, tokyoRange(today.year, today.month, today.day), 12).then(result => result.photos);
-  const pastPromise = input.includeHistory === false ? Promise.resolve([]) : Promise.all(Array.from({ length: 10 }, async (_, index) => {
-    const yearsAgo = index + 1;
-    const range = tokyoRange(today.year - yearsAgo, today.month, today.day);
-    const photos = (await loadPhotosInRange(input.supabase, input.selectedPetIds, range, 6)).photos;
-    return { yearsAgo, photos };
-  }));
+  const measure = input.measure ?? (async <T>(_: string, work: () => PromiseLike<T>) => await work());
+  const pastPromise = measure("home.historical-years", async () => {
+    if (input.includeHistory === false) return [];
+    const years = Array.from({ length: 10 }, (_, index) => {
+      const yearsAgo = index + 1;
+      return { yearsAgo, range: tokyoRange(today.year - yearsAgo, today.month, today.day) };
+    });
+    const loaded = await loadPhotosInDayRanges(input.supabase, input.selectedPetIds, years.map(year => year.range), 6);
+    return years.map((year, i) => ({ yearsAgo: year.yearsAgo, photos: loaded[i].photos }));
+  });
   const [todayPhotos, past] = await Promise.all([todayPhotosPromise, pastPromise]);
   const pastByYear = past.filter((item) => item.photos.length > 0);
   const all = [...todayPhotos, ...pastByYear.flatMap((item) => item.photos)];
-  const signals = await storedSignals(input.supabase, all.map((photo) => photo.id));
+  const signals = await measure("home.anniversary-signals", () => storedSignals(input.supabase, all.map((photo) => photo.id)));
   const comparisons: GrowthComparison[] = [];
   for (const past of pastByYear) {
     for (const before of past.photos) {

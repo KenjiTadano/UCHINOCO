@@ -132,7 +132,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         })
     : { data: [] as UchinocoNowPhoto[], error: null });
   const anniversaryPromise = traceAuthStage("home.anniversary", () => loadAnniversaryMemory({
-    supabase, pets, selectedPetIds, now, todayPhotos: todayPromise.then(result => result.photos),
+    supabase, pets, selectedPetIds, now, measure: traceAuthStage, todayPhotos: todayPromise.then(result => result.photos),
   }));
   const bestShotPromise = traceAuthStage("home.best-shot", async () => selectStoredTodayBestShot(supabase, (await todayPromise).photos));
   const monthCountsPromise = traceAuthStage("home.month-counts", async () => selectedPetIds.length

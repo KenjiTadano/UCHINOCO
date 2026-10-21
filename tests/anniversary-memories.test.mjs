@@ -42,7 +42,7 @@ test("implementation uses bounded exact-day queries, pet scope, stored analysis,
   const source = await readFile(new URL("../lib/anniversary-memories.ts", import.meta.url), "utf8");
   assert.match(source, /selectedPetIds/);
   assert.match(source, /tokyoRange\(today\.year - yearsAgo, today\.month, today\.day\)/);
-  assert.match(source, /loadPhotosInRange\([^;]+, 6\)/s);
+  assert.match(source, /loadPhotosInDayRanges\([^;]+, 6\)/s);
   assert.match(source, /photo_analysis_results/);
   assert.match(source, /PHOTO_INTELLIGENCE_SEMANTIC/);
   assert.match(source, /SUBJECT_GEOMETRY/);

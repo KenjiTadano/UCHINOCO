@@ -90,10 +90,10 @@ export function mapFrame(row: Record<string, unknown>): DraftFrameRow {
   };
 }
 
-export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], refresh = false, userId?: string, thumbnailUrls?: Map<string, string>) {
+export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], refresh = false, userId?: string, thumbnailUrls?: Map<string, string>, context?: AlbumRequestContext) {
   const ids = [...new Set(photoIds)];
   if (ids.length === 0) return new Map<string, string>();
-  const { data: photos } = await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", ids);
+  const { data: photos } = context ? { data: await context.photoRecords(ids) } : await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", ids);
   const deliveryUserId = userId ?? (thumbnailUrls ? (await supabase.auth.getUser()).data.user?.id : undefined);
   const urls = await createPhotoPreviewUrls(supabase, photos ?? [], true, refresh, deliveryUserId);
   if (thumbnailUrls && deliveryUserId) {
@@ -155,6 +155,7 @@ export async function readDraft(supabase: Supabase, albumId: string, options?: {
       options?.refreshUrls === true,
       context?.userId,
       thumbnailUrls,
+      context,
     ),
   );
   const metadata = (version.generation_metadata ?? {}) as { signature?: string; composition?: unknown };

@@ -5,7 +5,7 @@ import { loadAnniversaryMemory } from '../lib/anniversary-memories.ts';
 
 function memoryDb() {
  const calls=[];
- const db={from(table){const filters=[];let field;const q={select(s){field=s;return q},in(){return q},gte(k,v){filters.push([k,v]);return q},lt(){return q},is(){return q},order(){return q},limit(){return q},then(a,b){calls.push({table,field,filters});return Promise.resolve({data:[],error:null}).then(a,b)}};return q}};
+ const db={from(table){const filters=[];let field;const q={select(s){field=s;return q},in(){return q},gte(k,v){filters.push([k,v]);return q},lt(){return q},is(){return q},or(){return q},order(){return q},limit(){return q},then(a,b){calls.push({table,field,filters});return Promise.resolve({data:[],error:null}).then(a,b)}};return q}};
  return {db,calls};
 }
 test('anniversary reuses exact request today dataset and preserves bounded historical reads',async()=>{
@@ -13,14 +13,15 @@ test('anniversary reuses exact request today dataset and preserves bounded histo
  const today=[{id:'synthetic-photo',pet_id:'synthetic-pet',created_at:now.toISOString()}];
  const r=await loadAnniversaryMemory({supabase:f.db,pets:[],selectedPetIds:['synthetic-pet'],now,todayPhotos:Promise.resolve(today)});
  assert.equal(r.todayPhotos,today);
- assert.equal(f.calls.filter(c=>c.table==='photos').length,20);
+ assert.equal(f.calls.filter(c=>c.table==='photos').length,2);
  assert.ok(f.calls.filter(c=>c.table==='photos').every(c=>!c.filters.some(([k,v])=>k==='taken_at'&&v.startsWith('2026'))));
  const g=memoryDb();await loadAnniversaryMemory({supabase:g.db,pets:[],selectedPetIds:['synthetic-pet'],now});
- assert.equal(g.calls.filter(c=>c.table==='photos').length,22,'standalone callers retain their today read');
+ assert.equal(g.calls.filter(c=>c.table==='photos').length,4,'standalone callers retain their today read');
 });
 
-function printFixture({missingOwner=false,missingPet=false,ordered=false}={}) {
+function printFixture({missingOwner=false,missingPet=false,ordered=false,deferDraft=false}={}) {
  const calls=[],downloads=[],snapshots=[];let activeReads=0,draftReads=0;
+ let releaseDraft; const draftGate=new Promise(resolve=>releaseDraft=resolve);
  const petId='10000000-0000-4000-8000-000000000001',albumId='20000000-0000-4000-8000-000000000001';
  const album={id:albumId,pet_id:petId,owner_user_id:'owner',status:ordered?'ordered':'draft',period_from:null,period_to:null};
  const view={albumId,versionId:'same-active-version',revision:9,previewUrls:{a:'signed-a',b:'signed-b'},compositionPlan:null,spreads:[{source:{},sourceFrames:[{aiPhotoId:'a',userPhotoId:'b'}],texts:[],decorations:[],elements:[],backgrounds:[]}]};
@@ -29,8 +30,8 @@ function printFixture({missingOwner=false,missingPet=false,ordered=false}={}) {
   '@/lib/auth-performance':{traceAuthStage:async(_p,f)=>f()},
   '@/lib/supabase/server':{createClient:async()=>db},
   '@/app/(app)/album-draft-service':{loadActiveDraft:async()=>{activeReads++;throw Error('must reuse loaded draft')}},
-  '@/lib/album-persistence/request-context':{createAlbumRequestContext:()=>({userId:'owner'})},
-  '@/lib/album-persistence/read-draft':{readDraft:async()=>{draftReads++;return view},signedPreviewUrls:async()=>{throw Error('cover URLs already available')}},
+  '@/lib/album-persistence/request-context':{createAlbumRequestContext:()=>({userId:'owner',version:async()=>({id:'same-active-version'}),photoRecords:async()=>[{id:'a',storage_path:'original-a'},{id:'b',storage_path:'original-b'}]})},
+  '@/lib/album-persistence/read-draft':{readDraft:async()=>{draftReads++;if(deferDraft)await draftGate;return view},signedPreviewUrls:async()=>{throw Error('cover URLs already available')}},
   '@/lib/album-persistence/cover':{mapDraftCoverRow:r=>({aiPhotoId:r.ai_photo_id,userPhotoId:r.user_photo_id}),toCoverEditor:(r,urls)=>({source:r,previewUrl:urls[r.userPhotoId||r.aiPhotoId]})},
   '@/lib/album-print/snapshot':{buildAlbumPrintSnapshot:input=>{snapshots.push(input);return {fingerprint:'same',compositionPlan:null,spreads:[{texts:[],elements:[]}]}},draftPrintIsStale:()=>false},
   '@/lib/album-print/fonts':{loadPrintFont:async()=>({bytes:new Uint8Array([1])})},
@@ -38,7 +39,7 @@ function printFixture({missingOwner=false,missingPet=false,ordered=false}={}) {
   '@/lib/album-print/crop':{orientedPixelSize:(width,height)=>({width,height})},
   '@/lib/album-print/quality':{assessPrintQuality:(_snapshot,facts)=>{assert.equal(facts.b.width,1200);return [{code:'TEST_BLOCKER',severity:'blocking'}]}},
  });
- return {run:()=>modules('lib/album-print/inspection.ts').loadPrintPreviewData(petId,albumId),calls,downloads,snapshots,get activeReads(){return activeReads},get draftReads(){return draftReads},view};
+ return {releaseDraft,run:()=>modules('lib/album-print/inspection.ts').loadPrintPreviewData(petId,albumId),calls,downloads,snapshots,get activeReads(){return activeReads},get draftReads(){return draftReads},view};
 }
 test('Print GET shares exact version/revision/cover between UI and full original quality inspection',async()=>{
  const f=printFixture(),r=await f.run();assert.equal(r.view,f.view);assert.equal(f.activeReads,0);assert.equal(f.draftReads,1);
@@ -56,7 +57,7 @@ function homeFixture({owner=true}={}) {
  const stages=[],calls=[],heroes=[];let release;
  const todayGate=new Promise(resolve=>release=resolve);
  const photo={id:'synthetic-photo',pet_id:'synthetic-pet',created_at:'2026-10-21T03:00:00Z',storage_path:'synthetic.jpg'};
- const db={auth:{getUser:async()=>({data:{user:{id:'owner'}}})},rpc:async name=>{calls.push(name);return {data:name==='get_pet_photos_page'?[photo]:[],error:null}},from(table){const q={select(){return q},in(){return q},eq(){return q},gte(){return q},lt(){return q},is(){return q},order(){return q},limit(){return q},then(a,b){calls.push(table);return Promise.resolve({data:table==='pets'?[{id:'synthetic-pet',owner_user_id:owner?'owner':'family-owner',name:'Synthetic',birthday:null,adoption_date:null}]:[],count:0,error:null}).then(a,b)}};return q},storage:{from:()=>({createSignedUrls:async()=>({data:[]})})}};
+ const db={auth:{getUser:async()=>({data:{user:{id:'owner'}}})},rpc:async name=>{calls.push(name);return {data:name==='get_pet_photos_page'?[photo]:[],error:null}},from(table){const q={select(){return q},in(){return q},eq(){return q},gte(){return q},lt(){return q},is(){return q},or(){return q},order(){return q},limit(){return q},then(a,b){calls.push(table);return Promise.resolve({data:table==='pets'?[{id:'synthetic-pet',owner_user_id:owner?'owner':'family-owner',name:'Synthetic',birthday:null,adoption_date:null}]:[],count:0,error:null}).then(a,b)}};return q},storage:{from:()=>({createSignedUrls:async()=>({data:[]})})}};
  const load=requestModules(new Proxy({
   'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})},
   '@/lib/auth-performance':{traceAuthStage:async(stage,work)=>{stages.push(stage);return work()}},
@@ -81,3 +82,10 @@ test('Home starts independent reads before today resolves; shares today and pres
  assert.equal(f.calls.filter(c=>c==='today').length,1);assert.equal(f.heroes[0].todayBestShot.id,'synthetic-photo');assert.equal(f.heroes[0].fallbackPhoto.id,'synthetic-photo');
  const family=homeFixture({owner:false});const result=family.run();family.release();await result;assert.equal(family.calls.includes('passive'),false,'family access does not become owner-only candidate access');
 });
+
+ test('Print cover read overlaps URL/draft work but remains pinned to its active version',async()=>{
+  const f=printFixture({deferDraft:true}),pending=f.run();
+  for(let i=0;i<40;i++)await Promise.resolve();
+  assert.equal(f.calls.filter(t=>t==='album_draft_covers').length,1);
+  f.releaseDraft();const r=await pending;assert.equal(r.view.versionId,'same-active-version');assert.equal(f.calls.filter(t=>t==='photos').length,0,'reuse loaded photo metadata instead of a path SELECT');
+ });

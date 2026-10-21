@@ -111,3 +111,11 @@ test('actual draft/candidate/suggestion loaders share a 17-SELECT editor read bu
   assert.equal(f.calls.length,17,'plus the unchanged analytics insert = 18 DB calls');
   for(const table of ['albums','album_pets','album_draft_versions'])assert.equal(f.calls.filter(x=>x.table===table).length,1,table);
 });
+
+ test('request photo metadata coalesces concurrent and overlapping ID sets, without reuse across requests',async()=>{
+  const f=fixture();
+  const [first,second]=await Promise.all([f.context.photoRecords(['a','b']),f.context.photoRecords(['b'])]);
+  assert.equal(first.length,2);assert.equal(second[0].id,'b');assert.equal(f.calls.filter(c=>c.table==='photos').length,1);
+  await f.context.photoRecords(['a','outside']);assert.equal(f.calls.filter(c=>c.table==='photos').length,2);
+  await f.createAlbumRequestContext(f.db,'owner').photoRecords(['a']);assert.equal(f.calls.filter(c=>c.table==='photos').length,3);
+ });

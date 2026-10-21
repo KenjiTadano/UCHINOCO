@@ -3,7 +3,7 @@ import { traceAuthStage } from "@/lib/auth-performance";
 import { loadActiveDraft } from "@/app/(app)/album-draft-service";
 import { mapDraftCoverRow, toCoverEditor } from "@/lib/album-persistence/cover";
 import { readDraft, signedPreviewUrls } from "@/lib/album-persistence/read-draft";
-import { createAlbumRequestContext } from "@/lib/album-persistence/request-context";
+import { createAlbumRequestContext, type AlbumRequestContext } from "@/lib/album-persistence/request-context";
 import type { PersistedDraftView } from "@/lib/album-persistence/view";
 import { createClient } from "@/lib/supabase/server";
 import { ORDERED_PRINT_MESSAGE } from "@/lib/album-print/config";
@@ -80,14 +80,14 @@ async function inspectPrintInput(supabase: Awaited<ReturnType<typeof createClien
   };
 }
 
-export async function loadPrintInput(supabase: Awaited<ReturnType<typeof createClient>>, album: { id: string; status: string; period_to: string | null; period_from: string | null }, hasPaidOrder: boolean, shared?: { view: PersistedDraftView; coverRow: Record<string, unknown> | null }): Promise<{ ok: boolean; message: string | null; input: PrintSnapshotInput | null }> {
+export async function loadPrintInput(supabase: Awaited<ReturnType<typeof createClient>>, album: { id: string; status: string; period_to: string | null; period_from: string | null }, hasPaidOrder: boolean, shared?: { view: PersistedDraftView; coverRow: Record<string, unknown> | null; context?: AlbumRequestContext }): Promise<{ ok: boolean; message: string | null; input: PrintSnapshotInput | null }> {
   const loaded = shared ? { view: shared.view, message: null } : await traceAuthStage("print.read-draft", () => loadActiveDraft(album.id));
   if (!loaded.view) return { ok: false, message: loaded.message ?? "保存された初稿がありません。", input: null };
   const { data: coverRow } = shared ? { data: shared.coverRow } : await traceAuthStage("print.cover", async () => await supabase.from("album_draft_covers").select("*").eq("draft_version_id", loaded.view!.versionId).maybeSingle());
   const photoIds = [...loaded.view.spreads.flatMap((spread) => spread.sourceFrames.map((frame) => frame.aiPhotoId)), ...loaded.view.spreads.flatMap((spread) => spread.sourceFrames.map((frame) => frame.userPhotoId).filter((id): id is string => Boolean(id)))];
   if (coverRow?.ai_photo_id) photoIds.push(String(coverRow.ai_photo_id));
   if (coverRow?.user_photo_id) photoIds.push(String(coverRow.user_photo_id));
-  const { data: photos } = await traceAuthStage("print.photos", async () => await supabase
+  const { data: photos } = await traceAuthStage("print.photos", async () => shared?.context ? { data: await shared.context.photoRecords(photoIds) } : await supabase
     .from("photos")
     .select("id, storage_path")
     .in("id", [...new Set(photoIds)]));
@@ -162,14 +162,20 @@ export async function loadPrintPreviewData(petId: string, albumId: string) {
   if (!owned) return null;
   const { supabase, album, userId } = owned;
   const context = createAlbumRequestContext(supabase, userId);
-  const [petResult, view] = await Promise.all([
+  const [petResult, { view, coverRow }] = await Promise.all([
     traceAuthStage("print.pet", async () => await supabase.from("pets").select("id, name").eq("id", petId).eq("owner_user_id", userId).maybeSingle()),
-    traceAuthStage("print.read-draft", () => readDraft(supabase, albumId, undefined, context)),
+    (async () => {
+      const version = await context.version(albumId);
+      if (!version) return { view: null, coverRow: null };
+      // One pinned version for both reads. Cover does not depend on URL signing.
+      const [view, { data: coverRow }] = await Promise.all([
+        traceAuthStage("print.read-draft", () => readDraft(supabase, albumId, undefined, context)),
+        traceAuthStage("print.cover", async () => await supabase.from("album_draft_covers").select("*").eq("draft_version_id", version.id).maybeSingle()),
+      ]);
+      return { view, coverRow };
+    })(),
   ]);
   if (!petResult.data) return null;
-  const { data: coverRow } = view
-    ? await traceAuthStage("print.cover", async () => await supabase.from("album_draft_covers").select("*").eq("draft_version_id", view.versionId).maybeSingle())
-    : { data: null };
   const coverPromise = traceAuthStage("print.cover-urls", async () => {
     if (!coverRow || !view) return null;
     const row = mapDraftCoverRow(coverRow);
@@ -183,7 +189,7 @@ export async function loadPrintPreviewData(petId: string, albumId: string) {
       return { ok: false, message: ORDERED_PRINT_MESSAGE, issues: [], fingerprint: null, href: null, contentHash: null, ordered: true, stale: false, snapshotId: null };
     }
     if (!view) return { ok: false, message: "保存された初稿がありません。", issues: [], fingerprint: null, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
-    const built = await traceAuthStage("print.input", () => loadPrintInput(supabase, album, owned.hasPaidOrder, { view, coverRow }));
+    const built = await traceAuthStage("print.input", () => loadPrintInput(supabase, album, owned.hasPaidOrder, { view, coverRow, context }));
     if (!built.input) return { ok: false, message: built.message, issues: [], fingerprint: null, href: null, contentHash: null, ordered: false, stale: false, snapshotId: null };
     return inspectPrintInput(supabase, built.input);
   })();
