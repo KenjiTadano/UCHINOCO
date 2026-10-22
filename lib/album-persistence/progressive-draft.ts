@@ -11,14 +11,19 @@ import { baselineProgressiveDelivery } from "../auth-performance-core.ts";
 import { streamBaselineDraft } from "./progressive-baseline.ts";
 
 /** Caller authorizes album/route-pet first. Everything here belongs to this request/user. */
-export function streamDraft(supabase: SupabaseClient, context: AlbumRequestContext, albumId: string, version: RequestDraftVersion, cover: CoverEditorModel, seed?: PersistedDraftView, prepared?: Promise<PersistedDraftView | null>): DraftStream {
-  if (baselineProgressiveDelivery()) return streamBaselineDraft(supabase, context, albumId, version, cover, seed);
-  const pin: DraftPin = Object.freeze({ versionId: version.id, revision: version.revision, coverRevision: cover.revision, coverClientSeq: cover.clientSeq });
+export function streamDraft(supabase: SupabaseClient, context: AlbumRequestContext, albumId: string, version: RequestDraftVersion, cover: CoverEditorModel | Promise<CoverEditorModel | null>, seed?: PersistedDraftView, prepared?: Promise<PersistedDraftView | null>, initialMetadataDelivered = false): DraftStream {
+  if (baselineProgressiveDelivery() && !("then" in cover)) return streamBaselineDraft(supabase, context, albumId, version, cover, seed);
+  const versionPin = Object.freeze({ versionId: version.id, revision: version.revision });
+  const pinned = Promise.resolve(cover).then(value => {
+    if (!value) throw Error("missing cover");
+    return Object.freeze({ ...versionPin, coverRevision: value.revision, coverClientSeq: value.clientSeq }) satisfies DraftPin;
+  });
+  void pinned.catch(() => {});
   const fail = (): DraftDelivery => ({ ok: false, message: "アルバムが更新されたか、読み込みに失敗しました。再読み込みしてください。" });
   const metadata = (async () => {
     observeIo(supabase, "progressive.metadata");
     const view = seed ?? (prepared ? await prepared : await readDraft(supabase, albumId, { resolveUrls: false }, context));
-    if (!view || view.versionId !== pin.versionId || view.revision !== pin.revision) throw Error("draft changed");
+    if (!view || view.versionId !== versionPin.versionId || view.revision !== versionPin.revision) throw Error("draft changed");
     const seen = new Set(Object.keys(view.thumbnailUrls ?? {}));
     const groups = [view.spreads.slice(0, 1), view.spreads.slice(1, 3), view.spreads.slice(3)].map(spreads => spreads.flatMap(spread => spread.sourceFrames.flatMap(frame => [frame.aiPhotoId, frame.userPhotoId].filter((id): id is string => Boolean(id)))).filter(id => { if (seen.has(id)) return false; seen.add(id); return true; }));
     // Populate all path promises in a single batch; subsequent signing never SELECTs paths again.
@@ -26,6 +31,7 @@ export function streamDraft(supabase: SupabaseClient, context: AlbumRequestConte
     return { view, groups };
   })();
   const validate = async () => {
+    const pin = await pinned;
     observeIo(supabase, "progressive.revision-check");
     // One fresh RLS-protected SELECT gives cover + active version from the same DB statement.
     const { data, error } = await traceAlbumLoad("progressive.revision", () => supabase.from("album_draft_covers")
@@ -48,7 +54,7 @@ export function streamDraft(supabase: SupabaseClient, context: AlbumRequestConte
       const additions = await sign(groups[0], "primary");
       if (!await validate()) return fail();
       observeIo(supabase, "progressive.phase");
-      return { ok: true, stage: "primary", pin, base: seed ? undefined : view, ...additions };
+      return { ok: true, stage: "primary", pin: await pinned, base: seed || initialMetadataDelivered ? undefined : view, ...additions };
     } catch { return fail(); }
   })();
   const tail = (async () => {
@@ -66,7 +72,7 @@ export function streamDraft(supabase: SupabaseClient, context: AlbumRequestConte
     const result = await tail;
     if (!result) return fail();
     observeIo(supabase, "progressive.phase");
-    return { ok: true, stage, pin, ...(stage === "nearby" ? result.nearby : result.remaining) };
+    return { ok: true, stage, pin: await pinned, ...(stage === "nearby" ? result.nearby : result.remaining) };
   };
   return { primary, nearby: finish("nearby"), complete: finish("complete") };
 }

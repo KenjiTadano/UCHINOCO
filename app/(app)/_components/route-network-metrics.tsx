@@ -21,7 +21,7 @@ export function RouteNetworkMetrics() {
       new Headers(init?.headers).forEach((v, k) => headers.set(k, v));
       let appRsc = false;
       try {
-        if (new URL(raw, location.href).origin === location.origin) {
+        if (new URL(raw, location.href).origin === location.origin && (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase() === "GET") {
           const transport = requestTransport(headers, new URL(raw, location.href).href);
           requests.push({ key: canonical(raw), at: performance.now(), kind: transport.kind });
           appRsc = transport.rsc;

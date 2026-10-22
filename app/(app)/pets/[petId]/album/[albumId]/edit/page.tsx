@@ -1,3 +1,4 @@
+import { baselineProgressiveDelivery } from "@/lib/auth-performance-core";
 import { streamDraft } from "@/lib/album-persistence/progressive-draft";
 import { traceAuthStage } from "@/lib/auth-performance";
 import { measureEditRequest, measuredEditFetch, traceAlbumLoad } from "@/lib/album-load-trace";
@@ -43,12 +44,13 @@ async function loadAlbumEditPage({ params }: Props) {
   if (!pet) notFound();
 
   const version = await context.version(albumId);
-  const [metadata, cover] = await Promise.all([
-    traceAlbumLoad("edit.read-draft", () => readDraft(supabase, albumId, version ? { resolveUrls: false } : undefined, context)),
-    version ? traceAlbumLoad("edit.cover", () => readDraftCover(supabase, version.id, {}, user.id, context)) : Promise.resolve(null),
-  ]);
+  const metadataDelivery = traceAlbumLoad("edit.read-draft", () => readDraft(supabase, albumId, version ? { resolveUrls: false } : undefined, context));
+  const coverDelivery = version ? traceAlbumLoad("edit.cover", () => readDraftCover(supabase, version.id, {}, user.id, context)) : Promise.resolve(null);
+  // Sign the first body batch while cover delivery is still pending. Validation waits for its pin.
+  const earlyStream = version && !baselineProgressiveDelivery() ? streamDraft(supabase, context, albumId, version, coverDelivery, undefined, metadataDelivery, true) : undefined;
+  const [metadata, cover] = await Promise.all([metadataDelivery, coverDelivery]);
   const draft = cover?.previewUrl || !version ? metadata : await readDraft(supabase, albumId, undefined, context);
-  const stream = draft && version && cover?.previewUrl ? streamDraft(supabase, context, albumId, version, cover, draft) : undefined;
+  const stream = draft && version && cover?.previewUrl ? earlyStream ?? streamDraft(supabase, context, albumId, version, cover, draft) : undefined;
   const { monthLabel, coverDateLabel } = formatAlbumPeriodLabels(album.period_from, album.period_to);
   const lines = buildCoverTitleLines(pet.name, album.title ?? "", monthLabel);
   const fallbackCoverUrls = !cover?.previewUrl && album.cover_photo_id && !draft?.previewUrls[album.cover_photo_id] ? await traceAlbumLoad("edit.cover-fallback-urls", () => signedPreviewUrls(supabase, [album.cover_photo_id!], false, user.id)) : new Map<string, string>();

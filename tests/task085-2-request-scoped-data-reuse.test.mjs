@@ -70,6 +70,7 @@ async function previewPageFixture(draft) {
     '@/lib/supabase/server':{createClient:async()=>f.db},
     '@/lib/album-persistence/request-context':{createAlbumRequestContext:f.createAlbumRequestContext},
     '@/lib/album-persistence/read-draft':{readDraft:async()=>{readCount++;return draft},resolveDraftPreviewUrls:async(_db,v)=>v},
+    '@/lib/album-persistence/progressive-draft':{streamDraft:()=>undefined},
     '@/lib/album-persistence/read-cover':{readDraftCover:async()=>null},
     '@/lib/album-analytics-server':{recordAlbumAnalyticsEvent:async x=>events.push(x.eventType)},
     '@/lib/album-new-photo-suggestions':{findNewPhotoSuggestion:async()=>null},

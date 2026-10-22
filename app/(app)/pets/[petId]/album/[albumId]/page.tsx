@@ -65,10 +65,12 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
       // Body rows and cover signing are independent after authorization/version pinning.
       if (!baselineProgressiveDelivery()) prepared = readDraft(supabase, albumId, { resolveUrls: false }, context);
       void prepared?.catch(() => {});
-      const cover = await readDraftCover(supabase, version.id, {}, user.id, context);
+      const coverDelivery = readDraftCover(supabase, version.id, {}, user.id, context);
+      const earlyStream = prepared ? streamDraft(supabase, context, albumId, version, coverDelivery, undefined, prepared) : undefined;
+      const cover = await coverDelivery;
       if (cover?.previewUrl) {
         after(() => recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: version.id, eventType: "album_viewed", eventKey: `preview:${version.id}` }));
-        const stream = streamDraft(supabase, context, albumId, version, cover, undefined, prepared);
+        const stream = earlyStream ?? streamDraft(supabase, context, albumId, version, cover);
         const critical: PersistedDraftView = { albumId, versionId: version.id, status: version.status, revision: version.revision, signature: "", previewUrls: cover.previewUrls, thumbnailUrls: {}, compositionPlan: null, spreads: [] };
         const base = `/pets/${petId}/album/${albumId}`;
         return <AlbumPreviewScreen key={`${albumId}:${version.id}:${version.revision}:${cover.revision}:${cover.clientSeq}`} cover={cover} draft={critical} stream={stream} spreads={[]} backHref={`${base}?view=complete`} editHref={`${base}/edit`} orderHref={`${base}/product`} printHref={`${base}/print`} coverEditHref={`${base}/cover/edit`} orderAction={acceptAlbumForOrder.bind(null, petId, albumId)} />;
