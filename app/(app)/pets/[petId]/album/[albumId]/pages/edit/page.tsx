@@ -1,3 +1,4 @@
+import { markPlacementRoute } from "@/lib/placement-diagnostic";
 import { notFound, redirect } from "next/navigation";
 import { loadEditorCandidates } from "@/app/(app)/album-draft-service";
 import { EDITOR_MISSING_DRAFT_MESSAGE, editorIsReadonly } from "@/lib/album-persistence/editor";
@@ -14,6 +15,7 @@ type Props = {
 };
 
 export default async function PageEditPage({ params, searchParams }: Props) {
+  markPlacementRoute("page-editor");
   const { petId, albumId } = await params;
   const { spread: spreadParam } = await searchParams;
   const supabase = await createClient();

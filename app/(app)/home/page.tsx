@@ -1,3 +1,4 @@
+import { markPlacementRoute } from "@/lib/placement-diagnostic";
 import Image from "next/image";
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -81,6 +82,7 @@ function genderLabel(gender: string | null) {
 }
 
 export default async function HomePage({ searchParams }: HomePageProps) {
+  markPlacementRoute("home");
   const params = await searchParams;
   const supabase = await createClient();
   const {

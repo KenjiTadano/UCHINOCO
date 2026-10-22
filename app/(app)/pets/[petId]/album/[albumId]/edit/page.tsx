@@ -1,3 +1,4 @@
+import { markPlacementRoute } from "@/lib/placement-diagnostic";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { readDraft, signedPreviewUrls } from "@/lib/album-persistence/read-draft";
@@ -15,6 +16,7 @@ type Props = {
 };
 
 export default async function AlbumEditPage({ params }: Props) {
+  markPlacementRoute("edit");
   const { petId, albumId } = await params;
   const supabase = await createClient();
   const {

@@ -119,6 +119,7 @@ let harness;
 let serverHarness;
 const load = Module._load;
 Module._load = function(specifier, parent, ...rest) {
+  if (specifier.includes("placement-diagnostic")) return { markPlacementRoute() {} };
   if (parent?.filename.endsWith('/[albumId]/edit/page.tsx') && serverHarness) {
     if (specifier.includes('supabase/server')) return { createClient: async () => serverHarness.client };
     if (specifier.includes('album-persistence/read-draft')) return { readDraft: async () => { serverHarness.loads++; return serverHarness.draft; }, signedPreviewUrls: async () => new Map() };

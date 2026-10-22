@@ -1,3 +1,4 @@
+import { markPlacementRoute } from "@/lib/placement-diagnostic";
 import { mapDraftCoverRow, toCoverEditor } from "@/lib/album-persistence/cover";
 import Image from "next/image";
 import Link from "next/link";
@@ -31,6 +32,7 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
   const { view, preview } = await searchParams;
   const showComplete = view === "complete" || preview === "complete";
   const showPreview = view === "preview" || preview === "preview";
+  markPlacementRoute(showPreview ? "preview" : showComplete ? "complete" : "other");
 
   const supabase = await createClient();
   const {

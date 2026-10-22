@@ -1,3 +1,4 @@
+import { markPlacementRoute } from "@/lib/placement-diagnostic";
 import { notFound, redirect } from "next/navigation";
 import { mapDraftCoverRow, toCoverEditor } from "@/lib/album-persistence/cover";
 import { readDraft, signedPreviewUrls } from "@/lib/album-persistence/read-draft";
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export default async function AlbumPrintPreviewPage({ params }: Props) {
+  markPlacementRoute("print");
   const { petId, albumId } = await params;
   const supabase = await createClient();
   const {

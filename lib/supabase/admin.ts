@@ -1,4 +1,5 @@
 import "server-only";
+import { placementFetch } from "../placement-diagnostic";
 
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./database.types";
@@ -29,6 +30,7 @@ export function createAdminClient() {
   }
 
   return createClient<Database>(url, key, {
+    global: { fetch: placementFetch() },
     auth: {
       autoRefreshToken: false,
       persistSession: false,
