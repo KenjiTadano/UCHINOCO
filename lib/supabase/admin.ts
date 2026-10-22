@@ -1,5 +1,5 @@
 import "server-only";
-import { placementFetch } from "../placement-diagnostic";
+import { placementFetch, placementClient } from "../placement-diagnostic";
 
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./database.types";
@@ -29,11 +29,11 @@ export function createAdminClient() {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
   }
 
-  return createClient<Database>(url, key, {
+  return placementClient(createClient<Database>(url, key, {
     global: { fetch: placementFetch() },
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
-  });
+  }));
 }

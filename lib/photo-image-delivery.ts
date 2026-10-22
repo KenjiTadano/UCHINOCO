@@ -1,3 +1,4 @@
+import { recordPlacementCounter } from "./placement-diagnostic-core.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const PHOTO_IMAGE_DELIVERY = {
@@ -51,8 +52,12 @@ export async function createCachedSignedImageUrls(supabase: SupabaseClient, user
     if (cached && cached.expiresAt > now + 30_000) urls.set(path, cached.url);
     else missing.push(path);
   }
+  recordPlacementCounter(supabase, "urlHit", urls.size);
+  recordPlacementCounter(supabase, "urlMiss", missing.length);
   if (missing.length === 0) return { urls, error: null };
+  const signingStarted = performance.now();
   const result = await supabase.storage.from(bucket).createSignedUrls(missing, ttl);
+  recordPlacementCounter(supabase, "signingMs", Math.round(performance.now() - signingStarted));
   const expiresAt = now + Math.min(ttl * 1000, PHOTO_IMAGE_DELIVERY.signedUrlCacheMs);
   prune(signedUrlCache, now);
   for (const item of result.data ?? []) {
@@ -85,11 +90,13 @@ export async function createPhotoPreviewDelivery(supabase: SupabaseClient, photo
     const key = cacheKey(userId, PHOTO_IMAGE_BUCKET, path);
     const signed = refresh ? null : signedUrlCache.get(key);
     if (signed && signed.expiresAt > now + 30_000) {
+      recordPlacementCounter(supabase, "urlHit");
       result.set(photoId, signed.url);
       sourceByPhotoId.set(photoId, "preview");
       continue;
     }
     const presence = refresh ? null : previewPresenceCache.get(key);
+    recordPlacementCounter(supabase, presence && presence.expiresAt > now ? "presenceHit" : "presenceMiss");
     if (presence && presence.expiresAt > now) {
       if (presence.exists) presenceChecks.push({ photoId, path });
       else if (fallbackToOriginal) {
@@ -113,6 +120,7 @@ export async function createPhotoPreviewDelivery(supabase: SupabaseClient, photo
   const checked = await Promise.all(
     presenceChecks.map(async ({ photoId, path }) => {
       const key = cacheKey(userId, PHOTO_IMAGE_BUCKET, path);
+      recordPlacementCounter(supabase, "presenceChecks");
       const info = await supabase.storage.from(PHOTO_IMAGE_BUCKET).info(path);
       const exists = !info.error && Boolean(info.data) && Number(info.data.size) > 0 && Number(info.data.size) <= PHOTO_IMAGE_DELIVERY.preview.maxSizeBytes && info.data.contentType === "image/webp";
       previewPresenceCache.set(key, { exists, expiresAt: now + PRESENCE_CACHE_MS });

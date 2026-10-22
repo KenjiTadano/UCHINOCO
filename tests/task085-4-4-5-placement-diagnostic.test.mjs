@@ -31,3 +31,10 @@ test("placement counters are isolated and region is bounded", () => {
   const a = newPlacementTrace("sin1"); const b = newPlacementTrace("iad1"); a.db.count++;
   assert.equal(b.db.count, 0); assert.equal(newPlacementTrace("sin1 PRIVATE").runtimeRegion, "unknown");
 });
+
+test("physical response identifiers are not serialized and missing headers remain unattributed", async () => {
+ const trace = newPlacementTrace("sin1");
+ const wrapped = placementMeasuredFetch(trace, "https://synthetic.invalid", async () => new Response(null, { headers: { "sb-request-id": "private-response-sentinel" } }));
+ await wrapped("https://synthetic.invalid/rest/v1/photos"); await wrapped("https://synthetic.invalid/rest/v1/photos");
+ assert.equal(trace.db.count, 2); assert.equal(trace.cache.dbResponseIds, 1); assert.equal(JSON.stringify(trace).includes("private-response-sentinel"), false);
+});

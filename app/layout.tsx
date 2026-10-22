@@ -1,3 +1,5 @@
+import { PLACEMENT_BROWSER_SCRIPT } from "@/lib/placement-browser-diagnostic";
+import { PlacementHydrationMarker } from "./placement-hydration-marker";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Klee_One, Zen_Kurenaido } from "next/font/google";
 import "./globals.css";
@@ -55,7 +57,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="ja"
       className={`${geistSans.variable} ${geistMono.variable} ${zenKurenaido.variable} ${kleeOne.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <head><script dangerouslySetInnerHTML={{ __html: PLACEMENT_BROWSER_SCRIPT }} /></head>
+      <body className="min-h-full flex flex-col">{children}<PlacementHydrationMarker /></body>
     </html>
   );
 }
