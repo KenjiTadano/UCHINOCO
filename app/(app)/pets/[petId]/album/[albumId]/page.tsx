@@ -1,3 +1,4 @@
+import { baselineProgressiveDelivery } from "@/lib/auth-performance-core";
 import { Suspense } from "react";
 import { AlbumCompletePending } from "./album-complete-pending";
 import { after } from "next/server";
@@ -338,14 +339,18 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
   );
   };
   if (showComplete) {
+    // Start independent full reads now, not after pet-label/version latency.
+    const delivery = baselineProgressiveDelivery() ? null : loadRemaining();
+    void delivery?.catch(() => {}); // The original rejection still reaches the route error boundary.
     const [label, version] = await Promise.all([petLabels, context.version(albumId)]);
-    if (version) return <Suspense fallback={<AlbumCompletePending petName={label} backHref={`/pets/${petId}/album`} editHref={`/pets/${petId}/album/${albumId}/edit`} />}><RemainingAlbum load={loadRemaining} /></Suspense>;
+    if (version) return <Suspense fallback={<AlbumCompletePending petName={label} backHref={`/pets/${petId}/album`} editHref={`/pets/${petId}/album/${albumId}/edit`} />}><RemainingAlbum load={loadRemaining} delivery={delivery} /></Suspense>;
+    if (delivery) return delivery;
   }
   return loadRemaining();
   });
 }
 
-async function RemainingAlbum({ load }: { load: () => Promise<React.ReactNode> }) { return load(); }
+async function RemainingAlbum({ load, delivery }: { load: () => Promise<React.ReactNode>; delivery?: Promise<React.ReactNode> | null }) { return delivery ?? load(); }
 
 function formatPeriodLabel(from: string | null, to: string | null): string {
   if (!from || !to) return "";

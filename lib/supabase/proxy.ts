@@ -1,15 +1,23 @@
-import { AUTH_REQUEST_KIND_HEADER, AUTH_IO_VARIANT_HEADER, AUTH_TRACE_HEADER, AUTH_START_HEADER, AUTH_ROUTE_HEADER, authTraceEnabled, newAuthTrace, authRoute, authMeasuredFetch, authTraceWork, authTraceEvent } from "../auth-performance-core";
+import { requestTransport } from "../request-transport";
+import { AUTH_DELIVERY_MODE_HEADER, AUTH_REQUEST_KIND_HEADER, AUTH_IO_VARIANT_HEADER, AUTH_TRACE_HEADER, AUTH_START_HEADER, AUTH_ROUTE_HEADER, authTraceEnabled, newAuthTrace, authRoute, authMeasuredFetch, authTraceWork, authTraceEvent } from "../auth-performance-core";
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "./database.types";
 
 export async function updateSession(request: NextRequest) {
   const trace = authTraceEnabled() ? newAuthTrace(authRoute(request.nextUrl.pathname, request.nextUrl.searchParams.get("view"))) : null;
-  if (trace) trace.requestKind = request.headers.get("next-router-prefetch") === "1" || request.headers.get("purpose") === "prefetch" ? "prefetch" : request.headers.get("rsc") === "1" || request.nextUrl.searchParams.has("_rsc") ? "rsc" : "document";
+  const transport = requestTransport(request.headers, request.url);
+  if (trace) {
+    trace.requestKind = transport.kind;
+    console.info("Request transport", JSON.stringify({ requestId: trace.requestId, route: trace.route, ...transport }));
+  }
+  if (trace) trace.deliveryMode = process.env.VERCEL_ENV === "preview" && request.nextUrl.searchParams.get("deliveryMode") === "baseline" ? "baseline" : "candidate";
   const run = async () => {
   const next = () => {
     const forwarded = new Headers(request.headers);
     // Always overwrite incoming correlation metadata; it is never an auth assertion.
+    forwarded.delete(AUTH_DELIVERY_MODE_HEADER);
+    if (trace) forwarded.set(AUTH_DELIVERY_MODE_HEADER, trace.deliveryMode!);
     forwarded.delete(AUTH_REQUEST_KIND_HEADER);
     if (trace) forwarded.set(AUTH_REQUEST_KIND_HEADER, trace.requestKind!);
     forwarded.delete(AUTH_IO_VARIANT_HEADER);

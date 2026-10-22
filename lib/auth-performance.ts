@@ -9,7 +9,7 @@ const renderTrace = cache(async () => {
   // Request APIs are resolved before after(); this callback contains diagnostic metadata only.
   after(() => {
     authTraceEvent(trace, "request.response-finished", Date.now() - trace.started);
-    console.info("Server I/O metrics", JSON.stringify({ requestId: trace.requestId, route: trace.route, requestKind: trace.requestKind ?? "document", variant: trace.ioVariant ?? "candidate", metrics: trace.ioMetrics ?? {}, dbHttpByTable: trace.dbHttpByTable ?? {} }));
+    console.info("Server I/O metrics", JSON.stringify({ requestId: trace.requestId, route: trace.route, requestKind: trace.requestKind ?? "document", deliveryMode: trace.deliveryMode ?? "candidate", variant: trace.ioVariant ?? "candidate", metrics: trace.ioMetrics ?? {}, dbHttpByTable: trace.dbHttpByTable ?? {} }));
     console.info("Server loader requests", JSON.stringify({ requestId: trace.requestId, route: trace.route, ...(trace.supabaseCounts ?? { selectHttp: 0, writeHttp: 0, rpcHttp: 0, storageHttp: 0 }) }));
   });
   return trace;

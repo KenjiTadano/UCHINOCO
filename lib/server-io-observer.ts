@@ -8,6 +8,7 @@ const names = new Set([
   "thumbnail.cache.hit", "thumbnail.cache.miss", "thumbnail.local.hit", "thumbnail.queue",
   "sign.main", "sign.derivative", "sign.original", "sign.availability", "sign.transform",
   "font.cache.hit", "font.cache.miss", "font.file.read", "font.file.error",
+  "progressive.metadata", "progressive.revision-check", "progressive.phase",
   "metadata.hit", "metadata.miss", "draft.photo.metadata", "draft.assembly",
   "draft.cover", "draft.cover.missing", "draft.effective", "draft.reset.only", "draft.initial.body", "draft.offscreen.body",
   "print.original.active", "print.original.download", "print.original.probe", "print.original.local.hit",

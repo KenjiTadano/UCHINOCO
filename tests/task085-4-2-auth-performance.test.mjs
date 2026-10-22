@@ -23,7 +23,7 @@ test('route and trace metadata never contain identifiers, query strings or crede
 test('proxy preserves getClaims, refresh cookies and response headers, overwrites untrusted trace headers',async()=>{
  const logs=[];const core=load('lib/auth-performance-core.ts',{}, {},logs);let claims=0;let options;
  const request={headers:new Headers({'x-uchinoco-auth-trace':'attacker','cookie':'synthetic-cookie'}),nextUrl:new URL('https://app.example.test/pets/synthetic'),cookies:{getAll:()=>[],set(name,value){request.headers.set('cookie',name+'='+value);}}};
- const proxy=load('lib/supabase/proxy.ts',{'../auth-performance-core':core,'@supabase/ssr':{createServerClient(_url,_key,o){options=o;return {auth:{async getClaims(){claims++;o.cookies.setAll([{name:'session',value:'synthetic-refreshed',options:{httpOnly:true}}],{'cache-control':'private,no-store'});return {data:{claims:{sub:'not-logged'}}};}}};}},'next/server':{NextResponse:{next(o){return {forwarded:o.request.headers,headers:new Headers(),cookies:{set(){}}};}}}}, {},logs);
+ const proxy=load('lib/supabase/proxy.ts',{'../request-transport':load('lib/request-transport.ts'),'../auth-performance-core':core,'@supabase/ssr':{createServerClient(_url,_key,o){options=o;return {auth:{async getClaims(){claims++;o.cookies.setAll([{name:'session',value:'synthetic-refreshed',options:{httpOnly:true}}],{'cache-control':'private,no-store'});return {data:{claims:{sub:'not-logged'}}};}}};}},'next/server':{NextResponse:{next(o){return {forwarded:o.request.headers,headers:new Headers(),cookies:{set(){}}};}}}}, {},logs);
  const result=await proxy.updateSession(request);assert.equal(claims,1);assert.notEqual(result.forwarded.get('x-uchinoco-auth-trace'),'attacker');assert.equal(result.forwarded.get('cookie'),'session=synthetic-refreshed');assert.equal(result.headers.get('cache-control'),'private,no-store');assert.ok(options.global.fetch);assert.ok(!JSON.stringify(logs).includes('synthetic-refreshed'));assert.ok(!JSON.stringify(logs).includes('not-logged'));
 });
 test('Auth fetch attempts differ from physical undici requests when downstream deduplicates',async()=>{
@@ -82,4 +82,8 @@ test('Supabase physical totals distinguish SELECT, write, RPC and Storage withou
 test('Preview comparison variant is not accepted as a Production scheduling override',()=>{
  const preview=load('lib/auth-performance-core.ts');const prod=load('lib/auth-performance-core.ts',{}, {VERCEL_ENV:'production'});
  const h=new Headers({'x-uchinoco-io-variant':'baseline'});assert.equal(preview.forwardedAuthTrace(h).ioVariant,'baseline');assert.equal(prod.forwardedAuthTrace(h).ioVariant,'candidate');
+});
+
+test('progressive comparison mode is request-scoped and ignored outside Preview',async()=>{
+ for(const env of ['preview','production']){const core=load('lib/auth-performance-core.ts',{}, {VERCEL_ENV:env});const t=core.newAuthTrace();t.deliveryMode='baseline';await core.authTraceWork(t,'synthetic',async()=>assert.equal(core.baselineProgressiveDelivery(),env==='preview'));assert.equal(core.baselineProgressiveDelivery(),false);}
 });

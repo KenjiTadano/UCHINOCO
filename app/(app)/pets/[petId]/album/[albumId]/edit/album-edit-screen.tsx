@@ -94,6 +94,7 @@ export function AlbumEditScreen({
     return undefined;
   };
 
+  if (delivery.error) return <main className="album-edit-page" data-load-stage="error" data-fully-ready="false"><p role="alert">{delivery.error}</p><a href={backHref.split("?")[0] + "/edit"}>再読み込み</a></main>;
   return (
     <main data-load-stage="primary" data-fully-ready={delivery.ready ? "true" : "false"} className="album-edit-page">
       {delivery.receivers}

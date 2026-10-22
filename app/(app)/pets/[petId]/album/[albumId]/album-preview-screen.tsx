@@ -102,6 +102,7 @@ export function AlbumPreviewScreen({ spreads, draft = null, cover = null, backHr
     setIndex((next + sequence.length) % sequence.length);
   };
 
+  if (delivery.error) return <main className="album-preview-page-root" data-load-stage="error" data-fully-ready="false"><p role="alert">{delivery.error}</p><a href={`${backHref.split("?")[0]}?view=preview`}>再読み込み</a></main>;
   return (
     <main className="album-preview-page-root" data-load-stage="primary" data-fully-ready={fullyReady ? "true" : "false"}>
       {delivery.receivers}
