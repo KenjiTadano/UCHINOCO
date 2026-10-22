@@ -11,13 +11,13 @@ import { baselineProgressiveDelivery } from "../auth-performance-core.ts";
 import { streamBaselineDraft } from "./progressive-baseline.ts";
 
 /** Caller authorizes album/route-pet first. Everything here belongs to this request/user. */
-export function streamDraft(supabase: SupabaseClient, context: AlbumRequestContext, albumId: string, version: RequestDraftVersion, cover: CoverEditorModel, seed?: PersistedDraftView): DraftStream {
+export function streamDraft(supabase: SupabaseClient, context: AlbumRequestContext, albumId: string, version: RequestDraftVersion, cover: CoverEditorModel, seed?: PersistedDraftView, prepared?: Promise<PersistedDraftView | null>): DraftStream {
   if (baselineProgressiveDelivery()) return streamBaselineDraft(supabase, context, albumId, version, cover, seed);
   const pin: DraftPin = Object.freeze({ versionId: version.id, revision: version.revision, coverRevision: cover.revision, coverClientSeq: cover.clientSeq });
   const fail = (): DraftDelivery => ({ ok: false, message: "アルバムが更新されたか、読み込みに失敗しました。再読み込みしてください。" });
   const metadata = (async () => {
     observeIo(supabase, "progressive.metadata");
-    const view = seed ?? await readDraft(supabase, albumId, { resolveUrls: false }, context);
+    const view = seed ?? (prepared ? await prepared : await readDraft(supabase, albumId, { resolveUrls: false }, context));
     if (!view || view.versionId !== pin.versionId || view.revision !== pin.revision) throw Error("draft changed");
     const seen = new Set(Object.keys(view.thumbnailUrls ?? {}));
     const groups = [view.spreads.slice(0, 1), view.spreads.slice(1, 3), view.spreads.slice(3)].map(spreads => spreads.flatMap(spread => spread.sourceFrames.flatMap(frame => [frame.aiPhotoId, frame.userPhotoId].filter((id): id is string => Boolean(id)))).filter(id => { if (seen.has(id)) return false; seen.add(id); return true; }));

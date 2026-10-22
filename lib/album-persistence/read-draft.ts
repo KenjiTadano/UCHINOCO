@@ -7,7 +7,7 @@ import { traceAlbumLoad } from "../album-load-trace.ts";
 import { parseLayoutRankings } from "./payload.ts";
 import { mapPageBackgroundRow, mapPageElementRow, type PageBackgroundState, type PageElement, type PageSide } from "../album-elements/model.ts";
 import { mapDecorationRow, mapTextRow } from "../album-polish/rows.ts";
-import { assembleEditorSpread } from "./editor.ts";
+import { applyPreviewUrls, assembleEditorSpread } from "./editor.ts";
 import type { DraftFrameRow, DraftSpreadRow } from "./types.ts";
 import type { PersistedDraftView, PersistenceResult } from "./view.ts";
 import { parseAlbumCompositionPlan } from "../album-draft/composition.ts";
@@ -188,4 +188,13 @@ export async function readDraft(supabase: Supabase, albumId: string, options?: {
       layoutRanking: layoutRankings[spread.storySpreadId] ?? null,
     })),
   }));
+}
+
+/** Resolve a metadata-only draft without re-reading its rows; existing source policy is unchanged. */
+export async function resolveDraftPreviewUrls(supabase: Supabase, view: PersistedDraftView | null, context: AlbumRequestContext) {
+  if (!view) return null;
+  const thumbs = new Map<string, string>();
+  const urls = await signedPreviewUrls(supabase, view.spreads.flatMap(spread => spread.sourceFrames.flatMap(frame => [frame.aiPhotoId, frame.userPhotoId].filter((id): id is string => Boolean(id)))), false, context.userId, thumbs, context);
+  const updated = applyPreviewUrls(view, Object.fromEntries(urls));
+  return { ...updated, thumbnailUrls: Object.fromEntries(thumbs), spreads: updated.spreads.map((spread, i) => ({ ...spread, layoutRanking: view.spreads[i].layoutRanking })) };
 }

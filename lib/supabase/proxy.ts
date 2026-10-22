@@ -7,9 +7,11 @@ import type { Database } from "./database.types";
 export async function updateSession(request: NextRequest) {
   const trace = authTraceEnabled() ? newAuthTrace(authRoute(request.nextUrl.pathname, request.nextUrl.searchParams.get("view"))) : null;
   const transport = requestTransport(request.headers, request.url);
+  const clientHint = request.headers.get("x-uchinoco-client-transport");
+  const hintedKind = process.env.VERCEL_ENV === "preview" && request.headers.get("sec-fetch-dest") !== "document" && (clientHint === "rsc" || clientHint === "prefetch") ? clientHint : undefined;
   if (trace) {
-    trace.requestKind = transport.kind;
-    console.info("Request transport", JSON.stringify({ requestId: trace.requestId, route: trace.route, ...transport }));
+    trace.requestKind = transport.rsc ? transport.kind : hintedKind ?? transport.kind;
+    console.info("Request transport", JSON.stringify({ requestId: trace.requestId, route: trace.route, ...transport, kind: trace.requestKind, source: !transport.rsc && hintedKind ? "client-hint" : "proxy" }));
   }
   if (trace) trace.deliveryMode = process.env.VERCEL_ENV === "preview" && request.nextUrl.searchParams.get("deliveryMode") === "baseline" ? "baseline" : "candidate";
   const run = async () => {

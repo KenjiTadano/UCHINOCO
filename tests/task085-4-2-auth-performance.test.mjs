@@ -87,3 +87,7 @@ test('Preview comparison variant is not accepted as a Production scheduling over
 test('progressive comparison mode is request-scoped and ignored outside Preview',async()=>{
  for(const env of ['preview','production']){const core=load('lib/auth-performance-core.ts',{}, {VERCEL_ENV:env});const t=core.newAuthTrace();t.deliveryMode='baseline';await core.authTraceWork(t,'synthetic',async()=>assert.equal(core.baselineProgressiveDelivery(),env==='preview'));assert.equal(core.baselineProgressiveDelivery(),false);}
 });
+
+test('Preview transport hint is diagnostic only and ignored for documents/Production',async()=>{
+ for(const [env,dest,expected] of [['preview','empty','prefetch'],['preview','document','document'],['production','empty','document']]){const config={VERCEL_ENV:env,UCHINOCO_AUTH_PERF:'1'},logs=[];const core=load('lib/auth-performance-core.ts',{},config,logs);let claims=0;const request={url:'https://app.example.test/home',headers:new Headers({'sec-fetch-dest':dest,'x-uchinoco-client-transport':'prefetch'}),nextUrl:new URL('https://app.example.test/home'),cookies:{getAll:()=>[]}};const proxy=load('lib/supabase/proxy.ts',{'../request-transport':load('lib/request-transport.ts'),'../auth-performance-core':core,'@supabase/ssr':{createServerClient:()=>({auth:{getClaims:async()=>{claims++;return {data:{claims:{}}}}}})},'next/server':{NextResponse:{next:o=>({forwarded:o.request.headers})}}},config,logs);const result=await proxy.updateSession(request);assert.equal(result.forwarded.get('x-uchinoco-request-kind'),expected);assert.equal(claims,1)}
+});

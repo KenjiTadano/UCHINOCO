@@ -19,8 +19,18 @@ export function RouteNetworkMetrics() {
       const raw = input instanceof Request ? input.url : String(input);
       const headers = new Headers(input instanceof Request ? input.headers : undefined);
       new Headers(init?.headers).forEach((v, k) => headers.set(k, v));
-      try { if (new URL(raw, location.href).origin === location.origin) requests.push({ key: canonical(raw), at: performance.now(), kind: requestTransport(headers, new URL(raw, location.href).href).kind }); } catch { /* not a URL */ }
-      return original.call(window, input, init);
+      let appRsc = false;
+      try {
+        if (new URL(raw, location.href).origin === location.origin) {
+          const transport = requestTransport(headers, new URL(raw, location.href).href);
+          requests.push({ key: canonical(raw), at: performance.now(), kind: transport.kind });
+          appRsc = transport.rsc;
+          if (appRsc) headers.set("x-uchinoco-client-transport", transport.kind);
+        }
+      } catch { /* not a URL */ }
+      // Preview-only diagnostic hint survives Next's Proxy URL/header normalization.
+      // It carries no identity and is never used for authorization.
+      return original.call(window, input, appRsc ? { ...init, headers } : init);
     };
     window.fetch = wrapped;
     const summary = () => {

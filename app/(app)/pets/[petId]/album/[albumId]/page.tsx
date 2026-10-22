@@ -19,7 +19,7 @@ import { AlbumDeleteControl } from "./album-delete-control";
 import { AlbumCompleteScreen } from "./album-complete-screen";
 import { AlbumPreviewScreen } from "./album-preview-screen";
 import { buildAlbumPreviewSpreads } from "@/lib/album-preview-spreads";
-import { readDraft } from "@/lib/album-persistence/read-draft";
+import { readDraft, resolveDraftPreviewUrls } from "@/lib/album-persistence/read-draft";
 import { traceAlbumLoad } from "@/lib/album-load-trace";
 import { formatAlbumPeriodLabels } from "@/lib/album-cover-title";
 import { recordAlbumAnalyticsEvent } from "@/lib/album-analytics-server";
@@ -60,17 +60,21 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
   // Draft Preview does not use the legacy list, order, entitlements or suggestion data.
   if (showPreview) {
     const version = await context.version(albumId);
+    let prepared: Promise<PersistedDraftView | null> | undefined;
     if (version) {
+      // Body rows and cover signing are independent after authorization/version pinning.
+      if (!baselineProgressiveDelivery()) prepared = readDraft(supabase, albumId, { resolveUrls: false }, context);
+      void prepared?.catch(() => {});
       const cover = await readDraftCover(supabase, version.id, {}, user.id, context);
       if (cover?.previewUrl) {
         after(() => recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: version.id, eventType: "album_viewed", eventKey: `preview:${version.id}` }));
-        const stream = streamDraft(supabase, context, albumId, version, cover);
+        const stream = streamDraft(supabase, context, albumId, version, cover, undefined, prepared);
         const critical: PersistedDraftView = { albumId, versionId: version.id, status: version.status, revision: version.revision, signature: "", previewUrls: cover.previewUrls, thumbnailUrls: {}, compositionPlan: null, spreads: [] };
         const base = `/pets/${petId}/album/${albumId}`;
         return <AlbumPreviewScreen key={`${albumId}:${version.id}:${version.revision}:${cover.revision}:${cover.clientSeq}`} cover={cover} draft={critical} stream={stream} spreads={[]} backHref={`${base}?view=complete`} editHref={`${base}/edit`} orderHref={`${base}/product`} printHref={`${base}/print`} coverEditHref={`${base}/cover/edit`} orderAction={acceptAlbumForOrder.bind(null, petId, albumId)} />;
       }
     }
-    const savedDraft = await readDraft(supabase, albumId, undefined, context);
+    const savedDraft = prepared ? await resolveDraftPreviewUrls(supabase, await prepared, context) : await readDraft(supabase, albumId, undefined, context);
     if (savedDraft) {
       const [cover] = await Promise.all([
         readDraftCover(supabase, savedDraft.versionId, savedDraft.previewUrls, user.id),
