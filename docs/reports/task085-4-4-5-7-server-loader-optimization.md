@@ -2,9 +2,9 @@
 
 ## Status and baseline
 
-**HOLD — implementation locally verified; browser performance and save acceptance in progress.** No performance PASS or next-task decision is claimed.
+**HOLD — implementation and live save acceptance verified; overall performance/regression acceptance is incomplete.** Required Preview Print cannot run without forbidden credential addition; tail and control variance remain. No Production adoption is recommended from this task alone.
 
-Production baseline: `2dc0b3e9c0fb48aa59b409bdcfffd0a59ef1ff87`, configured sin1. Dedicated comparison branch starts at that exact source. Baseline comparison commit `54f2425cf0c2fe222eed359da215f03cb5ffd97b` changes this report only; its application tree and lockfile match Production. Candidate application changes are still local while baseline measurements await login.
+Production baseline: `2dc0b3e9c0fb48aa59b409bdcfffd0a59ef1ff87`, configured sin1. Dedicated comparison branch starts at that exact source. Baseline comparison commit `54f2425cf0c2fe222eed359da215f03cb5ffd97b` changes this report only; its application tree and lockfile match Production. Candidate commit `9eef1ff7844f9a1b2705766e3f57863b0a183a52` is deployed through Git Integration to a dedicated Preview, READY and SHA-matched, configured sin1. No inference of Function runtime region is made from ingress/edge log region. Production and the ordinary development Preview alias were not changed. Final read-only Production check remains READY at the original baseline SHA; only the authorized fixture background edit/restore changed shared application data, with identity hashes and order count unchanged.
 
 No Production deployment, main integration, RPC, schema, RLS, Service Role addition, UI, image policy, generation, Recovery, subset, or mutation-contract change. Unrelated worktree changes are preserved and excluded from this task.
 
@@ -33,7 +33,7 @@ Page Editor baseline serializes draft → analytics → candidate pipeline → s
 
 Complete no longer reads spreads, frames, four additional element/background groups, or draft-body photo paths/signing merely to decide whether a draft exists. Suggestion may reuse album, membership and active version. Exact SELECT/layer counts remain branch-dependent; the requested approximate 21/14 → 14/11 model is a target, not measured evidence.
 
-Actual Auth HTTP, SELECT HTTP, Storage HTTP and server timings are pending browser/runtime acceptance. Parent layout logical auth call sites are unchanged; helper reuse does not prove an equivalent reduction in Auth HTTP.
+Actual Auth HTTP, SELECT HTTP and Storage HTTP counts are not exposed by the minimal baseline diagnostics; they remain unmeasured rather than inferred. Preview runtime stage timing was collected separately below. Parent layout logical auth call sites are unchanged; helper reuse does not prove an equivalent reduction in Auth HTTP.
 
 ## Observability
 
@@ -49,11 +49,59 @@ New server stage logs are Preview-only and contain static stage names and durati
 
 New regression coverage includes same-request version/eligibility sharing; fail-closed ownership/membership; request isolation; remembered and in-flight photo path reuse; secondary-pet candidates and rejection predicates; selected-photo cap recovery; shared saved-Preview short circuit and wrong canonical route rejection; 24/48/72-page draft/cover assembly with reset/effective identities; unchanged contain/layout ranking; and metadata-only Complete / safe analytics scheduling. Existing cover persistence and renderer tests remain enabled.
 
-## Browser acceptance and remaining work
+## Browser performance acceptance
 
-A dedicated fixed comparison Preview is Ready, configured sin1 and baseline-SHA matched. Login is confirmed; no repeated logout or host change is required. Baseline measurements have started after successful login; candidate acceptance follows. After login, measure Edit, Page Editor, Complete and Preview at least six samples each, with Home regression control, using the same fixture/session/380×715 viewport. Report observation overhead separately from browser paint/TTFB when unavailable.
+Same fixed comparison host, authenticated browser session, existing real 24P fixture, 380×715. Five routes × six document loads × two cohorts = 60 samples; baseline first, candidate second. This is a sequential cohort comparison, not interleaved or a statistically controlled attribution experiment. Deployment and cache warmth/time-window variance remain limitations.
 
-Owner flow, secondary-pet candidate identity, cover/body/reset/crop/layout identity, reload, and safe background save → Back → Preview → reload → restore still require browser evidence. Unit coverage is not substituted for live family/wrong-owner account coverage.
+The measurement uses external wall-clock navigation start → visible route heading, then load event and image/card observations. Browser performance timing was unavailable in the automation read-only scope. These are **heading-ready proxies**, not paint, hydration completion, verified usability, SQL execution time, or exact first-byte timing. Observer/automation overhead is included. Load event is not treated as fully-ready.
+
+Heading-observed medians (baseline → candidate):
+
+- Preview: 2,479.5 → 1,794 ms, 27.6% lower.
+- Edit: 1,252 → 1,085 ms, 13.3% lower.
+- Page Editor: 1,609 → 1,223.5 ms, 24.0% lower.
+- Complete: 1,337 → 1,056 ms, 21.0% lower.
+- Home control: 1,262.5 → 1,509 ms, 19.5% higher. Home source is unchanged; this comparison cannot establish code regression or prove absence of regression.
+
+Outliers: baseline Preview sample 5 hit the selector deadline around 4,305 ms and load was observed at 4,456 ms; candidate sample 6 hit the selector deadline around 5,000 ms and load was observed at 5,006 ms. These heading samples are censored observations, not exact successful heading-ready times. They are retained, not discarded; their upper-tail position does not change the medians. Other successful heading maxima: Edit 1,511 → 1,339; Page Editor 2,406 → 1,741; Complete 1,402 → 1,473; Home 2,506 → 1,819 ms. Tail elimination is not proven.
+
+Load-observed medians: Preview 2,484.5 → 1,799; Edit 1,346 → 2,123.5; Page Editor 1,613.5 → 1,243.5; Complete 1,383.5 → 1,062; Home 1,269.5 → 1,539.5 ms. Edit has several roughly two-second post-heading gaps; it must not be labelled fully-ready improvement. Three supplementary candidate Edit probes observed all 12 body cards and all 25 images complete at heading, with heading/load 1,436/1,458, 1,050/1,067, 797/809 ms. The earlier gap did not reproduce in those probes; its cause remains unproven. No speculative UI fix was added.
+
+All 60 samples reported zero complete-but-broken images and no document horizontal overflow. Some intentionally lazy/offscreen images were not complete at load; no claim of all-image completion is made from load event alone.
+
+## Runtime stage evidence
+
+Read-only runtime log windows contain 25 baseline and 24 candidate requests with parsed Album stages. Some extra verification navigations are included, so these pooled stage distributions are not a one-to-one browser pair distribution. B1 safe data parser is used; no string execution. No error-level records appear in either captured window.
+
+Candidate pooled stage medians/max (ms; n):
+
+- pre-draft auth 68/295 (24), album 73/118 (12), pet 65/191 (12).
+- active version 78/177 (24).
+- saved Preview bundle 845/2,519 (6).
+- Edit draft-cover-signing 441/674 (6).
+- Page Editor draft 494/666, candidates 709/934, suggestion 85/153 (six each); these overlap and must not be summed.
+- body metadata 334/2,278 (12), cover 64/122 (12), union signing 84/359 (12).
+- draft elements group 202/2,170 (18), spreads 76/135 (18).
+- candidate context 122/262 and candidate photos 69/112 (six each).
+- analytics scheduling/return boundary markers 0 ms; these are marker costs only, not delivered analytics or RSC send latency.
+
+Baseline pooled draft elements median/max 133/1,116, version 45/194, spreads 45/81, preview URLs 55/398 ms (25 each). Candidate Page Editor URL stage median/max 0/384 (6). Signing cache hit/miss and physical HTTP counts are unavailable; zero duration is not classified as a proven cache hit. No artificial cache clear was used and no cold/warm cohort is invented.
+
+Candidate Complete requests have version metadata and return stages without draft spread/elements/preview-URL stages, confirming removal of its full draft read. Candidate Preview avoids legacy list-image stage; the six candidate detail.list-image-urls records belong to Complete. Preview tail includes a 2,170 ms parallel element-read group; individual table time and exact critical-path attribution are unavailable. Remote metadata waiting remains a plausible residual, not proof that all remaining latency is DB.
+
+## Correctness and save acceptance
+
+PASS with the existing owner fixture:
+
+- Page Editor, 12 body list cards, Preview body and 14 rail tabs render; no blank-image failures or overflow were observed.
+- Existing secondary-pet photograph is present in the replacement Picker. No replacement was committed merely for fixture testing.
+- Wrong canonical route-pet Preview returns 404 with no album content.
+- Safe left-background change warm → white: local saving → saved, Back → Edit → Preview → reload retains white. Restore white → warm, saved, Back and Preview confirm warm again.
+- Read-only DB comparison: active revision 15 → 16 → 17; background clientSeq 9 → 10 → 11 and background revision 9 → 10 → 11. Frame, spread and cover hashes remain identical throughout; 12 spreads, one accepted event and zero orders remain unchanged. No photo/crop/layout/cover identity mutation or stale rollback occurred.
+
+Automated coverage verifies rejected ownership/membership/uploader predicates, shared-reader Preview branch preservation, no-draft legacy source boundary, reset/effective identities and 24/48/72-page assembly. A second browser account for live family/wrong-owner acceptance was not available: **UNVERIFIED in browser**, not substituted with an owner session. Mutation Actions remain byte-unchanged from baseline; no render context becomes a mutation authorization token.
+
+Evidence is local-only under the ignored task outputs directory: browser samples, runtime windows/parsed stages, deployment metadata, before/changed/restored read-only state, verification logs and restored Edit screenshot. These private JSON/image files are not Git additions. Canonical report contains no real fixture identity, host, credential or signed URL.
 
 ### Print environment limitation
 
@@ -63,4 +111,6 @@ Genuine No-Crop browser coverage remains **UNVERIFIED due to fixture absence**; 
 
 ## Decision
 
-HOLD pending performance/correctness/save acceptance and explicit resolution or acceptance of the Print environment limitation. No measured speedup, tail reduction, or RPC/client optimization recommendation is asserted yet. Production remains unchanged. Do not advance automatically to Task085.4.4.6 or Task085.5.
+**HOLD for full acceptance.** Implementation/local verification and the requested live background save/restore are successful; four target heading medians improve and fall within the indicative ranges. However Print Preview remains environment-blocked; Home control median and Edit load-event variance need controlled follow-up, and Preview still has a five-second tail. Those observations are not hidden by the median.
+
+RPC need is not settled solely by this sample. The bounded loader changes reduce unnecessary work; the remaining Preview metadata-read tail supports considering further remote-boundary investigation before a Snapshot/RPC prototype, but physical HTTP counts and controlled control-route evidence are still missing. This is not permission to start a new task. No Task085.4.4.6, Task085.5 or Production release is executed.
