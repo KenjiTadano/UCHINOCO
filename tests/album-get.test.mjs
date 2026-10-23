@@ -9,8 +9,9 @@ test("album GET pages read the draft with the request-scoped Supabase client", a
     readFile("./app/(app)/pets/[petId]/album/[albumId]/print/page.tsx", "utf8"),
   ]);
 
-  for (const source of [detail, editor, print]) {
-    assert.match(source, /readDraft\(supabase, albumId\)/);
+  assert.match(detail, /loadRouteDraft\(supabase, context\)/);
+  for (const source of [editor, print]) {
+    assert.match(source, /readDraft\(supabase, albumId(?:,|\))/);
     assert.doesNotMatch(source, /loadActiveDraft\(albumId\)/);
   }
 });

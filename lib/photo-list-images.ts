@@ -11,13 +11,13 @@ export function listImagePath(photo: ListPhotoImage) {
   return photo.thumbnail_path ?? photo.storage_path;
 }
 
-export async function createListImageUrls(supabase: SupabaseClient, photos: ListPhotoImage[]) {
+export async function createListImageUrls(supabase: SupabaseClient, photos: ListPhotoImage[], userIdOverride?: string) {
   if (photos.length === 0) {
     return { signedUrlByPath: new Map<string, string>(), error: null, deliveryCounts: { thumbnail: 0, preview: 0, original: 0 } };
   }
   const thumbnailPaths = Array.from(new Set(photos.flatMap((photo) => (photo.thumbnail_path ? [photo.thumbnail_path] : []))));
-  const auth = supabase.auth?.getUser ? await supabase.auth.getUser() : null;
-  const userId = auth?.data.user?.id;
+  const auth = !userIdOverride && supabase.auth?.getUser ? await supabase.auth.getUser() : null;
+  const userId = userIdOverride ?? auth?.data.user?.id;
   if (!userId) {
     const originalPaths = Array.from(new Set(photos.flatMap((photo) => (!photo.thumbnail_path ? [photo.storage_path] : []))));
     const empty = { data: [], error: null };

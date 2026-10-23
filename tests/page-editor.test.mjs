@@ -100,7 +100,7 @@ test("1. load active draft reads the saved version and does not create one", () 
   const loadActive = service.slice(service.indexOf("export async function loadActiveDraft"), service.indexOf("export async function refreshDraftPhotoUrls"));
   assert.equal(loadActive.includes("save_album_draft_version"), false);
   assert.equal(loadActive.includes(".insert("), false);
-  assert.match(page, /readDraft\(supabase, albumId\)/);
+  assert.match(page, /readDraft\(supabase, albumId, undefined, context\)/);
   assert.equal(page.includes("buildAlbumEditSpreads"), false);
 });
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import Module, { createRequire } from 'node:module';
-import { applyCoverPhoto, mergeServerCover, toCoverEditor } from '../lib/album-persistence/cover.ts';
+import { applyCoverPhoto, mergeServerCover, toCoverEditor, mapDraftCoverRow } from '../lib/album-persistence/cover.ts';
 const require = createRequire(import.meta.url), ts = require('typescript'), React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const root = process.cwd(), resolve = Module._resolveFilename;
@@ -29,6 +29,9 @@ Module._load = function(specifier, parent, ...rest) {
     if (specifier.includes('use-editor-history')) return { useEditorHistory: () => ({ push() {}, note() {}, undo() {}, redo() {}, beginGesture() {}, endGesture() {}, canUndo: false, canRedo: false }) };
   }
   if (name.endsWith('/[albumId]/edit/page.tsx')) {
+    if (specifier.includes('route-read-context')) return { createRouteReadContext: (_db,_user,album) => ({album}) };
+    if (specifier.includes('route-loader-trace')) return { traceRouteLoader: (_stage,work) => work() };
+    if (specifier.includes('load-route-draft')) return { loadRouteDraft: async () => { const {data}=await store.client.from('album_draft_covers').select('*').eq('draft_version_id',ids.version).maybeSingle(); const cover=toCoverEditor(mapDraftCoverRow(data),urls); return {draft:{versionId:ids.version,spreads:[],previewUrls:urls},cover,coverSrc:cover.previewUrl}; } };
     if (specifier.includes('supabase/server')) return { createClient: async () => store.client };
     if (specifier.includes('album-persistence/read-draft')) return { readDraft: async () => ({ versionId: ids.version, spreads: [], previewUrls: urls }), signedPreviewUrls: async () => new Map(Object.entries(urls)) };
   }

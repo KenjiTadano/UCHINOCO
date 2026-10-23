@@ -1,5 +1,8 @@
+import { createRouteReadContext } from "@/lib/album-persistence/route-read-context";
+import { traceRouteLoader } from "@/lib/album-persistence/route-loader-trace";
 import { notFound, redirect } from "next/navigation";
-import { loadEditorCandidates } from "@/app/(app)/album-draft-service";
+import { after } from "next/server";
+import { loadRouteCandidates } from "@/lib/album-persistence/route-candidates";
 import { EDITOR_MISSING_DRAFT_MESSAGE, editorIsReadonly } from "@/lib/album-persistence/editor";
 import { readDraft } from "@/lib/album-persistence/read-draft";
 import { createClient } from "@/lib/supabase/server";
@@ -20,47 +23,54 @@ export default async function PageEditPage({ params, searchParams }: Props) {
   const {
     data: { user },
     error: userError,
-  } = await supabase.auth.getUser();
+  } = await traceRouteLoader("pre-draft-auth", () => supabase.auth.getUser());
   if (userError || !user) redirect("/login");
 
-  const { data: album, error: albumError } = await supabase
+  const [{ data: album, error: albumError }, { data: pet }] = await Promise.all([
+    traceRouteLoader("album", () => supabase
     .from("albums")
-    .select("id, owner_user_id, pet_id, status")
+    .select("id, owner_user_id, pet_id, status, title, period_from, period_to, cover_photo_id")
     .eq("id", albumId)
     .eq("owner_user_id", user.id)
     .eq("pet_id", petId)
-    .maybeSingle();
-
-  if (albumError || !album) notFound();
-
-  const { data: pet } = await supabase
+    .maybeSingle()),
+    traceRouteLoader("pet", () => supabase
     .from("pets")
     .select("id, name, owner_user_id")
     .eq("id", petId)
     .eq("owner_user_id", user.id)
-    .maybeSingle();
-  if (!pet) notFound();
+    .maybeSingle()),
+  ]);
+  if (albumError || !album || !pet) notFound();
+  const context = createRouteReadContext(supabase, user.id, album);
+
 
   // Saved draft only. Opening the editor does not regenerate the album or call Vision.
-  const view = await readDraft(supabase, albumId);
-  if (view) await recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: view.versionId, eventType: "album_edit_started", eventKey: view.versionId });
+  const [view, candidates, suggestion] = await Promise.all([
+    traceRouteLoader("draft", () => readDraft(supabase, albumId, undefined, context)),
+    traceRouteLoader("candidates", () => loadRouteCandidates(supabase, context)),
+    traceRouteLoader("suggestion", () => findNewPhotoSuggestion(supabase, { albumId, routePetId: petId, userId: user.id }, context)),
+  ]);
+  if (view) await traceRouteLoader("analytics-scheduling", () => undefined);
+  if (view) after(() => recordAlbumAnalyticsEvent({ supabase, userId: user.id, albumId, draftVersionId: view.versionId, eventType: "album_edit_started", eventKey: view.versionId }).then(() => {}));
   const parsed = Number.parseInt(spreadParam ?? "0", 10);
   const initialIndex = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
   const base = `/pets/${petId}/album/${albumId}`;
-  const candidates = view ? await loadEditorCandidates(petId, albumId) : [];
-  const loadError = view ? null : EDITOR_MISSING_DRAFT_MESSAGE;
-  const suggestion = view ? await findNewPhotoSuggestion(supabase, { albumId, routePetId: petId, userId: user.id }) : null;
 
+  const loadError = view ? null : EDITOR_MISSING_DRAFT_MESSAGE;
+
+
+  await traceRouteLoader("return-boundary", () => undefined);
   return (
     <>
-      {suggestion && !suggestion.dismissed ? <div className="mx-auto w-full max-w-2xl px-4 pt-3"><NewPhotoSuggestionNotice href={`${base}/new-photos`} count={suggestion.candidates.length} /></div> : null}
+      {view && suggestion && !suggestion.dismissed ? <div className="mx-auto w-full max-w-2xl px-4 pt-3"><NewPhotoSuggestionNotice href={`${base}/new-photos`} count={suggestion.candidates.length} /></div> : null}
       <PageEditScreen
         key={view?.versionId ?? albumId}
         view={view}
         albumId={albumId}
         readonly={editorIsReadonly(album.status)}
         loadError={loadError}
-        candidatePhotos={candidates.map((photo) => ({
+        candidatePhotos={(view ? candidates : []).map((photo) => ({
           id: photo.id,
           src: photo.src,
           thumb: photo.thumb,

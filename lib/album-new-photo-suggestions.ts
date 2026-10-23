@@ -3,6 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { detectNewPhotoIds, newPhotoSuggestionFingerprint, suggestionIsProtected } from "./album-new-photo-suggestion-policy";
 
+import type { RouteReadContext } from "./album-persistence/route-read-context";
+
 type Metadata = Record<string, unknown>;
 
 export type NewPhotoCandidate = {
@@ -43,8 +45,10 @@ function scoreFromResult(value: unknown): number | null {
 export async function findNewPhotoSuggestion(
   supabase: SupabaseClient,
   input: { albumId: string; routePetId: string; userId: string },
+  context?: RouteReadContext,
 ): Promise<NewPhotoSuggestion | null> {
-  const { data: album, error: albumError } = await supabase
+  const reusable = context?.album.id === input.albumId && context.album.pet_id === input.routePetId && context.userId === input.userId && context.album.owner_user_id === input.userId ? context : undefined;
+  const { data: album, error: albumError } = reusable ? { data: reusable.album, error: null } : await supabase
     .from("albums")
     .select("id, pet_id, owner_user_id, status, period_from, period_to")
     .eq("id", input.albumId)
@@ -54,8 +58,8 @@ export async function findNewPhotoSuggestion(
   if (albumError || !album) return null;
 
   const [{ data: links, error: linksError }, { data: version, error: versionError }, { data: accepted, error: acceptedError }, { data: order, error: orderError }] = await Promise.all([
-    supabase.from("album_pets").select("pet_id").eq("album_id", album.id),
-    supabase.from("album_draft_versions").select("id, status, created_at, generation_metadata").eq("album_id", album.id).eq("is_active", true).maybeSingle(),
+    reusable ? reusable.petIds().then(ids => ({ data: ids?.map(pet_id => ({ pet_id })) ?? null, error: ids ? null : new Error("membership unavailable") })) : supabase.from("album_pets").select("pet_id").eq("album_id", album.id),
+    reusable ? reusable.version().then(data => ({ data, error: null })) : supabase.from("album_draft_versions").select("id, status, created_at, generation_metadata").eq("album_id", album.id).eq("is_active", true).maybeSingle(),
     supabase.from("album_analytics_events").select("id").eq("album_id", album.id).eq("event_type", "album_accepted").limit(1).maybeSingle(),
     supabase.from("orders").select("id").eq("album_id", album.id).in("status", ["pending", "paid"]).limit(1).maybeSingle(),
   ]);

@@ -1,7 +1,8 @@
+import { createRouteReadContext } from "@/lib/album-persistence/route-read-context";
+import { traceRouteLoader } from "@/lib/album-persistence/route-loader-trace";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { readDraft, signedPreviewUrls } from "@/lib/album-persistence/read-draft";
-import { mapDraftCoverRow, toCoverEditor } from "@/lib/album-persistence/cover";
+import { loadRouteDraft } from "@/lib/album-persistence/load-route-draft";
 import { EDITOR_MISSING_DRAFT_MESSAGE } from "@/lib/album-persistence/editor";
 import { buildCoverTitleLines, formatAlbumPeriodLabels } from "@/lib/album-cover-title";
 
@@ -20,44 +21,38 @@ export default async function AlbumEditPage({ params }: Props) {
   const {
     data: { user },
     error: userError,
-  } = await supabase.auth.getUser();
+  } = await traceRouteLoader("pre-draft-auth", () => supabase.auth.getUser());
   if (userError || !user) redirect("/login");
 
-  const { data: album, error: albumError } = await supabase
+  const [{ data: album, error: albumError }, { data: pet }] = await Promise.all([
+    traceRouteLoader("album", () => supabase
     .from("albums")
     .select("id, owner_user_id, pet_id, title, status, period_from, period_to, cover_photo_id")
     .eq("id", albumId)
     .eq("owner_user_id", user.id)
     .eq("pet_id", petId)
-    .maybeSingle();
-
-  if (albumError || !album) notFound();
-  if (album.status === "ordered") {
-    redirect(`/pets/${petId}/album/${albumId}`);
-  }
-
-  const { data: pet } = await supabase
+    .maybeSingle()),
+    traceRouteLoader("pet", () => supabase
     .from("pets")
     .select("id, name, owner_user_id")
     .eq("id", petId)
     .eq("owner_user_id", user.id)
-    .maybeSingle();
-  if (!pet) notFound();
+    .maybeSingle()),
+  ]);
+  if (albumError || !album || !pet) notFound();
+  const context = createRouteReadContext(supabase, user.id, album);
+  if (album.status === "ordered") redirect(`/pets/${petId}/album/${albumId}`);
 
-  const draft = await readDraft(supabase, albumId);
+
+  const { draft, cover, coverSrc } = await traceRouteLoader("draft-cover-signing", () => loadRouteDraft(supabase, context, true));
   const { monthLabel, coverDateLabel } = formatAlbumPeriodLabels(album.period_from, album.period_to);
   const lines = buildCoverTitleLines(pet.name, album.title ?? "", monthLabel);
-  const { data: coverRow } = draft ? await supabase.from("album_draft_covers").select("*").eq("draft_version_id", draft.versionId).maybeSingle() : { data: null };
-  const source = coverRow ? mapDraftCoverRow(coverRow as unknown as Record<string, unknown>) : null;
-  const coverIds = source ? [source.aiPhotoId, source.userPhotoId].filter((id): id is string => Boolean(id)) : album.cover_photo_id ? [album.cover_photo_id] : [];
-  const coverUrls = await signedPreviewUrls(supabase, coverIds);
-  const cover = source ? toCoverEditor(source, Object.fromEntries(coverUrls)) : null;
-  const coverSrc = cover?.previewUrl ?? (album.cover_photo_id ? coverUrls.get(album.cover_photo_id) : null) ?? null;
   const pages: AlbumEditPageEntry[] = [{ kind: "cover", id: "cover", label: "表紙" }, ...(draft?.spreads.map((spread, index): AlbumEditPageEntry => ({ kind: "spread", id: spread.id, label: `${index * 2 + 1} - ${index * 2 + 2}`, spread })) ?? [])];
   const pageCount = (draft?.spreads.length ?? 0) * 2;
 
   const base = `/pets/${petId}/album/${albumId}`;
 
+  await traceRouteLoader("return-boundary", () => undefined);
   return (
     <AlbumEditScreen
       petName={pet.name}
