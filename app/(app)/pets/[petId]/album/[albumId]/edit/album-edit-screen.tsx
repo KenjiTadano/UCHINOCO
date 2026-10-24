@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { experimentalBodyLoading } from "@/lib/diagnostics/offscreen-image-experiment";
 import {
   ArrowRight,
   BookOpen,
@@ -31,6 +32,7 @@ export type AlbumEditPageEntry =
     };
 
 export type AlbumEditScreenProps = {
+  experimentalOffscreenLazy?: boolean;
   petName: string;
   coverSrc: string | null;
   dateLabel: string;
@@ -60,6 +62,7 @@ const TOOLS = [
 ] as const;
 
 export function AlbumEditScreen({
+  experimentalOffscreenLazy = false,
   petName,
   coverSrc,
   dateLabel,
@@ -172,7 +175,7 @@ export function AlbumEditScreen({
           {loadError ? <p role="alert">{loadError}</p> : null}
           <div className="album-edit-pages-scroll">
             <ul className="album-edit-page-grid">
-              {pages.map((page) => {
+              {pages.map((page, pageIndex) => {
                 const selected = page.id === selectedPageId;
                 return (
                   <li key={page.id} className="album-edit-page-item">
@@ -197,7 +200,7 @@ export function AlbumEditScreen({
                         />
                       ) : (
                         <Link className="album-edit-page-spread-link" href={`${pageEditHref}?spread=${draft?.spreads.findIndex((spread) => spread.id === page.id) ?? 0}`} aria-label={`${page.label}を編集`}>
-                          <DraftSpreadThumbnail spread={page.spread} previewUrls={draft?.previewUrls ?? {}} />
+                          <DraftSpreadThumbnail imageLoading={experimentalBodyLoading(experimentalOffscreenLazy, pageIndex, selected)} spread={page.spread} previewUrls={draft?.previewUrls ?? {}} />
                         </Link>
                       )}
                     </div>

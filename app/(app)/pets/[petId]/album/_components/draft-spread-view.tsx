@@ -35,6 +35,7 @@ type Props = {
   interactive?: boolean;
   digital?: boolean;
   thumbnail?: boolean;
+  imageLoading?: "lazy";
   selectedFrameId?: string | null;
   selectedElementId?: string | null;
   elements?: PageElement[];
@@ -54,7 +55,7 @@ type Props = {
   layoutId?: string;
 };
 
-function FrameImage({ src, crop, photoId, imageFit = "cover", onImageError }: { src: string; crop: CropTriple; photoId: string; imageFit?: LayoutImageFit; onImageError?: (photoId: string) => void }) {
+function FrameImage({ src, crop, photoId, imageFit = "cover", imageLoading, onImageError }: { src: string; crop: CropTriple; photoId: string; imageFit?: LayoutImageFit; imageLoading?: "lazy"; onImageError?: (photoId: string) => void }) {
   const safe = sanitizeCropTransform(crop);
   const originalPath = originalSignedObjectPath(src);
   const [loadState, setLoadState] = useState<LoadState>(src ? "loading" : "error");
@@ -89,6 +90,7 @@ function FrameImage({ src, crop, photoId, imageFit = "cover", onImageError }: { 
         // eslint-disable-next-line @next/next/no-img-element
         <img
           ref={imgRef}
+          loading={imageLoading}
           src={src}
           alt=""
           draggable={false}
@@ -123,6 +125,7 @@ export function DraftSpreadView({
   interactive = false,
   digital = false,
   thumbnail = false,
+  imageLoading,
   selectedFrameId = null,
   selectedElementId = null,
   elements = [],
@@ -427,7 +430,7 @@ export function DraftSpreadView({
               height: `${norm.h * 100}%`,
             }}
           >
-            <FrameImage src={src} crop={crop} imageFit={imageFit} photoId={photoId} onImageError={onImageError} />
+            <FrameImage imageLoading={imageLoading} src={src} crop={crop} imageFit={imageFit} photoId={photoId} onImageError={onImageError} />
           </div>
         );
       })}
