@@ -26,6 +26,7 @@ export function installImageTimingDiagnostics() {
   let nextResourceOrdinal = 0;
   let maxScanDurationMs = 0;
   let stopped = false;
+  let publicationReady = false;
   let failed = false;
   let headingAt: number | null = null;
   let documentLoadAt: number | null = null;
@@ -39,7 +40,7 @@ export function installImageTimingDiagnostics() {
 
   function record(img: HTMLImageElement) {
     if (!images.has(img) && images.size < MAX_IMAGES) {
-      images.set(img, { ordinal: nextOrdinal++, firstObservedAt: now(), completeObservedAt: null, loadEvents: [], errorEvents: [] });
+      images.set(img, { ordinal: nextOrdinal++, firstObservedAt: now(), completeObservedAt: img.complete && img.naturalWidth > 0 ? now() : null, loadEvents: [], errorEvents: [] });
     }
     return images.get(img);
   }
@@ -76,7 +77,8 @@ export function installImageTimingDiagnostics() {
   }
   function publish() {
     const output = document.getElementById(OUTPUT_ID);
-    if (!output) return;
+    if (!output || output.dataset.observerReady !== "1") return;
+    publicationReady = true;
     captureHeading();
     const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
     const rows = [...images].filter(([img]) => img.isConnected).map(([img, state]) => {
@@ -118,6 +120,7 @@ export function installImageTimingDiagnostics() {
     try {
       if (diagnosticRoute(location.pathname, location.search) !== route) { stop(); return; }
       for (const img of document.images) record(img);
+      captureHeading();
       publish();
     } catch { failed = true; }
     finally { maxScanDurationMs = Math.max(maxScanDurationMs, performance.now() - startedAt); }
@@ -145,7 +148,7 @@ export function installImageTimingDiagnostics() {
   function tick() {
     scan();
     if (stopped) return;
-    if (performance.now() - installedAt >= MAX_MS || (documentLoadAt !== null && performance.now() - documentLoadAt >= 4000 && !pendingRelevantImage && performance.now() - lastImageEventAt >= 500)) stop();
+    if (performance.now() - installedAt >= MAX_MS || (publicationReady && documentLoadAt !== null && performance.now() - documentLoadAt >= 4000 && !pendingRelevantImage && performance.now() - lastImageEventAt >= 500)) stop();
     else timer = setTimeout(tick, SCAN_MS);
   }
   document.addEventListener("load", onImage, true); document.addEventListener("error", onImage, true);

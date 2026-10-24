@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PreviewImageTimingOutlet } from "./image-timing-outlet";
 import { Geist, Geist_Mono, Klee_One, Zen_Kurenaido } from "next/font/google";
 import "./globals.css";
 
@@ -57,7 +58,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <body className="min-h-full flex flex-col">
         {children}
-        {process.env.VERCEL_ENV === "preview" ? <script id="image-timing-diagnostics" type="application/json" suppressHydrationWarning /> : null}
+        {process.env.VERCEL_ENV === "preview" ? <PreviewImageTimingOutlet /> : null}
       </body>
     </html>
   );

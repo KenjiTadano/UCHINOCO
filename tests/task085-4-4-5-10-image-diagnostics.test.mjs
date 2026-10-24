@@ -14,8 +14,8 @@ test('sanitizer never reads name getter or emits arbitrary initiator text',()=>{
 test('non-finite and string timing values cannot carry payloads',()=>{for(const x of [NaN,Infinity,-1,privateUrl,{},null])assert.equal(finiteTiming(x),0);assert.equal(finiteTiming(1.26),1.3)});
 test('route classification emits only generic enums and excludes Print/Cover/login',()=>{assert.equal(diagnosticRoute('/pets/synthetic/album/synthetic/edit',''),'edit');assert.equal(diagnosticRoute('/pets/synthetic/album/synthetic/pages/edit',''),'page-editor');assert.equal(diagnosticRoute('/pets/synthetic/album/synthetic','?view=preview'),'preview');for(const path of ['/login','/home','/pets/synthetic/album/synthetic/print','/pets/synthetic/album/synthetic/cover/edit'])assert.equal(diagnosticRoute(path,''),null)});
 
-async function harness({complete=false,opacity='0'}={}){
- let clock=10;const timers=[],docEvents={},winEvents={};const output={id:'image-timing-diagnostics',textContent:''};
+async function harness({complete=false,opacity='0',ready=true}={}){
+ let clock=10;const timers=[],docEvents={},winEvents={};const output={id:'image-timing-diagnostics',textContent:'',dataset:{observerReady:ready?'1':'0'}};
  class FakeElement{constructor(){this.id='';this.parentElement=null;this.isConnected=true}getBoundingClientRect(){return {x:10,y:10,left:10,top:10,right:110,bottom:110,width:100,height:100}}closest(){return null}}
  class FakeImage extends FakeElement{constructor(){super();this.complete=complete;this.naturalWidth=complete?100:0;this.naturalHeight=complete?100:0;this.src=privateUrl;this.currentSrc=privateUrl}getAttribute(k){return k==='src'?privateUrl:k==='loading'?'eager':k==='decoding'?'async':null}}
  const img=new FakeImage(),document={images:[img],readyState:'interactive',documentElement:new FakeElement(),getElementById:()=>output,querySelector:()=>({textContent:'アルバムを編集'}),addEventListener:(name,cb)=>docEvents[name]=cb,removeEventListener:(name)=>delete docEvents[name]};
@@ -34,11 +34,20 @@ test('Production omits diagnostic DOM and disables client build flag',async()=>{
  const compile=async file=>ts.transpileModule(await readFile(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
  const [layout,config]=await Promise.all([compile('app/layout.tsx'),compile('next.config.ts')]);
  for(const mode of ['production','preview']){
-  const exports={},jsx=(type,props)=>({type,props});
-  vm.runInNewContext(layout,{exports,URL,process:{env:{VERCEL_ENV:mode}},require:name=>name==='react/jsx-runtime'?{jsx,jsxs:jsx}:name==='next/font/google'?Object.fromEntries(['Geist','Geist_Mono','Klee_One','Zen_Kurenaido'].map(k=>[k,()=>({variable:'synthetic-font'})])):{}});
+  const exports={},jsx=(type,props)=>typeof type==='function'?type(props):({type,props});
+  vm.runInNewContext(layout,{exports,URL,process:{env:{VERCEL_ENV:mode}},require:name=>name==='react/jsx-runtime'?{jsx,jsxs:jsx}:name==='./image-timing-outlet'?{PreviewImageTimingOutlet:()=>jsx('output',{id:'image-timing-diagnostics',hidden:true})}:name==='next/font/google'?Object.fromEntries(['Geist','Geist_Mono','Klee_One','Zen_Kurenaido'].map(k=>[k,()=>({variable:'synthetic-font'})])):{}});
   const tree=exports.default({children:'app'});const serialized=JSON.stringify(tree);assert.equal(serialized.includes('image-timing-diagnostics'),mode==='preview');
   const configExports={};vm.runInNewContext(config,{exports:configExports,URL,process:{env:{VERCEL_ENV:mode}}});assert.equal(configExports.default.env.NEXT_PUBLIC_IMAGE_TIMING_DIAGNOSTICS,mode==='preview'?'1':'0');
  }
 });
 
 test('image preloads retain allowlisted link initiator for runtime DOM matching',()=>{assert.equal(resourceTimingData({initiatorType:'link',startTime:1,responseEnd:2}).initiatorType,'link')});
+
+test('events captured early leave DOM untouched until hydration readiness',async()=>{const h=await harness({ready:false});assert.equal(h.output.textContent,'');h.setClock(100);h.img.complete=true;h.img.naturalWidth=100;h.docEvents.load({target:h.img,type:'load'});assert.equal(h.output.textContent,'');h.output.dataset.observerReady='1';h.setClock(200);h.timers.at(-1)();assert.deepEqual(h.read().images[0].loadEvents,[100]);assert.equal(h.read().images[0].completeObservedAt,100)});
+test('client outlet independently returns null when Preview build flag is disabled',async()=>{
+ const code=ts.transpileModule(await readFile('app/image-timing-outlet.tsx','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+ for(const enabled of ['0','1']){
+  const exports={};vm.runInNewContext(code,{exports,process:{env:{NEXT_PUBLIC_IMAGE_TIMING_DIAGNOSTICS:enabled}},require:n=>n==='react'?{useRef:()=>({current:null}),useEffect:()=>{}}:{jsx:(type,props)=>({type,props})}});
+  const rendered=exports.PreviewImageTimingOutlet();assert.equal(rendered===null,enabled==='0');if(rendered)assert.equal(rendered.props.hidden,true);
+ }
+});
