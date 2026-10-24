@@ -5,6 +5,7 @@ const supabaseUrl = new URL(
 );
 
 const nextConfig: NextConfig = {
+  env: { NEXT_PUBLIC_IMAGE_TIMING_DIAGNOSTICS: process.env.VERCEL_ENV === "preview" ? "1" : "0" },
   async headers() {
     return [
       {

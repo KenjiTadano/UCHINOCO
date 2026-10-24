@@ -55,7 +55,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="ja"
       className={`${geistSans.variable} ${geistMono.variable} ${zenKurenaido.variable} ${kleeOne.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        {process.env.VERCEL_ENV === "preview" ? <script id="image-timing-diagnostics" type="application/json" suppressHydrationWarning /> : null}
+      </body>
     </html>
   );
 }
