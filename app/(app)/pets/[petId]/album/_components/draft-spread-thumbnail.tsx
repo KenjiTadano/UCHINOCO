@@ -9,7 +9,7 @@ import { DraftSpreadView } from "./draft-spread-view";
 const geometry = digitalSpreadGeometry();
 
 /** Scale the existing renderer, including text/layers, rather than rebuilding an image. */
-export function DraftSpreadThumbnail({ spread, previewUrls, imageLoading }: { imageLoading?: "lazy"; spread: PersistedSpreadView; previewUrls: Record<string, string> }) {
+export function DraftSpreadThumbnail({ spread, previewUrls, imageLoading, imageFetchPriority }: { imageFetchPriority?: "low"; imageLoading?: "lazy"; spread: PersistedSpreadView; previewUrls: Record<string, string> }) {
   const root = useRef<HTMLSpanElement>(null);
   const [width, setWidth] = useState(70);
   useEffect(() => {
@@ -24,7 +24,7 @@ export function DraftSpreadThumbnail({ spread, previewUrls, imageLoading }: { im
   return (
     <span ref={root} className="draft-spread-thumbnail" style={{ display: "block", width: "100%", aspectRatio: geometry.aspectRatio, position: "relative", overflow: "hidden", pointerEvents: "none" }} aria-hidden="true">
       <span style={{ display: "block", position: "absolute", width: geometry.width, height: geometry.height, transform: `scale(${width / geometry.width})`, transformOrigin: "top left" }}>
-        <DraftSpreadView {...draftSpreadRenderProps(spread, previewUrls)} thumbnail imageLoading={imageLoading} />
+        <DraftSpreadView {...draftSpreadRenderProps(spread, previewUrls)} thumbnail imageLoading={imageLoading} imageFetchPriority={imageFetchPriority} />
       </span>
     </span>
   );

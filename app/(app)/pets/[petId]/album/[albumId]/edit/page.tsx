@@ -1,4 +1,4 @@
-import { imageLoadingExperiment } from "@/lib/diagnostics/offscreen-image-experiment";
+import { imageLoadingExperiment, imageLowPriorityExperiment } from "@/lib/diagnostics/offscreen-image-experiment";
 import { createRouteReadContext } from "@/lib/album-persistence/route-read-context";
 import { traceRouteLoader } from "@/lib/album-persistence/route-loader-trace";
 import { notFound, redirect } from "next/navigation";
@@ -19,7 +19,9 @@ type Props = {
 
 export default async function AlbumEditPage({ params, searchParams }: Props) {
   const { petId, albumId } = await params;
-  const experiment = imageLoadingExperiment(process.env.VERCEL_ENV, (await searchParams)?.imageLoading);
+  const imageMode = (await searchParams)?.imageLoading;
+  const experiment = imageLoadingExperiment(process.env.VERCEL_ENV, imageMode);
+  const lowPriority = imageLowPriorityExperiment(process.env.VERCEL_ENV, imageMode);
   const supabase = await createClient();
   const {
     data: { user },
@@ -59,6 +61,7 @@ export default async function AlbumEditPage({ params, searchParams }: Props) {
   return (
     <AlbumEditScreen
       experimentalOffscreenLazy={experiment}
+      experimentalOffscreenLowPriority={lowPriority}
       petName={pet.name}
       coverSrc={coverSrc}
       dateLabel={cover?.subtitle ?? coverDateLabel}

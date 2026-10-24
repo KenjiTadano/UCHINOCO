@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {readFile} from 'node:fs/promises';
-import {imageLoadingExperiment,experimentalBodyLoading} from '../lib/diagnostics/offscreen-image-experiment.ts';
+import {imageLoadingExperiment,imageLowPriorityExperiment,experimentalBodyLoading} from '../lib/diagnostics/offscreen-image-experiment.ts';
 
 test('experiment is disabled for Production and invalid query values',()=>{
  for(const env of ['production','development',undefined])assert.equal(imageLoadingExperiment(env,'lazy'),false);
@@ -29,5 +29,14 @@ test('only Edit opts in; Preview and Page Editor do not set loading experiment',
  const base='app/(app)/pets/[petId]/album/';
  for(const path of ['[albumId]/page.tsx','[albumId]/pages/edit/page.tsx'])assert.doesNotMatch(await readFile(base+path,'utf8'),/experimentalOffscreenLazy|imageLoadingExperiment/);
  const page=await readFile(base+'[albumId]/edit/page.tsx','utf8');assert.match(page,/imageLoadingExperiment\(process.env.VERCEL_ENV/);
- const renderer=await readFile(base+'_components/draft-spread-view.tsx','utf8');assert.match(renderer,/loading=\{imageLoading\}/);assert.doesNotMatch(renderer,/fetchPriority=/);
+ const renderer=await readFile(base+'_components/draft-spread-view.tsx','utf8');assert.match(renderer,/loading=\{imageLoading\}/);assert.match(renderer,/fetchPriority=\{imageFetchPriority\}/);
+});
+
+test('low-priority B is Preview-only and leaves baseline/A unchanged',()=>{
+ for(const mode of ['baseline','lazy',undefined])assert.equal(imageLowPriorityExperiment('preview',mode),false);
+ assert.equal(imageLowPriorityExperiment('production','lazy-low'),false);
+ assert.equal(imageLowPriorityExperiment('preview','lazy-low'),true);
+ assert.equal(imageLoadingExperiment('preview','lazy-low'),true);
+ const html=renderToStaticMarkup(React.createElement('img',{src:'https://synthetic.invalid/b.jpg',loading:'lazy',fetchPriority:'low'}));
+ assert.doesNotMatch(html,/rel="preload"/);assert.match(html,/fetchPriority="low"/);
 });

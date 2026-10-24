@@ -33,6 +33,7 @@ export type AlbumEditPageEntry =
 
 export type AlbumEditScreenProps = {
   experimentalOffscreenLazy?: boolean;
+  experimentalOffscreenLowPriority?: boolean;
   petName: string;
   coverSrc: string | null;
   dateLabel: string;
@@ -63,6 +64,7 @@ const TOOLS = [
 
 export function AlbumEditScreen({
   experimentalOffscreenLazy = false,
+  experimentalOffscreenLowPriority = false,
   petName,
   coverSrc,
   dateLabel,
@@ -200,7 +202,7 @@ export function AlbumEditScreen({
                         />
                       ) : (
                         <Link className="album-edit-page-spread-link" href={`${pageEditHref}?spread=${draft?.spreads.findIndex((spread) => spread.id === page.id) ?? 0}`} aria-label={`${page.label}を編集`}>
-                          <DraftSpreadThumbnail imageLoading={experimentalBodyLoading(experimentalOffscreenLazy, pageIndex, selected)} spread={page.spread} previewUrls={draft?.previewUrls ?? {}} />
+                          <DraftSpreadThumbnail imageFetchPriority={experimentalOffscreenLowPriority && experimentalBodyLoading(experimentalOffscreenLazy, pageIndex, selected) ? "low" : undefined} imageLoading={experimentalBodyLoading(experimentalOffscreenLazy, pageIndex, selected)} spread={page.spread} previewUrls={draft?.previewUrls ?? {}} />
                         </Link>
                       )}
                     </div>

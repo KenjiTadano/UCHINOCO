@@ -36,6 +36,7 @@ type Props = {
   digital?: boolean;
   thumbnail?: boolean;
   imageLoading?: "lazy";
+  imageFetchPriority?: "low";
   selectedFrameId?: string | null;
   selectedElementId?: string | null;
   elements?: PageElement[];
@@ -55,7 +56,7 @@ type Props = {
   layoutId?: string;
 };
 
-function FrameImage({ src, crop, photoId, imageFit = "cover", imageLoading, onImageError }: { src: string; crop: CropTriple; photoId: string; imageFit?: LayoutImageFit; imageLoading?: "lazy"; onImageError?: (photoId: string) => void }) {
+function FrameImage({ src, crop, photoId, imageFit = "cover", imageLoading, imageFetchPriority, onImageError }: { src: string; crop: CropTriple; photoId: string; imageFit?: LayoutImageFit; imageLoading?: "lazy"; imageFetchPriority?: "low"; onImageError?: (photoId: string) => void }) {
   const safe = sanitizeCropTransform(crop);
   const originalPath = originalSignedObjectPath(src);
   const [loadState, setLoadState] = useState<LoadState>(src ? "loading" : "error");
@@ -91,6 +92,7 @@ function FrameImage({ src, crop, photoId, imageFit = "cover", imageLoading, onIm
         <img
           ref={imgRef}
           loading={imageLoading}
+          fetchPriority={imageFetchPriority}
           src={src}
           alt=""
           draggable={false}
@@ -126,6 +128,7 @@ export function DraftSpreadView({
   digital = false,
   thumbnail = false,
   imageLoading,
+  imageFetchPriority,
   selectedFrameId = null,
   selectedElementId = null,
   elements = [],
@@ -430,7 +433,7 @@ export function DraftSpreadView({
               height: `${norm.h * 100}%`,
             }}
           >
-            <FrameImage imageLoading={imageLoading} src={src} crop={crop} imageFit={imageFit} photoId={photoId} onImageError={onImageError} />
+            <FrameImage imageFetchPriority={imageFetchPriority} imageLoading={imageLoading} src={src} crop={crop} imageFit={imageFit} photoId={photoId} onImageError={onImageError} />
           </div>
         );
       })}
