@@ -29,6 +29,9 @@ export function installImageTimingDiagnostics() {
   let failed = false;
   let headingAt: number | null = null;
   let documentLoadAt: number | null = null;
+  let bodyObservedAt: number | null = null;
+  let pendingRelevantImage = false;
+  let lastImageEventAt = installedAt;
   let nextOrdinal = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let resourceObserver: PerformanceObserver | undefined;
@@ -69,6 +72,7 @@ export function installImageTimingDiagnostics() {
     const heading = document.querySelector("h1");
     const expected = route === "edit" ? "アルバムを編集" : route === "page-editor" ? "ページを編集" : "アルバムのプレビュー";
     if (headingAt === null && heading?.textContent?.trim() === expected) headingAt = now();
+    if (route === "preview" && bodyObservedAt === null && document.querySelector('[role="tablist"]')) bodyObservedAt = now();
   }
   function publish() {
     const output = document.getElementById(OUTPUT_ID);
@@ -95,9 +99,10 @@ export function installImageTimingDiagnostics() {
         loadEventUnavailable: img.complete && state.loadEvents.length === 0,
       };
     });
+    pendingRelevantImage = rows.some(row => !row.complete && (row.viewport !== "offscreen" || row.loading !== "lazy"));
     output.textContent = JSON.stringify({
       version: 1, route, timeOrigin: finiteTiming(performance.timeOrigin), observerInstalledAt: finiteTiming(installedAt),
-      observedAt: now(), headingObservedAt: headingAt, documentLoadAt,
+      observedAt: now(), headingObservedAt: headingAt, bodyObservedAt, documentLoadAt,
       navigation: navigation ? {
         startTime: finiteTiming(navigation.startTime), responseStart: finiteTiming(navigation.responseStart),
         responseEnd: finiteTiming(navigation.responseEnd), domContentLoadedEventEnd: finiteTiming(navigation.domContentLoadedEventEnd),
@@ -121,6 +126,7 @@ export function installImageTimingDiagnostics() {
     if (stopped || !(event.target instanceof HTMLImageElement)) return;
     const state = record(event.target);
     if (!state) return;
+    lastImageEventAt = performance.now();
     const events = event.type === "load" ? state.loadEvents : state.errorEvents;
     if (events.length < MAX_EVENTS) events.push(now());
     if (event.type === "load" && event.target.complete && event.target.naturalWidth > 0) state.completeObservedAt ??= now();
@@ -139,7 +145,7 @@ export function installImageTimingDiagnostics() {
   function tick() {
     scan();
     if (stopped) return;
-    if (performance.now() - installedAt >= MAX_MS || (documentLoadAt !== null && performance.now() - documentLoadAt >= 4000)) stop();
+    if (performance.now() - installedAt >= MAX_MS || (documentLoadAt !== null && performance.now() - documentLoadAt >= 4000 && !pendingRelevantImage && performance.now() - lastImageEventAt >= 500)) stop();
     else timer = setTimeout(tick, SCAN_MS);
   }
   document.addEventListener("load", onImage, true); document.addEventListener("error", onImage, true);
