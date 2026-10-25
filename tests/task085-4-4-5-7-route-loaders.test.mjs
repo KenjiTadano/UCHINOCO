@@ -1,3 +1,4 @@
+import {sourceReuseEnabled} from "../lib/album-persistence/source-reuse-mode.ts";
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {readFile} from 'node:fs/promises';
@@ -43,6 +44,7 @@ for(const wrongPet of [false,true])test('actual Preview route preserves RLS-shar
  '*':()=>({}), 'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})},
  'next/navigation':{notFound(){throw Error('not-found')},redirect(){throw Error('redirect')}},
  '@/lib/supabase/server':{createClient:async()=>db},
+ '@/lib/album-persistence/source-reuse-mode':{sourceReuseEnabled},
  '@/lib/album-persistence/route-read-context':{createRouteReadContext},
  '@/lib/album-persistence/load-route-draft':{loadRouteDraft:async(_db,ctx)=>{assert.equal(ctx.userId,'member');assert.equal(ctx.album.owner_user_id,'different-owner');delivered++;return {draft:{versionId:'v'},cover:{photoId:'cover'}}}},
  '@/lib/album-analytics-server':{recordAlbumAnalyticsEvent:async()=>{}},

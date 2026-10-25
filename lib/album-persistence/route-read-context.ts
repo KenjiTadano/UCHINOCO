@@ -8,14 +8,14 @@ export type RouteVersion = { id: string; album_id: string; status: string; revis
 export type RoutePhoto = { id: string; storage_path: string; thumbnail_path: string | null };
 
 /** Server-render context only: construct after getUser; never pass to a Server Action. */
-export function createRouteReadContext(supabase: SupabaseClient, userId: string, album: RouteAlbum) {
+export function createRouteReadContext(supabase: SupabaseClient, userId: string, album: RouteAlbum, reuseSignedSources = false) {
   let version: Promise<RouteVersion | null> | undefined;
   let links: Promise<string[] | null> | undefined;
   let eligibility: Promise<AlbumPhotoEligibility | null> | undefined;
   const photos = new Map<string, RoutePhoto>();
   const photoLoads = new Map<string, Promise<RoutePhoto | null>>();
   return {
-    userId, album,
+    userId, album, reuseSignedSources,
     version() {
       return version ??= traceAlbumLoad("draft.version", async () => {
         const { data, error } = await supabase.from("album_draft_versions").select("id, album_id, status, revision, created_at, generation_metadata").eq("album_id", album.id).eq("is_active", true).maybeSingle();

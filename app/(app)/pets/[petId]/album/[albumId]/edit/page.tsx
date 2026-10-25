@@ -1,3 +1,4 @@
+import { sourceReuseEnabled } from "@/lib/album-persistence/source-reuse-mode";
 import { createRouteReadContext } from "@/lib/album-persistence/route-read-context";
 import { traceRouteLoader } from "@/lib/album-persistence/route-loader-trace";
 import { notFound, redirect } from "next/navigation";
@@ -13,10 +14,12 @@ import {
 
 type Props = {
   params: Promise<{ petId: string; albumId: string }>;
+  searchParams: Promise<{ sourceReuse?: string | string[] }>;
 };
 
-export default async function AlbumEditPage({ params }: Props) {
+export default async function AlbumEditPage({ params, searchParams }: Props) {
   const { petId, albumId } = await params;
+  const reuse = sourceReuseEnabled((await searchParams)?.sourceReuse);
   const supabase = await createClient();
   const {
     data: { user },
@@ -40,7 +43,7 @@ export default async function AlbumEditPage({ params }: Props) {
     .maybeSingle()),
   ]);
   if (albumError || !album || !pet) notFound();
-  const context = createRouteReadContext(supabase, user.id, album);
+  const context = createRouteReadContext(supabase, user.id, album, reuse);
   if (album.status === "ordered") redirect(`/pets/${petId}/album/${albumId}`);
 
 

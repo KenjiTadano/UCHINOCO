@@ -1,3 +1,4 @@
+import { applySourceReuse } from "./signed-source-reuse";
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
@@ -94,7 +95,8 @@ export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], 
   const ids = [...new Set(photoIds)];
   if (ids.length === 0) return new Map<string, string>();
   const { data: photos } = context ? { data: await context.photoRecords(ids) } : await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", ids);
-  return createPhotoPreviewUrls(supabase, photos ?? [], true, refresh, context?.userId);
+  const fresh = await createPhotoPreviewUrls(supabase, photos ?? [], true, refresh, context?.userId);
+  return context && !refresh ? applySourceReuse(supabase, context.userId, fresh, context.reuseSignedSources) : fresh;
 }
 
 /** Active draft only. Does not create a version and does not run album generation. */

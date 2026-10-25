@@ -1,3 +1,4 @@
+import { sourceReuseEnabled } from "@/lib/album-persistence/source-reuse-mode";
 import { createRouteReadContext } from "@/lib/album-persistence/route-read-context";
 import { traceRouteLoader } from "@/lib/album-persistence/route-loader-trace";
 import { notFound, redirect } from "next/navigation";
@@ -13,12 +14,12 @@ import { NewPhotoSuggestionNotice } from "../../new-photo-suggestion";
 
 type Props = {
   params: Promise<{ petId: string; albumId: string }>;
-  searchParams: Promise<{ spread?: string }>;
+  searchParams: Promise<{ spread?: string; sourceReuse?: string | string[] }>;
 };
 
 export default async function PageEditPage({ params, searchParams }: Props) {
   const { petId, albumId } = await params;
-  const { spread: spreadParam } = await searchParams;
+  const { spread: spreadParam, sourceReuse } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -42,7 +43,7 @@ export default async function PageEditPage({ params, searchParams }: Props) {
     .maybeSingle()),
   ]);
   if (albumError || !album || !pet) notFound();
-  const context = createRouteReadContext(supabase, user.id, album);
+  const context = createRouteReadContext(supabase, user.id, album, sourceReuseEnabled(sourceReuse));
 
 
   // Saved draft only. Opening the editor does not regenerate the album or call Vision.

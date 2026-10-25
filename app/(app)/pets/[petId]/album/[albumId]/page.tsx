@@ -1,3 +1,4 @@
+import { sourceReuseEnabled } from "@/lib/album-persistence/source-reuse-mode";
 import { createRouteReadContext } from "@/lib/album-persistence/route-read-context";
 import { loadRouteDraft } from "@/lib/album-persistence/load-route-draft";
 import { traceRouteLoader } from "@/lib/album-persistence/route-loader-trace";
@@ -24,12 +25,12 @@ import { loadUserEntitlements } from "@/lib/entitlements-server";
 
 type Props = {
   params: Promise<{ petId: string; albumId: string }>;
-  searchParams: Promise<{ view?: string; preview?: string }>;
+  searchParams: Promise<{ view?: string; preview?: string; sourceReuse?: string | string[] }>;
 };
 
 export default async function AlbumDetailPage({ params, searchParams }: Props) {
   const { petId, albumId } = await params;
-  const { view, preview } = await searchParams;
+  const { view, preview, sourceReuse } = await searchParams;
   const showComplete = view === "complete" || preview === "complete";
   const showPreview = view === "preview" || preview === "preview";
 
@@ -45,7 +46,7 @@ export default async function AlbumDetailPage({ params, searchParams }: Props) {
 
   if (albumError || !album) notFound();
 
-  const context = createRouteReadContext(supabase, user.id, album);
+  const context = createRouteReadContext(supabase, user.id, album, showPreview && sourceReuseEnabled(sourceReuse));
   if (showPreview) {
     const { data: routePet } = await supabase.from("pets").select("id, name, owner_user_id").eq("id", petId).maybeSingle();
     if (!routePet) notFound();
