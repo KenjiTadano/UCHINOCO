@@ -126,3 +126,12 @@ test("other route sources cannot opt into the Edit adapter",async()=>{
  const src=await readFile("app/(app)/pets/[petId]/album/[albumId]/"+route,"utf8");assert.doesNotMatch(src,/applyEditSourceCanary|mapSignedUrls/);
  }
 });
+
+test("lease timestamp uses integer wall-clock precision across requests",async()=>{
+ const {createHmac,createDecipheriv}=await import("node:crypto");
+ const s=setup();await runEditSourceCanary(fresh(),"edit",owner,album,s.env,s.deps,now);
+ const bytes=Buffer.from([...s.values.values()][0],"base64url"),key=createHmac("sha256",s.lease.accessToken).update("uchinoco-signed-source-lease-v1").digest();
+ const decipher=createDecipheriv("aes-256-gcm",key,bytes.subarray(0,12));decipher.setAuthTag(bytes.subarray(12,28));
+ const payload=JSON.parse(Buffer.concat([decipher.update(bytes.subarray(28)),decipher.final()]).toString("utf8"));
+ assert.ok(Number.isInteger(payload.createdAt));
+});

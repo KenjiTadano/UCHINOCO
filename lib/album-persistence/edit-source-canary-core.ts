@@ -36,7 +36,7 @@ export async function runEditSourceCanary(fresh: Map<string, string>, route: str
       verifiedUserId, sessionUserId: data.session.user.id, accessToken: data.session.access_token,
       sessionExpiresAt: (data.session.expires_at ?? 0) * 1000,
       scope: admissionScope(env.project!, manifest, albumId), admission: manifest,
-    }, store, now + performance.now() - requestBegan, budget);
+    }, store, Math.floor(now + performance.now() - requestBegan), budget);
     optionalElapsedMs = Math.round(performance.now() - began); record(result.outcome, result.reusedCount);
     return result.urls;
   } catch (error) {
