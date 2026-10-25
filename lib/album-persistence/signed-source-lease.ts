@@ -1,3 +1,4 @@
+import { admissionAllows, type FiniteAdmission } from "./finite-source-admission.ts";
 import { optionalCacheBudget, OptionalCacheTimeout, MIN_SEED_BUDGET_MS, type OptionalCacheBudget } from "./optional-cache-budget.ts";
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 
@@ -6,7 +7,7 @@ const LEASE_MS = 5 * 60_000;
 const MAX_URL_AGE_MS = 50 * 60_000;
 const MAX_ITEMS = 100;
 const MAX_BYTES = 128 * 1024;
-export type SourceLease = { verifiedUserId: string; sessionUserId: string; accessToken: string; sessionExpiresAt: number; scope: string };
+export type SourceLease = { verifiedUserId: string; sessionUserId: string; accessToken: string; sessionExpiresAt: number; scope: string; admission?: FiniteAdmission };
 export type LeaseStore = { get(key: string, signal?: AbortSignal): Promise<unknown>; set(key: string, value: string, ttl: number, signal?: AbortSignal): Promise<unknown> };
 
 type Item = { identity: string; url: string; validUntil: number };
@@ -25,6 +26,18 @@ function inspect(url: string, now: number) {
     const variant = [...u.searchParams].filter(([k]) => k !== "token").sort(([a], [b]) => a.localeCompare(b));
     return { identity: JSON.stringify([u.origin, m[1], m[2], path, variant]), expiry: claims.exp * 1000 };
   } catch { return null; }
+}
+/** Server-only caller must freshly authorize the album/photo set before proposing enrollment. */
+export function proposeSourceAdmission(fresh: Map<string, string>, lease: SourceLease, startWindow: number, now = Date.now()) {
+  if (!lease.verifiedUserId || lease.sessionUserId !== lease.verifiedUserId || !lease.accessToken || !lease.scope || !Number.isSafeInteger(startWindow) || fresh.size === 0 || fresh.size > MAX_ITEMS) return null;
+  const parsed = [...fresh.values()].map(url => ({ url, source: inspect(url, now) }));
+  if (parsed.some(p => !p.source) || Buffer.byteLength(JSON.stringify(parsed)) > MAX_BYTES / 2 || lease.sessionExpiresAt <= (startWindow + 2) * LEASE_MS + MARGIN) return null;
+  const identities = [...new Set(parsed.map(p => p.source!.identity))].sort();
+  const key = createHmac("sha256", lease.accessToken).update("uchinoco-preview-source-lease-v1").digest();
+  const sessionTag = createHmac("sha256", key).update(JSON.stringify(["session", lease.verifiedUserId])).digest("hex");
+  const sourceSetTag = createHmac("sha256", key).update(JSON.stringify([lease.scope, identities])).digest("hex");
+  const binding = (window: number) => createHmac("sha256", key).update(JSON.stringify([lease.scope, lease.verifiedUserId, identities, window])).digest("hex");
+  return { sessionTag, sourceSetTag, bindings: [binding(startWindow), binding(startWindow + 1)] as [string, string] };
 }
 function encrypt(value: unknown, key: Buffer) {
   const nonce = randomBytes(12), cipher = createCipheriv("aes-256-gcm", key, nonce);
@@ -48,6 +61,11 @@ export async function reuseSignedSourceMap(fresh: Map<string, string>, lease: So
   const identities = [...new Set(parsed.map(p => p.source!.identity))].sort();
   const key = createHmac("sha256", lease.accessToken).update("uchinoco-preview-source-lease-v1").digest();
   const binding = createHmac("sha256", key).update(JSON.stringify([lease.scope, lease.verifiedUserId, identities, Math.floor(now / LEASE_MS)])).digest("hex");
+  if (lease.admission) {
+    const sessionTag = createHmac("sha256", key).update(JSON.stringify(["session", lease.verifiedUserId])).digest("hex");
+    const sourceSetTag = createHmac("sha256", key).update(JSON.stringify([lease.scope, identities])).digest("hex");
+    if (!admissionAllows(lease.admission, sessionTag, sourceSetTag, binding, now)) return fallback("admission-denied");
+  }
   const items: Item[] = identities.map(identity => {
     const p = parsed.find(p => p.source!.identity === identity)!;
     return { identity, url: p.url, validUntil: Math.min(p.source!.expiry, now + MAX_URL_AGE_MS, lease.sessionExpiresAt) };

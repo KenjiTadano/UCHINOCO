@@ -1,4 +1,5 @@
-/** Non-sensitive opt-in gate; authorization remains in each server route. */
-export function sourceReuseEnabled(mode: unknown, environment = process.env.VERCEL_ENV, branch = process.env.VERCEL_GIT_COMMIT_REF) {
-  return !process.env.SOURCE_REUSE_CONTROL_ID && environment === "preview" && branch === "codex/task085-4-4-5-13-source-reuse" && mode === "candidate";
+/** Query/branch experiment enrollment is retired. Only the finite server gate may enable Edit. */
+export function sourceReuseEnabled(_mode: unknown, _environment = process.env.VERCEL_ENV, _branch = process.env.VERCEL_GIT_COMMIT_REF) {
+  void _mode; void _environment; void _branch;
+  return false;
 }

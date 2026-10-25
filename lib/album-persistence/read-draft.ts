@@ -96,7 +96,7 @@ export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], 
   if (ids.length === 0) return new Map<string, string>();
   const { data: photos } = context ? { data: await context.photoRecords(ids) } : await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", ids);
   const fresh = await createPhotoPreviewUrls(supabase, photos ?? [], true, refresh, context?.userId);
-  return context && !refresh ? applySourceReuse(supabase, context.userId, fresh, context.reuseSignedSources) : fresh;
+  return context && !refresh ? applySourceReuse(supabase, context.userId, fresh, context.reuseSignedSources, context.album.id) : fresh;
 }
 
 /** Active draft only. Does not create a version and does not run album generation. */
