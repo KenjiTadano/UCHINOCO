@@ -126,4 +126,3 @@ test("other route sources cannot opt into the Edit adapter",async()=>{
  const src=await readFile("app/(app)/pets/[petId]/album/[albumId]/"+route,"utf8");assert.doesNotMatch(src,/applyEditSourceCanary|mapSignedUrls/);
  }
 });
-

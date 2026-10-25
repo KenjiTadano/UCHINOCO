@@ -39,4 +39,3 @@ export async function applyEditSourceCanary(supabase: SupabaseClient, verifiedUs
     metric,
   });
 }
-

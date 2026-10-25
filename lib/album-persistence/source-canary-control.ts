@@ -28,4 +28,3 @@ export async function readCanaryControl(read: (signal: AbortSignal) => Promise<u
 }
 
 export { admissionDigest };
-

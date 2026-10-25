@@ -41,4 +41,3 @@ export function parsePinnedAdmission(raw: string | undefined, digest: string | u
   const m = parseFiniteAdmission(raw, runtime);
   return m && admissionDigest(m) === digest ? m : null;
 }
-
