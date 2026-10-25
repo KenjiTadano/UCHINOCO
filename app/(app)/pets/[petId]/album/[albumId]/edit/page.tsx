@@ -1,3 +1,4 @@
+import { previewCanaryAllows } from "@/lib/album-persistence/source-reuse-canary-preview";
 import { sourceReuseEnabled } from "@/lib/album-persistence/source-reuse-mode";
 import { createRouteReadContext } from "@/lib/album-persistence/route-read-context";
 import { traceRouteLoader } from "@/lib/album-persistence/route-loader-trace";
@@ -43,7 +44,8 @@ export default async function AlbumEditPage({ params, searchParams }: Props) {
     .maybeSingle()),
   ]);
   if (albumError || !album || !pet) notFound();
-  const context = createRouteReadContext(supabase, user.id, album, reuse);
+  const runtimeReuse = await previewCanaryAllows("edit", user.id);
+  const context = createRouteReadContext(supabase, user.id, album, reuse || runtimeReuse);
   if (album.status === "ordered") redirect(`/pets/${petId}/album/${albumId}`);
 
 

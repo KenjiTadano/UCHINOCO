@@ -120,6 +120,7 @@ let serverHarness;
 const load = Module._load;
 Module._load = function(specifier, parent, ...rest) {
   if (parent?.filename.endsWith('/[albumId]/edit/page.tsx') && serverHarness) {
+    if (specifier.includes('source-reuse-canary-preview')) return { previewCanaryAllows: async () => false };
     if (specifier.includes('route-read-context')) return { createRouteReadContext: (_db,_user,album) => ({album}) };
     if (specifier.includes('route-loader-trace')) return { traceRouteLoader: (_stage, work) => work() };
     if (specifier.includes('load-route-draft')) return { loadRouteDraft: async () => { serverHarness.loads++; return {draft:serverHarness.draft,cover:null,coverSrc:null}; } };

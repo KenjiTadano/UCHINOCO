@@ -29,6 +29,7 @@ Module._load = function(specifier, parent, ...rest) {
     if (specifier.includes('use-editor-history')) return { useEditorHistory: () => ({ push() {}, note() {}, undo() {}, redo() {}, beginGesture() {}, endGesture() {}, canUndo: false, canRedo: false }) };
   }
   if (name.endsWith('/[albumId]/edit/page.tsx')) {
+    if (specifier.includes('source-reuse-canary-preview')) return { previewCanaryAllows: async () => false };
     if (specifier.includes('route-read-context')) return { createRouteReadContext: (_db,_user,album) => ({album}) };
     if (specifier.includes('route-loader-trace')) return { traceRouteLoader: (_stage,work) => work() };
     if (specifier.includes('load-route-draft')) return { loadRouteDraft: async () => { const {data}=await store.client.from('album_draft_covers').select('*').eq('draft_version_id',ids.version).maybeSingle(); const cover=toCoverEditor(mapDraftCoverRow(data),urls); return {draft:{versionId:ids.version,spreads:[],previewUrls:urls},cover,coverSrc:cover.previewUrl}; } };

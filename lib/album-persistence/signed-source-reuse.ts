@@ -8,7 +8,7 @@ export { sourceReuseEnabled } from "./source-reuse-mode";
 
 /** Only postprocess sources obtained after fresh route/photo authorization. */
 export async function applySourceReuse(supabase: SupabaseClient, userId: string, fresh: Map<string, string>, enabled: boolean) {
-  if (!enabled || !sourceReuseEnabled("candidate") || !process.env.VERCEL_GIT_COMMIT_SHA || process.env.SUSPENSE_CACHE_DEBUG === "true") return fresh;
+  if (!enabled || !(sourceReuseEnabled("candidate") || (process.env.VERCEL_ENV === "preview" && Boolean(process.env.SOURCE_REUSE_CONTROL_ID))) || !process.env.VERCEL_GIT_COMMIT_SHA || process.env.SUSPENSE_CACHE_DEBUG === "true") return fresh;
   const start = performance.now();
   try {
     const { data, error } = await supabase.auth.getSession();
