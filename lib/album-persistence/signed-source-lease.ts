@@ -31,13 +31,13 @@ function inspect(url: string, now: number) {
 export function sourceAdmissionReadiness(fresh: Map<string, string>, lease: SourceLease, startWindow: number, now = Date.now()) {
   const parsed = [...fresh.values()].map(url => ({ url, source: inspect(url, now) }));
   return { sourceCount: fresh.size, invalidSourceCount: parsed.filter(p => !p.source).length,
-    sourceEnvelopeBytes: Buffer.byteLength(JSON.stringify(parsed)), sessionCoversTrial: lease.sessionExpiresAt > (startWindow + 2) * LEASE_MS + MARGIN };
+    sourceEnvelopeBytes: Buffer.byteLength(JSON.stringify(parsed)), sessionCoversStart: lease.sessionExpiresAt > startWindow * LEASE_MS + MARGIN, sessionCoversTrial: lease.sessionExpiresAt > (startWindow + 2) * LEASE_MS + MARGIN };
 }
 /** Server-only caller must freshly authorize the album/photo set before proposing enrollment. */
 export function proposeSourceAdmission(fresh: Map<string, string>, lease: SourceLease, startWindow: number, now = Date.now()) {
-  if (!lease.verifiedUserId || lease.sessionUserId !== lease.verifiedUserId || !lease.accessToken || !lease.scope || !Number.isSafeInteger(startWindow) || fresh.size === 0 || fresh.size > MAX_ITEMS) return null;
+  if (!lease.verifiedUserId || lease.sessionUserId !== lease.verifiedUserId || !lease.accessToken || !lease.scope || !Number.isSafeInteger(startWindow) || !Number.isFinite(lease.sessionExpiresAt) || fresh.size === 0 || fresh.size > MAX_ITEMS) return null;
   const parsed = [...fresh.values()].map(url => ({ url, source: inspect(url, now) }));
-  if (parsed.some(p => !p.source) || Buffer.byteLength(JSON.stringify(parsed)) > MAX_BYTES / 2 || lease.sessionExpiresAt <= (startWindow + 2) * LEASE_MS + MARGIN) return null;
+  if (parsed.some(p => !p.source) || Buffer.byteLength(JSON.stringify(parsed)) > MAX_BYTES / 2 || lease.sessionExpiresAt <= now + MARGIN) return null;
   const identities = [...new Set(parsed.map(p => p.source!.identity))].sort();
   const key = createHmac("sha256", lease.accessToken).update("uchinoco-preview-source-lease-v1").digest();
   const sessionTag = createHmac("sha256", key).update(JSON.stringify(["session", lease.verifiedUserId])).digest("hex");
