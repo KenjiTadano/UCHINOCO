@@ -1,3 +1,4 @@
+import { optionalCacheBudget, OptionalCacheTimeout, MIN_SEED_BUDGET_MS, type OptionalCacheBudget } from "./optional-cache-budget.ts";
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 
 const MARGIN = 30_000;
@@ -6,7 +7,7 @@ const MAX_URL_AGE_MS = 50 * 60_000;
 const MAX_ITEMS = 100;
 const MAX_BYTES = 128 * 1024;
 export type SourceLease = { verifiedUserId: string; sessionUserId: string; accessToken: string; sessionExpiresAt: number; scope: string };
-export type LeaseStore = { get(key: string): Promise<unknown>; set(key: string, value: string, ttl: number): Promise<unknown> };
+export type LeaseStore = { get(key: string, signal?: AbortSignal): Promise<unknown>; set(key: string, value: string, ttl: number, signal?: AbortSignal): Promise<unknown> };
 
 type Item = { identity: string; url: string; validUntil: number };
 function inspect(url: string, now: number) {
@@ -37,18 +38,13 @@ function decrypt(value: string, key: Buffer) {
   cipher.setAuthTag(bytes.subarray(12, 28));
   return JSON.parse(Buffer.concat([cipher.update(bytes.subarray(28)), cipher.final()]).toString("utf8"));
 }
-async function bounded<T>(work: Promise<T>): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try { return await Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Lease timeout")), 1000); })]); }
-  finally { if (timer) clearTimeout(timer); }
-}
-
 /** Fresh auth + RLS reads are mandatory. This cache never authenticates a request. */
-export async function reuseSignedSourceMap(fresh: Map<string, string>, lease: SourceLease, store: LeaseStore, now = Date.now()) {
+export async function reuseSignedSourceMap(fresh: Map<string, string>, lease: SourceLease, store: LeaseStore, now = Date.now(), budget: OptionalCacheBudget = optionalCacheBudget()) {
+  const began = performance.now();
   const fallback = (outcome: string) => ({ urls: fresh, outcome, reusedCount: 0 });
-  if (!lease.verifiedUserId || lease.sessionUserId !== lease.verifiedUserId || !lease.accessToken || !lease.scope || !Number.isFinite(lease.sessionExpiresAt) || lease.sessionExpiresAt <= now + MARGIN || fresh.size === 0 || fresh.size > MAX_ITEMS) return fallback("scope-disabled");
+  if (!lease.verifiedUserId || lease.sessionUserId !== lease.verifiedUserId || !lease.accessToken || !lease.scope || !Number.isFinite(lease.sessionExpiresAt) || lease.sessionExpiresAt <= now + MARGIN || fresh.size === 0 || fresh.size > MAX_ITEMS) return fallback("disabled");
   const parsed = [...fresh].map(([id, url]) => ({ id, url, source: inspect(url, now) }));
-  if (parsed.some(p => !p.source)) return fallback("source-unavailable");
+  if (parsed.some(p => !p.source)) return fallback("disabled");
   const identities = [...new Set(parsed.map(p => p.source!.identity))].sort();
   const key = createHmac("sha256", lease.accessToken).update("uchinoco-preview-source-lease-v1").digest();
   const binding = createHmac("sha256", key).update(JSON.stringify([lease.scope, lease.verifiedUserId, identities, Math.floor(now / LEASE_MS)])).digest("hex");
@@ -58,25 +54,31 @@ export async function reuseSignedSourceMap(fresh: Map<string, string>, lease: So
   });
   const reuseUntil = Math.min(now + LEASE_MS, ...items.map(i => i.validUntil - MARGIN));
   const payload = { binding, createdAt: now, reuseUntil, items };
-  if (Buffer.byteLength(JSON.stringify(payload)) > MAX_BYTES / 2 || reuseUntil <= now + 1000) return fallback("size-or-age-disabled");
+  if (Buffer.byteLength(JSON.stringify(payload)) > MAX_BYTES / 2 || reuseUntil <= now + 1000) return fallback("disabled");
   try {
-    const stored = await bounded(store.get(binding));
+    const stored = await budget.run("get", signal => store.get(binding, signal));
     if (stored === null || stored === undefined) {
+      if (budget.remaining() < MIN_SEED_BUDGET_MS) return fallback("seed-skipped-budget");
       const seed = encrypt(payload, key);
-      await bounded(store.set(binding, seed, Math.min(300, Math.floor((reuseUntil - now) / 1000))));
+      if (budget.remaining() < MIN_SEED_BUDGET_MS) return fallback("seed-skipped-budget");
+      await budget.run("set", signal => store.set(binding, seed, Math.min(300, Math.floor((reuseUntil - now) / 1000)), signal));
       return fallback("seed");
     }
-    if (typeof stored !== "string") return fallback("invalid-lease");
-    const cached = decrypt(stored, key);
-    if (cached.binding !== binding || !Number.isFinite(cached.createdAt) || cached.createdAt > now || now - cached.createdAt >= LEASE_MS || !Number.isFinite(cached.reuseUntil) || cached.reuseUntil <= now || cached.reuseUntil > cached.createdAt + LEASE_MS || !Array.isArray(cached.items) || cached.items.length !== items.length) return fallback("invalid-lease");
+    if (typeof stored !== "string") return fallback("invalid-entry");
+    let cached;
+    try { cached = decrypt(stored, key); } catch { return fallback("invalid-entry"); }
+    const validationNow = now + (performance.now() - began);
+    if (!cached || typeof cached !== "object") return fallback("invalid-entry");
+    if (cached.binding !== binding || !Number.isFinite(cached.createdAt) || cached.createdAt > now || now - cached.createdAt >= LEASE_MS || !Number.isFinite(cached.reuseUntil) || cached.reuseUntil <= validationNow || cached.reuseUntil > cached.createdAt + LEASE_MS || !Array.isArray(cached.items) || cached.items.length !== items.length) return fallback("invalid-entry");
     const byIdentity = new Map<string, Item>();
     for (const item of cached.items) {
-      if (typeof item?.url !== "string" || typeof item.identity !== "string" || !Number.isFinite(item.validUntil) || item.validUntil <= now + MARGIN || item.validUntil > lease.sessionExpiresAt || item.validUntil > cached.createdAt + MAX_URL_AGE_MS) return fallback("invalid-lease");
-      const checked = inspect(item.url, now);
-      if (!checked || checked.identity !== item.identity || !identities.includes(item.identity) || item.validUntil > checked.expiry || byIdentity.has(item.identity)) return fallback("invalid-lease");
+      if (typeof item?.url !== "string" || typeof item.identity !== "string" || !Number.isFinite(item.validUntil) || item.validUntil <= validationNow + MARGIN || item.validUntil > lease.sessionExpiresAt || item.validUntil > cached.createdAt + MAX_URL_AGE_MS) return fallback("invalid-entry");
+      const checked = inspect(item.url, validationNow);
+      if (!checked || checked.identity !== item.identity || !identities.includes(item.identity) || item.validUntil > checked.expiry || byIdentity.has(item.identity)) return fallback("invalid-entry");
       byIdentity.set(item.identity, item);
     }
     const urls = new Map(parsed.map(p => [p.id, byIdentity.get(p.source!.identity)!.url]));
+    if (budget.remaining() <= 0) return fallback("get-timeout");
     return { urls, outcome: "reuse", reusedCount: urls.size };
-  } catch { return fallback("cache-unavailable"); }
+  } catch (error) { return fallback(error instanceof OptionalCacheTimeout ? `${error.stage}-timeout` : "cache-error"); }
 }

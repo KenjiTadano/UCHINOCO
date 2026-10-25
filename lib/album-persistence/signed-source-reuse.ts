@@ -1,3 +1,4 @@
+import { optionalCacheBudget, OptionalCacheTimeout } from "./optional-cache-budget";
 import "server-only";
 import { getCache } from "@vercel/functions";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -10,21 +11,26 @@ export { sourceReuseEnabled } from "./source-reuse-mode";
 export async function applySourceReuse(supabase: SupabaseClient, userId: string, fresh: Map<string, string>, enabled: boolean) {
   if (!enabled || !(sourceReuseEnabled("candidate") || (process.env.VERCEL_ENV === "preview" && Boolean(process.env.SOURCE_REUSE_CONTROL_ID))) || !process.env.VERCEL_GIT_COMMIT_SHA || process.env.SUSPENSE_CACHE_DEBUG === "true") return fresh;
   const start = performance.now();
+  const budget = optionalCacheBudget();
   try {
-    const { data, error } = await supabase.auth.getSession();
+    const { data, error } = await budget.run("session", () => supabase.auth.getSession());
     if (error || !data.session) return fresh;
-    const cache = getCache({ namespace: "uchinoco-preview-source-lease-v1", keyHashFunction: key => key });
+    let cache;
+    try { cache = getCache({ namespace: "uchinoco-preview-source-lease-v1", keyHashFunction: key => key }); } catch {
+      console.info("Signed source lease", JSON.stringify({ outcome: "cache-unavailable", photoCount: fresh.size, reusedCount: 0, durationMs: Math.round(performance.now() - start) }));
+      return fresh;
+    }
     const result = await reuseSignedSourceMap(fresh, {
       verifiedUserId: userId,
       sessionUserId: data.session.user.id,
       accessToken: data.session.access_token,
       sessionExpiresAt: (data.session.expires_at ?? 0) * 1000,
       scope: `preview:${process.env.VERCEL_PROJECT_ID ?? "uchinoco"}:${process.env.VERCEL_GIT_COMMIT_SHA}`,
-    }, { get: key => cache.get(key), set: (key, value, ttl) => cache.set(key, value, { ttl, name: "" }) });
+    }, { get: key => cache.get(key), set: (key, value, ttl) => cache.set(key, value, { ttl, name: "" }) }, Date.now(), budget);
     console.info("Signed source lease", JSON.stringify({ outcome: result.outcome, photoCount: fresh.size, reusedCount: result.reusedCount, durationMs: Math.round(performance.now() - start) }));
     return result.urls;
-  } catch {
-    console.info("Signed source lease", JSON.stringify({ outcome: "adapter-unavailable", photoCount: fresh.size, reusedCount: 0, durationMs: Math.round(performance.now() - start) }));
+  } catch (error) {
+    console.info("Signed source lease", JSON.stringify({ outcome: error instanceof OptionalCacheTimeout ? "session-timeout" : "cache-unavailable", photoCount: fresh.size, reusedCount: 0, durationMs: Math.round(performance.now() - start) }));
     return fresh;
   }
 }
