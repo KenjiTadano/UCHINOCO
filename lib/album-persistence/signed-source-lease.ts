@@ -27,6 +27,12 @@ function inspect(url: string, now: number) {
     return { identity: JSON.stringify([u.origin, m[1], m[2], path, variant]), expiry: claims.exp * 1000 };
   } catch { return null; }
 }
+/** Aggregate-only bootstrap diagnostics; never returns source or credential values. */
+export function sourceAdmissionReadiness(fresh: Map<string, string>, lease: SourceLease, startWindow: number, now = Date.now()) {
+  const parsed = [...fresh.values()].map(url => ({ url, source: inspect(url, now) }));
+  return { sourceCount: fresh.size, invalidSourceCount: parsed.filter(p => !p.source).length,
+    sourceEnvelopeBytes: Buffer.byteLength(JSON.stringify(parsed)), sessionCoversTrial: lease.sessionExpiresAt > (startWindow + 2) * LEASE_MS + MARGIN };
+}
 /** Server-only caller must freshly authorize the album/photo set before proposing enrollment. */
 export function proposeSourceAdmission(fresh: Map<string, string>, lease: SourceLease, startWindow: number, now = Date.now()) {
   if (!lease.verifiedUserId || lease.sessionUserId !== lease.verifiedUserId || !lease.accessToken || !lease.scope || !Number.isSafeInteger(startWindow) || fresh.size === 0 || fresh.size > MAX_ITEMS) return null;
