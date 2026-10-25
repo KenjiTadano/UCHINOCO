@@ -1,3 +1,4 @@
+import { applyEditSourceCanary, recordEditCanaryAuthDeny } from "@/lib/album-persistence/edit-source-canary";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { readDraft, signedPreviewUrls } from "@/lib/album-persistence/read-draft";
@@ -21,7 +22,7 @@ export default async function AlbumEditPage({ params }: Props) {
     data: { user },
     error: userError,
   } = await supabase.auth.getUser();
-  if (userError || !user) redirect("/login");
+  if (userError || !user) { recordEditCanaryAuthDeny(); redirect("/login"); }
 
   const { data: album, error: albumError } = await supabase
     .from("albums")
@@ -31,7 +32,7 @@ export default async function AlbumEditPage({ params }: Props) {
     .eq("pet_id", petId)
     .maybeSingle();
 
-  if (albumError || !album) notFound();
+  if (albumError || !album) { recordEditCanaryAuthDeny(); notFound(); }
   if (album.status === "ordered") {
     redirect(`/pets/${petId}/album/${albumId}`);
   }
@@ -42,9 +43,11 @@ export default async function AlbumEditPage({ params }: Props) {
     .eq("id", petId)
     .eq("owner_user_id", user.id)
     .maybeSingle();
-  if (!pet) notFound();
+  if (!pet) { recordEditCanaryAuthDeny(); notFound(); }
 
-  const draft = await readDraft(supabase, albumId);
+  const draft = await readDraft(supabase, albumId, {
+    mapSignedUrls: fresh => applyEditSourceCanary(supabase, user.id, albumId, fresh),
+  });
   const { monthLabel, coverDateLabel } = formatAlbumPeriodLabels(album.period_from, album.period_to);
   const lines = buildCoverTitleLines(pet.name, album.title ?? "", monthLabel);
   const { data: coverRow } = draft ? await supabase.from("album_draft_covers").select("*").eq("draft_version_id", draft.versionId).maybeSingle() : { data: null };

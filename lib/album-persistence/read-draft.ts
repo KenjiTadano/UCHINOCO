@@ -96,7 +96,7 @@ export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], 
 }
 
 /** Active draft only. Does not create a version and does not run album generation. */
-export async function readDraft(supabase: Supabase, albumId: string, options?: { refreshUrls?: boolean }): Promise<PersistedDraftView | null> {
+export async function readDraft(supabase: Supabase, albumId: string, options?: { refreshUrls?: boolean; mapSignedUrls?: (fresh: Map<string, string>) => Promise<Map<string, string>> }): Promise<PersistedDraftView | null> {
   const { data: version } = await traceAlbumLoad("draft.version", () => supabase.from("album_draft_versions").select("id, album_id, status, revision, generation_metadata").eq("album_id", albumId).eq("is_active", true).maybeSingle());
   if (!version) return null;
   const { data: spreadRows } = await traceAlbumLoad("draft.spreads", () => supabase.from("album_draft_spreads").select("*").eq("draft_version_id", version.id).order("position", { ascending: true }));
@@ -137,13 +137,14 @@ export async function readDraft(supabase: Supabase, albumId: string, options?: {
     backgrounds[mapped.side] = mapped.state;
     backgroundsBySpread.set(mapped.spreadId, backgrounds);
   }
-  const urls = await traceAlbumLoad("draft.preview-urls", () =>
+  const freshUrls = await traceAlbumLoad("draft.preview-urls", () =>
     signedPreviewUrls(
       supabase,
       frames.flatMap((frame) => [frame.aiPhotoId, frame.userPhotoId].filter((id): id is string => Boolean(id))),
       options?.refreshUrls === true,
     ),
   );
+  const urls = options?.mapSignedUrls ? await options.mapSignedUrls(freshUrls) : freshUrls;
   const metadata = (version.generation_metadata ?? {}) as { signature?: string; composition?: unknown };
   const layoutRankings = parseLayoutRankings(((version.generation_metadata ?? {}) as Record<string, unknown>).layoutRankings);
   return {

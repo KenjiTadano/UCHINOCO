@@ -120,6 +120,7 @@ let serverHarness;
 const load = Module._load;
 Module._load = function(specifier, parent, ...rest) {
   if (parent?.filename.endsWith('/[albumId]/edit/page.tsx') && serverHarness) {
+    if (specifier.includes('album-persistence/edit-source-canary')) return { applyEditSourceCanary: async (_client, _user, _album, fresh) => fresh, recordEditCanaryAuthDeny() {} };
     if (specifier.includes('supabase/server')) return { createClient: async () => serverHarness.client };
     if (specifier.includes('album-persistence/read-draft')) return { readDraft: async () => { serverHarness.loads++; return serverHarness.draft; }, signedPreviewUrls: async () => new Map() };
   }

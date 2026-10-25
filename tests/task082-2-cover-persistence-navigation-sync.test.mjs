@@ -29,6 +29,7 @@ Module._load = function(specifier, parent, ...rest) {
     if (specifier.includes('use-editor-history')) return { useEditorHistory: () => ({ push() {}, note() {}, undo() {}, redo() {}, beginGesture() {}, endGesture() {}, canUndo: false, canRedo: false }) };
   }
   if (name.endsWith('/[albumId]/edit/page.tsx')) {
+    if (specifier.includes('album-persistence/edit-source-canary')) return { applyEditSourceCanary: async (_client, _user, _album, fresh) => fresh, recordEditCanaryAuthDeny() {} };
     if (specifier.includes('supabase/server')) return { createClient: async () => store.client };
     if (specifier.includes('album-persistence/read-draft')) return { readDraft: async () => ({ versionId: ids.version, spreads: [], previewUrls: urls }), signedPreviewUrls: async () => new Map(Object.entries(urls)) };
   }
