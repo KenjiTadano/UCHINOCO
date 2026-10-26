@@ -71,11 +71,26 @@ test("server adapter enforces owner/RLS and document-only private transport",asy
  const {default:vm}=await import("node:vm"),{default:ts}=await import("typescript"),{createRequire}=await import("node:module");
  const {canUsePhotoInAlbum}=await import("../lib/album-persistence/photo-eligibility.ts");
  const require=createRequire(import.meta.url),code=ts.transpileModule(await readFile("lib/album-persistence/private-source-handoff.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
- for(const scenario of ["valid","wrong-owner","wrong-photo-owner","prefetch","bad-grant"]){
+ for(const scenario of ["valid","wrong-owner","wrong-photo-owner","prefetch","bad-grant","overwrite","suffix","missing","wrong-size","wrong-path","expired","zero-flags"]){
   const f=fixture(),exports={},logs=[];let writes=0,authCalls=0;
-  const pathname="admission/"+f.m.nonce+"/slot-0.json",put=new URL("https://vercel.com/api/blob/");
-  for(const [k,v]of Object.entries({pathname,"vercel-blob-allow-overwrite":"0","vercel-blob-add-random-suffix":"0","vercel-blob-maximum-size-in-bytes":"8192"}))put.searchParams.set(k,v);
-  const grants=[{head:"https://synthetic.private.blob.vercel-storage.com/"+pathname,put:put.toString(),validUntil:2400000}];if(scenario==="bad-grant")grants[0].put="http://synthetic.invalid/";
+  const pathname="admission/"+f.m.nonce+"/slot-0.json";
+  // Run the installed official SDK serializer with an explicitly synthetic,
+  // non-provider-issued delegation fixture. No credential or network is used.
+  const {presignUrl}=await import("@vercel/blob");
+  const expiry=Date.now()+600000;
+  const scope={pathname,operations:["put"],validUntil:expiry,maximumSizeInBytes:8192};
+  const fixtureToken={clientSigningToken:Buffer.alloc(32,7).toString("base64url"),delegationToken:Buffer.from(JSON.stringify(scope)).toString("base64url")+".synthetic"};
+  const result=await presignUrl(fixtureToken,{access:"private",operation:"put",pathname,validUntil:expiry,allowOverwrite:false,addRandomSuffix:false,maximumSizeInBytes:8192});
+  const put=new URL(result.presignedUrl);
+  assert.equal(put.searchParams.get("vercel-blob-allow-overwrite"),"false");
+  assert.equal(put.searchParams.get("vercel-blob-add-random-suffix"),"false");
+  if(scenario==="overwrite")put.searchParams.set("vercel-blob-allow-overwrite","true");
+  if(scenario==="suffix")put.searchParams.set("vercel-blob-add-random-suffix","true");
+  if(scenario==="missing")put.searchParams.delete("vercel-blob-allow-overwrite");
+  if(scenario==="wrong-size")put.searchParams.set("vercel-blob-maximum-size-in-bytes","8193");
+  if(scenario==="wrong-path")put.searchParams.set("pathname","different.json");
+  if(scenario==="zero-flags")put.searchParams.set("vercel-blob-allow-overwrite","0");
+  const grants=[{head:"https://synthetic.private.blob.vercel-storage.com/"+pathname,put:put.toString(),validUntil:scenario==="expired"?now-1:2400000}];if(scenario==="bad-grant")grants[0].put="http://synthetic.invalid/";
   const env={EDIT_SOURCE_HANDOFF_ENABLE:"true",VERCEL_ENV:"preview",VERCEL_GIT_COMMIT_SHA:build,VERCEL_REGION:"sin1",VERCEL_PROJECT_ID:"synthetic-project",EDIT_SOURCE_HANDOFF_INTENT:JSON.stringify(f.m),EDIT_SOURCE_HANDOFF_PIN:intentDigest(f.m),EDIT_SOURCE_HANDOFF_SIGNING_KEY:priv(f.app),EDIT_SOURCE_HANDOFF_BLOB_GRANTS:JSON.stringify(grants),EDIT_SOURCE_CANARY_CONTROL_ID:"ecfg_synthetic",EDIT_SOURCE_CANARY_CONTROL_TOKEN:"synthetic-control"};
   const user=scenario==="wrong-owner"?"other-owner":"synthetic-owner";
   const rows={albums:[{id:album,pet_id:pet,owner_user_id:"synthetic-owner"}],album_pets:[{album_id:album,pet_id:pet}],pets:[{id:pet,owner_user_id:"synthetic-owner"}],photos:[{id:"synthetic-photo",pet_id:pet,uploader_user_id:scenario==="wrong-photo-owner"?"other-owner":"synthetic-owner",storage_path:"synthetic.jpg",thumbnail_path:null}]};
