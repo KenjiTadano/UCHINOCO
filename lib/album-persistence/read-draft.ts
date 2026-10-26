@@ -91,8 +91,8 @@ export function mapFrame(row: Record<string, unknown>): DraftFrameRow {
 export async function signedPreviewUrls(supabase: Supabase, photoIds: string[], refresh = false) {
   const ids = [...new Set(photoIds)];
   if (ids.length === 0) return new Map<string, string>();
-  const { data: photos } = await supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", ids);
-  return createPhotoPreviewUrls(supabase, photos ?? [], true, refresh);
+  const { data: photos } = await traceAlbumLoad("photo.read",()=>supabase.from("photos").select("id, storage_path, thumbnail_path").in("id", ids));
+  return traceAlbumLoad("signing",()=>createPhotoPreviewUrls(supabase, photos ?? [], true, refresh));
 }
 
 /** Active draft only. Does not create a version and does not run album generation. */

@@ -1,3 +1,4 @@
+import {headingSync,headingDuration} from "../heading-trace-core.ts";
 import "server-only";
 import { publishPrivateProposal, type PublicationDiagnostic } from "./private-source-publication";
 import { headers } from "next/headers";
@@ -12,7 +13,7 @@ function audit(value: HandoffAudit) { console.info("Private source handoff",JSON
 export async function runPrivateSourceHandoff(supabase: SupabaseClient,albumId: string,petId: string,fresh: Map<string,string>) {
   if (process.env.EDIT_SOURCE_HANDOFF_ENABLE !== "true") return null;
   const runtime={environment:process.env.VERCEL_ENV,build:process.env.VERCEL_GIT_COMMIT_SHA,region:process.env.VERCEL_REGION};
-  const m=parseHandoffIntent(process.env.EDIT_SOURCE_HANDOFF_INTENT,process.env.EDIT_SOURCE_HANDOFF_PIN,runtime);
+  const m=headingSync("admission.intent",()=>parseHandoffIntent(process.env.EDIT_SOURCE_HANDOFF_INTENT,process.env.EDIT_SOURCE_HANDOFF_PIN,runtime));
   if (!m || !process.env.VERCEL_PROJECT_ID) {
     audit({outcome:"invalid-intent",count:0,bindingCount:0,environment:["preview","production"].includes(runtime.environment??"")?runtime.environment!:"unknown",region:runtime.region==="sin1"?"sin1":"unknown",buildMatch:false,epochMatch:false});return {handled:true};
   }
@@ -25,8 +26,9 @@ export async function runPrivateSourceHandoff(supabase: SupabaseClient,albumId: 
     if(!r.ok)throw new Error("Unavailable");control=await r.json();
   } catch {audit({outcome:"control-unavailable",count:0,bindingCount:0,environment:m.environment,region:m.region,buildMatch:true,epochMatch:false});return {handled:true}}
   const controlElapsedMs=Math.round(performance.now()-controlBegan);
+  headingDuration("source.control.remote",controlElapsedMs);
   if((control as {phase?:string})?.phase==="trial"){
-    const sealed=verifySealedHandoff(m,control,runtime);
+    const sealed=headingSync("admission.seal",()=>verifySealedHandoff(m,control,runtime));
     if(sealed)return {handled:true,canary:{...sealed,control:control as {enabled:boolean;validUntil:number},controlElapsedMs}};
     audit({outcome:"invalid-seal",count:0,bindingCount:0,environment:m.environment,region:m.region,buildMatch:true,epochMatch:false});return {handled:true};
   }

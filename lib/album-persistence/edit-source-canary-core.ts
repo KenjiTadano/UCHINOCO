@@ -1,3 +1,4 @@
+import {headingSync,headingSpan} from "../heading-trace-core.ts";
 import { configuredAdmission, readCanaryControl, admissionDigest, type CanaryEnvironment } from "./source-canary-control.ts";
 import { admissionScope } from "./finite-source-admission.ts";
 import { optionalCacheBudget, OptionalCacheTimeout } from "./optional-cache-budget.ts";
@@ -20,14 +21,14 @@ export async function runEditSourceCanary(fresh: Map<string, string>, route: str
     // Telemetry must never change the authorized result.
     try { deps.metric({ outcome, count: 1, reusedCount, controlElapsedMs, optionalElapsedMs }); } catch {}
   };
-  const manifest = configuredAdmission(route, env, now);
+  const manifest = headingSync("admission.configured",()=>configuredAdmission(route, env, now));
   if (!manifest || !verifiedUserId || !albumId) { record("disabled"); return fresh; }
   const control = await readCanaryControl(deps.control, admissionDigest(manifest), (manifest.startWindow + 2) * 300000, now);
   controlElapsedMs = control.controlElapsedMs;
   if (!control.enabled) { record(control.outcome); return fresh; }
   const began = performance.now(), budget = optionalCacheBudget();
   try {
-    const { data, error } = await budget.run("session", () => deps.session());
+    const { data, error } = await headingSpan("source.session",()=>budget.run("session", () => deps.session()));
     if (error || !data.session) { optionalElapsedMs = Math.round(performance.now() - began); record("disabled"); return fresh; }
     let store: LeaseStore;
     try { store = await budget.run("get", () => Promise.resolve(deps.store(`uchinoco-${manifest.environment}-source-lease-v1`))); }

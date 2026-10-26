@@ -119,6 +119,8 @@ let harness;
 let serverHarness;
 const load = Module._load;
 Module._load = function(specifier, parent, ...rest) {
+  if (specifier.includes('heading-trace-server')) return { withHeadingRequest: (_stage, work) => work(), headingMarker: () => null };
+
   if (parent?.filename.endsWith('/[albumId]/edit/page.tsx') && serverHarness) {
     if (specifier.includes('album-persistence/edit-source-canary')) return { applyEditSourceCanary: async (_client, _user, _album, fresh) => fresh, recordEditCanaryAuthDeny() {} };
     if (specifier.includes('supabase/server')) return { createClient: async () => serverHarness.client };

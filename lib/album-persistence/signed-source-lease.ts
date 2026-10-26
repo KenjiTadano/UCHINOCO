@@ -1,3 +1,4 @@
+import {headingSync} from "../heading-trace-core.ts";
 import { admissionAllows, type FiniteAdmission } from "./finite-source-admission.ts";
 import { optionalCacheBudget, OptionalCacheTimeout, MIN_SEED_BUDGET_MS, type OptionalCacheBudget } from "./optional-cache-budget.ts";
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
@@ -64,7 +65,7 @@ export async function reuseSignedSourceMap(fresh: Map<string, string>, lease: So
   if (lease.admission) {
     const sessionTag = createHmac("sha256", key).update(JSON.stringify(["session", lease.verifiedUserId])).digest("hex");
     const sourceSetTag = createHmac("sha256", key).update(JSON.stringify([lease.scope, identities])).digest("hex");
-    if (!admissionAllows(lease.admission, sessionTag, sourceSetTag, binding, now)) return fallback("admission-denied");
+    if (!headingSync("lease.admission",()=>admissionAllows(lease.admission!, sessionTag, sourceSetTag, binding, now))) return fallback("admission-denied");
   }
   const items: Item[] = identities.map(identity => {
     const p = parsed.find(p => p.source!.identity === identity)!;

@@ -1,3 +1,4 @@
+import {headingSpan,headingCurrent,headingDuration,headingOutcome} from "../heading-trace-core";
 import { runPrivateSourceHandoff } from "./private-source-handoff";
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -20,9 +21,10 @@ export function recordEditCanaryAuthDeny() {
   if (process.env.EDIT_SOURCE_CANARY_ENABLE === "true") console.info("Edit source canary auth", JSON.stringify({ outcome: "auth-deny", count: 1 }));
 }
 export async function applyEditSourceCanary(supabase: SupabaseClient, verifiedUserId: string, albumId: string, fresh: Map<string, string>, petId?: string) {
-  const handoff = process.env.EDIT_SOURCE_HANDOFF_ENABLE === "true" && petId ? await runPrivateSourceHandoff(supabase,albumId,petId,fresh) : null;
+  const handoff = process.env.EDIT_SOURCE_HANDOFF_ENABLE === "true" && petId ? await headingSpan("source.adapter",()=>runPrivateSourceHandoff(supabase,albumId,petId,fresh)) : null;
   if(process.env.EDIT_SOURCE_HANDOFF_ENABLE === "true" && !petId)return fresh;
   if(handoff?.handled && !handoff.canary)return fresh;
+  const trace=headingCurrent();if(trace&&handoff?.canary)trace.arm=handoff.canary.control.enabled?"on":"off";
   const env = environment();
   if(handoff?.canary){env.manifest=JSON.stringify(handoff.canary.manifest);env.pin=handoff.canary.digest;}
   return runEditSourceCanary(fresh, "edit", verifiedUserId, albumId, env, {
@@ -37,11 +39,11 @@ export async function applyEditSourceCanary(supabase: SupabaseClient, verifiedUs
     },
     session: () => supabase.auth.getSession(),
     store: async namespace => {
-      const { getCache } = await import("@vercel/functions");
+      const { getCache } = await headingSpan("cache.sdk",()=>import("@vercel/functions"));
       const cache = getCache({ namespace, keyHashFunction: key => key });
       // SDK has no AbortSignal support; shared deadline ignores late results.
-      return { get: key => cache.get(key), set: (key, value, ttl) => cache.set(key, value, { ttl, name: "" }) };
+      return { get: key => headingSpan("cache.get",()=>cache.get(key)), set: (key, value, ttl) => headingSpan("cache.set",()=>cache.set(key, value, { ttl, name: "" })) };
     },
-    metric: value => metric({...value,controlElapsedMs:value.controlElapsedMs+(handoff?.canary?.controlElapsedMs??0)}),
+    metric: value => {headingDuration("source.optional",value.optionalElapsedMs);headingOutcome(value.outcome,value.reusedCount);metric({...value,controlElapsedMs:value.controlElapsedMs+(handoff?.canary?.controlElapsedMs??0)});},
   });
 }

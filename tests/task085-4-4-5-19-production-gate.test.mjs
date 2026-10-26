@@ -95,7 +95,7 @@ test("actual server adapter wiring uses isolated SDK namespace and fixed-schema 
   const s=setup(environment),exports={},logs=[],writes=[];
   const env={VERCEL_ENV:environment,VERCEL_GIT_COMMIT_SHA:s.env.build,VERCEL_REGION:"sin1",VERCEL_PROJECT_ID:s.env.project,EDIT_SOURCE_CANARY_ENABLE:"true",EDIT_SOURCE_CANARY_MANIFEST:s.env.manifest,EDIT_SOURCE_CANARY_PIN:s.env.pin,EDIT_SOURCE_CANARY_CONTROL_ID:"ecfg_synthetic",EDIT_SOURCE_CANARY_CONTROL_TOKEN:"synthetic-control-token"};
   const cache=new Map();let syntheticNow=now;
-  vm.runInNewContext(code,{exports,process:{env},console:{info:(_label,value)=>logs.push(JSON.parse(value))},fetch:async(_url,options)=>{assert.equal(options.cache,"no-store");assert.ok(options.signal);return {ok:true,json:async()=>({...s.policy})}},require:n=>n==="server-only"?{}:n==="@vercel/functions"?{getCache(options){
+  vm.runInNewContext(code,{exports,process:{env},console:{info:(_label,value)=>logs.push(JSON.parse(value))},fetch:async(_url,options)=>{assert.equal(options.cache,"no-store");assert.ok(options.signal);return {ok:true,json:async()=>({...s.policy})}},require:n=>n.includes("heading-trace-core")?{headingSpan:(_stage,fn)=>fn(),headingCurrent:()=>undefined,headingDuration(){},headingOutcome(){}}:n==="server-only"?{}:n==="@vercel/functions"?{getCache(options){
    assert.equal(options.namespace,`uchinoco-${environment}-source-lease-v1`);assert.equal(options.keyHashFunction("opaque"),"opaque");
    return {async get(k){return cache.get(k)},async set(k,v,opts){assert.equal(opts.name,"");assert.ok(opts.ttl<=300);writes.push({k,v});cache.set(k,v)}};
   }}:n.includes("edit-source-canary-core")?{runEditSourceCanary:(...args)=>runEditSourceCanary(...args,syntheticNow+=10)}:{}});
