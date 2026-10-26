@@ -1,11 +1,11 @@
 // Diagnostic-only Preview build flag; no URLs, IDs, cookie/storage reads or network reporting.
 if(process.env.NEXT_PUBLIC_HEADING_DIAGNOSTICS==="1"){
  try{
-  const state:{trace:string;arm:string;kind:string;headingMs:number|null;structureMs:number|null;visibleCompleteMs:number|null;loadMs:number|null;responseStartMs:number|null;responseEndMs:number|null;visible:number;pending:number;broken:number;cards:number;width:number;height:number}={trace:"",arm:"setup",kind:"unknown",headingMs:null,structureMs:null,visibleCompleteMs:null,loadMs:null,responseStartMs:null,responseEndMs:null,visible:0,pending:0,broken:0,cards:0,width:0,height:0};
+  const state:{trace:string;arm:string;kind:string;outcome:string;storageCount:number;headingMs:number|null;structureMs:number|null;visibleCompleteMs:number|null;loadMs:number|null;responseStartMs:number|null;responseEndMs:number|null;visible:number;pending:number;broken:number;cards:number;width:number;height:number}={trace:"",arm:"setup",kind:"unknown",outcome:"not-observed",storageCount:0,headingMs:null,structureMs:null,visibleCompleteMs:null,loadMs:null,responseStartMs:null,responseEndMs:null,visible:0,pending:0,broken:0,cards:0,width:0,height:0};
   let output:HTMLOutputElement|null=null,last="",queued=false,frames=0;
   function check(){
    const marker=document.querySelector<HTMLElement>("[data-heading-trace]");if(!marker)return;
-   state.trace=marker.dataset.headingTrace??"";state.arm=marker.dataset.headingArm??"setup";state.kind=marker.dataset.headingKind??"unknown";
+   state.trace=marker.dataset.headingTrace??"";state.arm=marker.dataset.headingArm??"setup";state.kind=marker.dataset.headingKind??"unknown";state.outcome=marker.dataset.headingOutcome??"not-observed";state.storageCount=Number(marker.dataset.headingStorageCount??0);
    const h=[...document.querySelectorAll("h1")].find(x=>x.textContent?.trim()==="アルバムを編集");
    if(h&&h.getBoundingClientRect().height>0&&state.headingMs===null)state.headingMs=performance.now();
    state.cards=[...document.querySelectorAll("a[aria-label]")].filter(a=>/^\d+ - \d+を編集$/.test(a.getAttribute("aria-label")??"")).length;

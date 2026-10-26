@@ -9,5 +9,5 @@ export async function withHeadingRequest<T>(stage:string,work:()=>Promise<T>):Pr
  const h=await headers();c.kind=h.has("next-router-prefetch")?"prefetch":h.has("rsc")?"navigation":"document";
  return headingRun(c,async()=>{try{return await headingSpan(stage,work)}finally{headingFlush(c)}});
 }
-export function headingMarker(){const c=headingCurrent();return c?{trace:c.trace,arm:c.arm,kind:c.kind}:null}
+export function headingMarker(){const c=headingCurrent();return c?{trace:c.trace,arm:c.arm,kind:c.kind,outcome:c.sourceOutcome??"not-observed",storageCount:c.counts["http.storage"]??0}:null}
 export function headingClientTrace(){return headingEnabled()?(headingCurrent()??requestTrace()):undefined}

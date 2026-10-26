@@ -1,4 +1,4 @@
-import {headingSync,headingDuration} from "../heading-trace-core.ts";
+import {headingSync,headingDuration,headingCount} from "../heading-trace-core.ts";
 import "server-only";
 import { publishPrivateProposal, type PublicationDiagnostic } from "./private-source-publication";
 import { headers } from "next/headers";
@@ -40,7 +40,7 @@ export async function runPrivateSourceHandoff(supabase: SupabaseClient,albumId: 
     async authenticate(){
       const {data:{user},error}=await supabase.auth.getUser();if(error||!user)return null;
       const session=await supabase.auth.getSession();if(session.error||!session.data.session)return null;
-      const s=session.data.session;return {verifiedUserId:user.id,sessionUserId:s.user.id,accessToken:s.access_token,sessionExpiresAt:(s.expires_at??0)*1000};
+      const s=session.data.session;headingCount("admission.session-horizon",(s.expires_at??0)*1000>(m.startWindow+2)*300000+60000?1:0);return {verifiedUserId:user.id,sessionUserId:s.user.id,accessToken:s.access_token,sessionExpiresAt:(s.expires_at??0)*1000};
     },
     async authorize(c,a,p,ids){
       const album=await supabase.from("albums").select("id,pet_id,owner_user_id").eq("id",a).eq("owner_user_id",c.verifiedUserId).eq("pet_id",p).maybeSingle();

@@ -88,7 +88,7 @@ async function AlbumEditPageImpl({ params }: Props) {
   headingCount("membership.calls",headingCurrent()?.counts["http.db.album_pets"]??0);
   headingDuration("route.return",0);
   const marker=headingMarker();
-  return marker?<><span hidden data-heading-trace={marker.trace} data-heading-arm={marker.arm} data-heading-kind={marker.kind}/>{screen}</>:screen;
+  return marker?<><span hidden data-heading-trace={marker.trace} data-heading-arm={marker.arm} data-heading-kind={marker.kind} data-heading-outcome={marker.outcome} data-heading-storage-count={marker.storageCount}/>{screen}</>:screen;
 }
 
 export default function AlbumEditPage(props:Props){return withHeadingRequest("route.total",()=>AlbumEditPageImpl(props))}

@@ -1,4 +1,4 @@
-import {headingSync,headingSpan} from "../heading-trace-core.ts";
+import {headingSync,headingSpan,headingCount} from "../heading-trace-core.ts";
 import { configuredAdmission, readCanaryControl, admissionDigest, type CanaryEnvironment } from "./source-canary-control.ts";
 import { admissionScope } from "./finite-source-admission.ts";
 import { optionalCacheBudget, OptionalCacheTimeout } from "./optional-cache-budget.ts";
@@ -30,6 +30,7 @@ export async function runEditSourceCanary(fresh: Map<string, string>, route: str
   try {
     const { data, error } = await headingSpan("source.session",()=>budget.run("session", () => deps.session()));
     if (error || !data.session) { optionalElapsedMs = Math.round(performance.now() - began); record("disabled"); return fresh; }
+    headingCount("admission.session-horizon",(data.session.expires_at??0)*1000>(manifest.startWindow+2)*300000+60000?1:0);
     let store: LeaseStore;
     try { store = await budget.run("get", () => Promise.resolve(deps.store(`uchinoco-${manifest.environment}-source-lease-v1`))); }
     catch (error) { optionalElapsedMs = Math.round(performance.now() - began); record(error instanceof OptionalCacheTimeout ? `${error.stage}-timeout` : "cache-unavailable"); return fresh; }
