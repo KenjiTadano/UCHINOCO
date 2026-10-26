@@ -46,7 +46,7 @@ export default async function AlbumEditPage({ params }: Props) {
   if (!pet) { recordEditCanaryAuthDeny(); notFound(); }
 
   const draft = await readDraft(supabase, albumId, {
-    mapSignedUrls: fresh => applyEditSourceCanary(supabase, user.id, albumId, fresh),
+    mapSignedUrls: fresh => applyEditSourceCanary(supabase, user.id, albumId, fresh, petId),
   });
   const { monthLabel, coverDateLabel } = formatAlbumPeriodLabels(album.period_from, album.period_to);
   const lines = buildCoverTitleLines(pet.name, album.title ?? "", monthLabel);
