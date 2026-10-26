@@ -1,10 +1,12 @@
 import "server-only";
+import { publishPrivateProposal, type PublicationDiagnostic } from "./private-source-publication";
 import { headers } from "next/headers";
 import { createPrivateKey, createPublicKey, sign } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createPhotoPreviewUrls } from "../photo-image-delivery";
 import { canUsePhotoInAlbum } from "./photo-eligibility";
 import { executePrivateHandoff, parseHandoffIntent, verifySealedHandoff, handoffEpochMatches, type HandoffAudit } from "./private-source-handoff-core";
+function publicationAudit(value: PublicationDiagnostic) { if(process.env.VERCEL_ENV==="preview") console.info("Private source publication",JSON.stringify(value)); }
 function audit(value: HandoffAudit) { console.info("Private source handoff",JSON.stringify(value)); }
 /** No route/action/UI is exported. Only the authorized Edit server pipeline calls this. */
 export async function runPrivateSourceHandoff(supabase: SupabaseClient,albumId: string,petId: string,fresh: Map<string,string>) {
@@ -56,23 +58,26 @@ export async function runPrivateSourceHandoff(supabase: SupabaseClient,albumId: 
     },
     async unchangedSession(c){const s=await supabase.auth.getSession();return !s.error&&s.data.session?.access_token===c.accessToken&&s.data.session.user.id===c.verifiedUserId},
     async publish(slot,proposal){
-      const key=process.env.EDIT_SOURCE_HANDOFF_SIGNING_KEY;
-      const grants=JSON.parse(process.env.EDIT_SOURCE_HANDOFF_BLOB_GRANTS??"null");
-      if(!key||!Array.isArray(grants)||grants.length!==m.slots.length)throw new Error("Unavailable");
-      const grant=grants[slot],headUrl=new URL(grant.head),putUrl=new URL(grant.put);
-      if(grant.validUntil!==(m.startWindow+2)*300000||Date.now()>=grant.validUntil||headUrl.protocol!=="https:"||!headUrl.hostname.endsWith(".private.blob.vercel-storage.com")||putUrl.protocol!=="https:"||putUrl.hostname!=="vercel.com"||!["/api/blob","/api/blob/"].includes(putUrl.pathname))throw new Error("Unavailable");
-      const expectedPath=`admission/${m.nonce}/slot-${slot}.json`;
-      if(decodeURIComponent(headUrl.pathname)!=="/"+expectedPath||putUrl.searchParams.get("pathname")!==expectedPath||putUrl.searchParams.get("vercel-blob-allow-overwrite")!=="false"||putUrl.searchParams.get("vercel-blob-add-random-suffix")!=="false"||putUrl.searchParams.get("vercel-blob-maximum-size-in-bytes")!=="8192"||createPublicKey(createPrivateKey(key)).export({format:"pem",type:"spki"}).toString()!==m.proposalPublicKey)throw new Error("Unavailable");
-      const exists=async()=>{const r=await fetch(headUrl,{method:"HEAD",cache:"no-store",redirect:"error",signal:AbortSignal.timeout(1500)});if(r.status===404)return false;if(r.ok)return true;throw new Error("Unavailable")};
-      if(await exists())return "exists";
-      const value=JSON.stringify({proposal,signature:sign(null,Buffer.from(JSON.stringify(proposal)),createPrivateKey(key)).toString("base64url")});
-      if(Buffer.byteLength(value)>8192)throw new Error("Unavailable");
-      if(!handoffEpochMatches(m))throw new Error("Unavailable");
-      const r=await fetch(putUrl,{method:"PUT",body:value,headers:{"Content-Type":"application/json"},redirect:"error",signal:AbortSignal.timeout(1500)});
-      if(r.ok){await r.body?.cancel();return "created"}
-      await r.body?.cancel();if(await exists())return "exists";throw new Error("Unavailable");
+      let publication: {head:string;put:string;value:string;validUntil:number};
+      try {
+        const key=process.env.EDIT_SOURCE_HANDOFF_SIGNING_KEY;
+        const grants=JSON.parse(process.env.EDIT_SOURCE_HANDOFF_BLOB_GRANTS??"null");
+        if(!key||!Array.isArray(grants)||grants.length!==m.slots.length)throw new Error("Invalid grant");
+        const grant=grants[slot],headUrl=new URL(grant.head),putUrl=new URL(grant.put);
+        if(grant.validUntil!==(m.startWindow+2)*300000||Date.now()>=grant.validUntil||headUrl.protocol!=="https:"||!headUrl.hostname.endsWith(".private.blob.vercel-storage.com")||putUrl.protocol!=="https:"||putUrl.hostname!=="vercel.com"||!["/api/blob","/api/blob/"].includes(putUrl.pathname))throw new Error("Invalid grant");
+        const expectedPath=`admission/${m.nonce}/slot-${slot}.json`;
+        if(decodeURIComponent(headUrl.pathname)!=="/"+expectedPath||putUrl.searchParams.get("pathname")!==expectedPath||putUrl.searchParams.get("vercel-blob-allow-overwrite")!=="false"||putUrl.searchParams.get("vercel-blob-add-random-suffix")!=="false"||putUrl.searchParams.get("vercel-blob-maximum-size-in-bytes")!=="8192"||createPublicKey(createPrivateKey(key)).export({format:"pem",type:"spki"}).toString()!==m.proposalPublicKey)throw new Error("Invalid grant");
+        const value=JSON.stringify({proposal,signature:sign(null,Buffer.from(JSON.stringify(proposal)),createPrivateKey(key)).toString("base64url")});
+        if(Buffer.byteLength(value)>8192)throw new Error("Invalid grant");
+        if(!handoffEpochMatches(m))throw new Error("Invalid grant");
+        publication={head:headUrl.toString(),put:putUrl.toString(),value,validUntil:grant.validUntil};
+      } catch {
+        publicationAudit({stage:"grant-validated",success:false,elapsedMs:0,statusCategory:"none",responseShape:"not-observed",committedObjectObserved:false});
+        return "failed";
+      }
+      return publishPrivateProposal(publication,{audit:publicationAudit});
     },
-    audit,
+    audit,publicationAudit,
   });
   // Active enrollment never performs reuse, including all failure paths.
   return {handled:true};

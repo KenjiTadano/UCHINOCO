@@ -69,6 +69,7 @@ test("no public route/UI or cookie extraction added; only server-side document h
 
 test("server adapter enforces owner/RLS and document-only private transport",async()=>{
  const {default:vm}=await import("node:vm"),{default:ts}=await import("typescript"),{createRequire}=await import("node:module");
+ const {publishPrivateProposal}=await import("../lib/album-persistence/private-source-publication.ts");
  const {canUsePhotoInAlbum}=await import("../lib/album-persistence/photo-eligibility.ts");
  const require=createRequire(import.meta.url),code=ts.transpileModule(await readFile("lib/album-persistence/private-source-handoff.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
  for(const scenario of ["valid","wrong-owner","wrong-photo-owner","prefetch","bad-grant","overwrite","suffix","missing","wrong-size","wrong-path","expired","zero-flags"]){
@@ -101,7 +102,7 @@ test("server adapter enforces owner/RLS and document-only private transport",asy
    if(String(url).includes("global-config.vercel.com"))return new Response(JSON.stringify(f.control),{status:200});
    if(options.method==="HEAD")return new Response(null,{status:writes?200:404});
    assert.equal(options.method,"PUT");writes++;return new Response("",{status:200});
-  },require:n=>n==="server-only"?{}:n==="next/headers"?{headers:async()=>new Headers({"sec-fetch-dest":scenario==="prefetch"?"empty":"document",...(scenario==="prefetch"?{rsc:"1"}:{})})}:n.includes("photo-image-delivery")?{createPhotoPreviewUrls:async()=>f.fresh}:n.includes("photo-eligibility")?{canUsePhotoInAlbum}:n.includes("private-source-handoff-core")?{parseHandoffIntent,handoffEpochMatches:(m)=>handoffEpochMatches(m,now),verifySealedHandoff:(...a)=>verifySealedHandoff(...a,now),executePrivateHandoff:(...a)=>executePrivateHandoff(...a,()=>now)}:require(n)});
+  },require:n=>n==="server-only"?{}:n==="next/headers"?{headers:async()=>new Headers({"sec-fetch-dest":scenario==="prefetch"?"empty":"document",...(scenario==="prefetch"?{rsc:"1"}:{})})}:n.includes("private-source-publication")?{publishPrivateProposal:(input,options)=>publishPrivateProposal({...input,validUntil:scenario==="expired"?Date.now()-1:Date.now()+600000},{...options,fetch:async(_url,opts)=>{if(opts.method==="HEAD")return new Response(null,{status:writes?200:404});writes++;return new Response("",{status:200})}})}:n.includes("photo-image-delivery")?{createPhotoPreviewUrls:async()=>f.fresh}:n.includes("photo-eligibility")?{canUsePhotoInAlbum}:n.includes("private-source-handoff-core")?{parseHandoffIntent,handoffEpochMatches:(m)=>handoffEpochMatches(m,now),verifySealedHandoff:(...a)=>verifySealedHandoff(...a,now),executePrivateHandoff:(...a)=>executePrivateHandoff(...a,()=>now)}:require(n)});
   const r=await exports.runPrivateSourceHandoff(client,album,pet,f.fresh);assert.equal(r.handled,true);
   assert.equal(writes,scenario==="valid"?1:0);if(scenario==="prefetch")assert.equal(authCalls,0);
   const text=JSON.stringify(logs);for(const value of [album,pet,"synthetic-owner","synthetic-control","synthetic-session","https://",f.m.nonce])assert.equal(text.includes(value),false);

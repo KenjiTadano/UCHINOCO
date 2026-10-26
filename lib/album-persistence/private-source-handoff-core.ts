@@ -1,3 +1,4 @@
+import type { PublicationOutcome, PublicationDiagnostic } from "./private-source-publication.ts";
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { admissionDigest, admissionScope, parseFiniteAdmission, type AdmissionGroup, type AdmissionRuntime } from "./finite-source-admission.ts";
 import { proposeSourceAdmission, type SourceLease } from "./signed-source-lease.ts";
@@ -29,13 +30,18 @@ type Dependencies = {
   authorize: (context: Context, albumId: string, petId: string, ids: string[]) => Promise<boolean>;
   sign: (context: Context, ids: string[]) => Promise<Map<string,string>>;
   unchangedSession: (context: Context) => Promise<boolean>;
-  publish: (slot: number, proposal: HandoffProposal) => Promise<"created" | "exists">;
+  publish: (slot: number, proposal: HandoffProposal) => Promise<PublicationOutcome>;
   audit: (value: HandoffAudit) => void;
+  publicationAudit?: (value: PublicationDiagnostic) => void;
 };
 export async function executePrivateHandoff(m: HandoffIntent, project: string, albumId: string, petId: string, fresh: Map<string,string>, deps: Dependencies, now = () => Date.now()) {
+  let publishing=false,publicationBegan=0;
   const finish = (outcome: string, count = 0) => {
     const audit = {outcome,count,bindingCount:count * 2,environment:m.environment,region:m.region,buildMatch:true,epochMatch:handoffEpochMatches(m,now())};
-    try { deps.audit(audit); } catch {} return audit;
+    let emitted=true;
+    try { deps.audit(audit); } catch {emitted=false}
+    if(publishing){try{deps.publicationAudit?.({stage:"audit-emitted",success:emitted,elapsedMs:Math.round(performance.now()-publicationBegan),statusCategory:"none",responseShape:"not-observed",committedObjectObserved:outcome==="proposal-created"||outcome==="duplicate-proposal"||outcome==="handoff-committed-ack-unknown"});}catch{}}
+    return audit;
   };
   if (!handoffEpochMatches(m,now())) return finish("insufficient-epoch-time");
   try {
@@ -54,8 +60,10 @@ export async function executePrivateHandoff(m: HandoffIntent, project: string, a
     const group = proposeSourceAdmission(signed,lease,m.startWindow,now()), expected = proposeSourceAdmission(fresh,lease,m.startWindow,now());
     if (!group || !expected || group.sourceSetTag !== expected.sourceSetTag) return finish("source-changed");
     const proposal: HandoffProposal = {version:1,environment:m.environment,build:m.build,region:m.region,trial:m.trial,startWindow:m.startWindow,nonce:m.nonce,slot,group};
+    publishing=true;publicationBegan=performance.now();
     const published = await deps.publish(slot,proposal);
-    return finish(published === "created" ? "proposal-created" : "duplicate-proposal",published === "created" ? 1 : 0);
+    const outcomes:Record<PublicationOutcome,string>={created:"proposal-created",exists:"duplicate-proposal","committed-ack-unknown":"handoff-committed-ack-unknown","ack-unknown":"handoff-publication-unknown",failed:"handoff-publication-failed"};
+    return finish(outcomes[published]??"handoff-publication-unknown",published === "created" ? 1 : 0);
   } catch { return finish("handoff-failed"); }
 }
 /** Private operator process only; never a browser DTO. All slots or no manifest. */
